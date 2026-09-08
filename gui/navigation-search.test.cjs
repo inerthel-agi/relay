@@ -3,7 +3,7 @@ const fs = require("node:fs");
 const test = require("node:test");
 
 const panelHtml = fs.readFileSync(__dirname + "/panel.html", "utf8");
-const panelSource = fs.readFileSync(__dirname + "/panel.js", "utf8");
+const panelSource = require("./test-source.cjs").panelSource();
 
 test("the top bar exposes local settings search and page history controls", () => {
   for (const id of [

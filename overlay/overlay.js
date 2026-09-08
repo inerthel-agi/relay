@@ -17,6 +17,9 @@ const youtubeCreditSourceElement = document.querySelector("#youtube-credit-sourc
 const youtubeCreditAddedElement = document.querySelector("#youtube-credit-added");
 const youtubeCreditTimeElement = document.querySelector("#youtube-credit-time");
 const youtubeCreditProgressFillElement = document.querySelector("#youtube-credit-progress-fill");
+const audioAuthorElement = document.querySelector("#audio-author");
+const audioAuthorAvatarElement = document.querySelector("#audio-author-avatar");
+const audioAuthorNameElement = document.querySelector("#audio-author-name");
 const authorElement = document.querySelector("#author");
 const authorAvatarElement = document.querySelector("#author-avatar");
 const authorNameElement = document.querySelector("#author-name");
@@ -347,7 +350,7 @@ function applyYoutubeAudioSettings() {
   if (muted) youtubePlayer.mute?.();
   else youtubePlayer.unMute?.();
   youtubePlayer.setVolume?.(
-    muted ? 0 : Math.min(100, Math.max(0, Number(config.mediaVolume) || 0)),
+    muted ? 0 : Math.min(100, Math.max(0, Number(config.mediaVolume) || 0)) * reactionMusicFactor,
   );
 }
 
@@ -785,7 +788,19 @@ function updateAudioTransport(playbackElement = audioElement) {
 }
 
 function setAuthor(media) {
-  if (config.showAuthor && media.author) {
+  const audio = media?.kind === "audio";
+  if (audioAuthorElement) {
+    audioAuthorElement.hidden = !audio || !config.showAuthor || !media?.author;
+    if (!audioAuthorElement.hidden) {
+      audioAuthorNameElement.textContent = media.author.username;
+      audioAuthorAvatarElement.onerror = () => {
+        audioAuthorAvatarElement.onerror = null;
+        audioAuthorAvatarElement.src = FALLBACK_AVATAR;
+      };
+      audioAuthorAvatarElement.src = media.author.displayAvatarUrl || FALLBACK_AVATAR;
+    }
+  }
+  if (!audio && config.showAuthor && media?.author) {
     authorAvatarElement.onerror = () => {
       authorAvatarElement.onerror = null;
       authorAvatarElement.src = FALLBACK_AVATAR;
@@ -822,30 +837,55 @@ function clearMediaTextPlacement() {
   mediaTextElement.style.maxWidth = "";
 }
 
-function positionMediaText() {
-  clearMediaTextPlacement();
-  const bounds = activeVisual?.getBoundingClientRect?.();
-  if (
-    !bounds?.width
-    || !bounds.height
-    || !window.innerWidth
-    || !window.innerHeight
-  ) return;
+function positionAudioCard() {
+  if (!audioCardElement.style) return;
+  const geometry = isWidgetWindow ? config.mediaWidgetGeometry : config.mediaObsGeometry;
+  const bounds = audioCardElement.getBoundingClientRect();
+  const placement = RelayLayout.position(bounds.width, bounds.height, window.innerWidth, window.innerHeight, geometry);
+  audioCardElement.style.left = placement ? placement.left + "px" : "";
+  audioCardElement.style.right = placement ? "auto" : "";
+  audioCardElement.style.top = placement ? placement.top + "px" : "";
+  audioCardElement.style.transformOrigin = placement ? "left top" : "";
+}
 
-  const margin = Math.max(12, Math.min(20, Math.round(Math.min(bounds.width, bounds.height) * 0.04)));
-  const left = Math.max(0, bounds.left + margin);
-  const bottom = Math.max(0, window.innerHeight - bounds.bottom + margin);
-  const maxWidth = Math.max(
-    96,
-    Math.min(bounds.width - margin * 2, window.innerWidth - left - margin),
-  );
-  mediaTextElement.style.left = `${Math.round(left)}px`;
-  mediaTextElement.style.bottom = `${Math.round(bottom)}px`;
-  mediaTextElement.style.maxWidth = `${Math.round(maxWidth)}px`;
+function positionMediaText() {
+  positionAudioCard();
+  if (activeVisual === imageElement) {
+    fitVisualToViewport(imageElement, imageElement.naturalWidth, imageElement.naturalHeight);
+  } else if (activeVisual === videoElement) {
+    fitVisualToViewport(videoElement, videoElement.videoWidth, videoElement.videoHeight, VIDEO_COMPOSITOR_INSET_PX);
+  }
 }
 
 function showPreview() {
-  imageElement.src = FALLBACK_AVATAR;
+  const sample = widgetParameters.get("sample");
+  if (sample === "audio") {
+    audioCardElement.hidden = false;
+    audioTitleElement.textContent = "Relay audio test";
+    audioArtistElement.textContent = "Relay"; audioArtistElement.hidden = false;
+    audioArtworkElement.src = "/output-samples/landscape";
+    audioCardElement.classList.add("is-visible");
+    activeVisual = audioCardElement;
+    setAuthor({ kind: "audio", author: { username: "Relay", displayAvatarUrl: FALLBACK_AVATAR } });
+    positionMediaText();
+    return;
+  }
+  if (sample === "video") {
+    activeVisual = videoElement;
+    videoElement.muted = true; videoElement.loop = true;
+    videoElement.onloadeddata = () => { positionMediaText(); videoElement.classList.add("is-visible"); };
+    if (!videoElement.src.endsWith("/output-samples/video")) {
+      videoElement.src = "/output-samples/video";
+      videoElement.play().catch(() => {});
+    }
+    setAuthor({ author: { username: "Relay", displayAvatarUrl: FALLBACK_AVATAR } });
+    authorElement.classList.add("is-visible");
+    positionMediaText();
+    return;
+  }
+  activeVisual = imageElement;
+  imageElement.onload = positionMediaText;
+  imageElement.src = ["portrait", "landscape", "gif"].includes(sample) ? "/output-samples/" + sample : FALLBACK_AVATAR;
   imageElement.alt = "Relay preview";
   imageElement.style.width = "auto";
   imageElement.style.height = "100%";
@@ -860,25 +900,55 @@ function showPreview() {
     text: previewCaptionLabels[interfaceLanguage] || previewCaptionLabels.en,
   });
   if (!authorElement.hidden) authorElement.classList.add("is-visible");
+  positionMediaText();
+}
+
+function mediaLayout(width, height, viewportWidth, viewportHeight, scale, footerHeight, insetPx = 0, geometry = {}) {
+  const margin = Math.max(12, insetPx);
+  const custom = geometry.anchor && geometry.anchor !== "legacy";
+  const marginX = custom ? Math.max(insetPx, Number(geometry.marginX) || 0) : margin;
+  const marginY = custom ? Math.max(insetPx, Number(geometry.marginY) || 0) : margin;
+  const availableWidth = Math.max(1, viewportWidth - marginX * 2);
+  const availableHeight = Math.max(1, viewportHeight - marginY * 2 - footerHeight);
+  const ratio = Math.min(availableWidth / width, availableHeight / height);
+  const displayedWidth = width * ratio;
+  const displayedHeight = height * ratio;
+  return {
+    width: displayedWidth / scale, height: displayedHeight / scale,
+    centerY: marginY + availableHeight / 2,
+    left: viewportWidth - displayedWidth - marginX,
+    bottom: marginY + (availableHeight + displayedHeight) / 2,
+    displayedWidth,
+  };
 }
 
 function fitVisualToViewport(element, width, height, insetPx = 0) {
   if (!width || !height || !window.innerWidth || !window.innerHeight) return;
-  // CSS applies transform: scale(var(--content-scale)). Fit into viewport/scale so the
-  // scaled result still fits (object-fit contain) instead of clipping top/bottom.
-  const scale = Math.max(
-    0.5,
-    Number.parseFloat(
-      getComputedStyle(document.documentElement).getPropertyValue("--content-scale"),
-    ) || 1,
-  );
-  // Aspect decision uses the full viewport; inset only shrinks the fitted box.
-  const fitByWidth = width / height >= window.innerWidth / window.innerHeight;
-  const fittedSize = insetPx
-    ? `calc((100% - ${insetPx}px) / ${scale})`
-    : `calc(100% / ${scale})`;
-  element.style.width = fitByWidth ? fittedSize : "auto";
-  element.style.height = fitByWidth ? "auto" : fittedSize;
+  const scale = Math.max(0.5, Number.parseFloat(
+    getComputedStyle(document.documentElement).getPropertyValue("--content-scale"),
+  ) || 1);
+  const authorHeight = authorElement.hidden ? 0 : 44 * scale;
+  const captionHeight = mediaTextElement.hidden ? 0 : 80 * scale;
+  const geometry = isWidgetWindow ? config.mediaWidgetGeometry : config.mediaObsGeometry;
+  const layout = mediaLayout(width, height, window.innerWidth, window.innerHeight,
+    scale, authorHeight + captionHeight, insetPx, geometry);
+  const placement = RelayLayout.position(layout.displayedWidth, layout.height * scale + authorHeight + captionHeight,
+    window.innerWidth, window.innerHeight, geometry);
+  if (placement) {
+    layout.left = placement.left;
+    layout.centerY = placement.top + layout.height * scale / 2;
+    layout.bottom = placement.top + layout.height * scale;
+  }
+  element.style.width = layout.width + "px";
+  element.style.height = layout.height + "px";
+  element.style.top = layout.centerY + "px";
+  element.style.left = (layout.left + layout.displayedWidth / 2) + "px";
+  for (const [footer, offset] of [[authorElement, 0], [mediaTextElement, authorHeight]]) {
+    footer.style.left = layout.left + "px";
+    footer.style.top = (layout.bottom + 8 + offset) + "px";
+    footer.style.bottom = "auto";
+    footer.style.maxWidth = (layout.displayedWidth / scale) + "px";
+  }
 }
 
 function applyOutputGeometry() {
@@ -1074,7 +1144,7 @@ function loadPlayback(media, playbackElement, visualElement, generation) {
   playbackElement.muted = mustMute;
   playbackElement.volume = mustMute
     ? 0
-    : Math.min(1, Math.max(0, config.mediaVolume / 100));
+    : Math.min(1, Math.max(0, config.mediaVolume / 100)) * (media.kind === "audio" ? reactionMusicFactor : 1);
   const sources = mediaSources(media);
   let sourceIndex = 0;
 
@@ -1293,6 +1363,16 @@ function applyMediaClock(payload = {}) {
   audioOutputBusy = Boolean(payload.audioBusy);
 }
 
+let reactionMusicFactor = 1;
+let reactionRestoreTimer;
+function applyReactionDucking(playback) {
+  window.clearTimeout(reactionRestoreTimer);
+  reactionMusicFactor = playback && playback.endsAt > Date.now() ? Math.min(1, Math.max(0, playback.musicPercent / 100)) : 1;
+  audioElement.volume = audioElement.muted ? 0 : Math.min(1, Math.max(0, config.mediaVolume / 100)) * reactionMusicFactor;
+  applyYoutubeAudioSettings();
+  if (playback && playback.endsAt > Date.now()) reactionRestoreTimer = window.setTimeout(() => applyReactionDucking(null), playback.endsAt - Date.now());
+}
+
 function handleMessage(event) {
   let message;
   try {
@@ -1301,7 +1381,9 @@ function handleMessage(event) {
     return;
   }
 
-  if (message.type === "config") {
+  if (message.type === "reaction") {
+    applyReactionDucking(message.payload);
+  } else if (message.type === "config") {
     config = { ...config, ...message.payload };
     applyOutputGeometry();
     positionMediaText();
@@ -1320,14 +1402,18 @@ function handleMessage(event) {
     videoElement.muted = widgetMuted || currentMedia?.kind === "gif";
     audioElement.muted = widgetMuted;
     videoElement.volume = videoElement.muted ? 0 : volume;
-    audioElement.volume = audioElement.muted ? 0 : volume;
+    audioElement.volume = audioElement.muted ? 0 : volume * reactionMusicFactor;
     applyYoutubeAudioSettings();
     if (!config.showAuthor) {
       authorElement.classList.remove("is-visible");
       authorElement.hidden = true;
     }
     if (isPreview) showPreview();
-    else setMediaText(currentMedia);
+    else {
+      setAuthor(currentMedia);
+      setMediaText(currentMedia);
+      positionMediaText();
+    }
   } else if (message.type === "media") {
     if (isPreview) return;
     if (message.payload) enqueueMedia(message.payload);
@@ -1462,6 +1548,7 @@ function connect() {
   nextSocket.addEventListener("message", handleMessage);
   nextSocket.addEventListener("close", () => {
     if (socket !== nextSocket) return;
+    applyReactionDucking(null);
     if (isWidgetWindow && !widgetPlaybackVisible) return;
     // Stop the current playback but keep the queue: the server does not
     // rebroadcast queued media after a transient reconnect.

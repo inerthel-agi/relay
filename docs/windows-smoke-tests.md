@@ -21,6 +21,23 @@ Use a disposable Discord server and synthetic local media. Do not use tokens, pr
 | OBS source | Add one generated Browser Source URL to OBS. | Output readiness lists an OBS client for that output. |
 | Windows widgets | Show, move, and lock each widget. | The widget follows its visibility and lock settings without blocking Relay. |
 | Local output test | Connect an OBS source or widget, then use **Test output**. | The test appears only on the selected local output and no Discord message is sent. |
+| Output disconnect and reconnect | Start a media or reaction output, disconnect the Browser Source or widget, then reconnect it. | Relay remains responsive, reports the changed output state, and the new client receives its current hydration state. |
+
+## v1.3.6 modules
+
+| Scenario | Steps | Expected result |
+| --- | --- | --- |
+| Pin a message | Send a notification, click **Pin**, wait past its configured duration, then click **Unpin**. | The message stays visible while pinned, other outputs continue, and queued notifications resume after unpinning. |
+| Media library copy | Import a synthetic image or video, move the original file, restart Relay, and play the library item. | The managed copy remains available and plays through the normal media queue. |
+| Music request limit | Set the per-member pending limit to `3`, start one track, and submit four waiting requests from one member. | The first three wait; the fourth is refused with a clear reason. Set the value to `0` and repeat to verify that the per-member limit is disabled. |
+| Duplicate music request | Start one track, queue a video, then request the same YouTube video again while it is waiting. | The second request is refused by default. Disabling duplicate protection allows it. |
+| Music queue interleaving | Keep one media item active, queue two music items with a media or message item between them, move one music item up or down, then remove it. | Only the music positions change. The current item is not moved, and media/message slots keep their order. |
+| Reaction access | Enable reactions, configure one allowed channel and one allowed role, then try `/relay reaction` from a wrong channel, wrong role, and matching channel and role. | The first two requests are refused. The matching request starts the enabled reaction. |
+| Reaction local test | Use the panel's **Test** button with a sound and optional library image or GIF. | The sound and visual play in the panel only; no Discord cooldown or live output is used. |
+| Reaction output disconnect | Trigger a reaction, disconnect the **Relay Reactions** Browser Source during playback, and reconnect it. | Relay stops or expires the active reaction cleanly, does not leave music ducked, and the new source receives the current reaction snapshot. |
+| Reaction volume change | Start a music track, trigger a reaction, change the Relay media volume while the reaction is active, then let it end and repeat with **Stop**. | Music is reduced to the configured reaction percentage during the reaction and returns to the newly selected volume afterward. |
+| Deleted reaction sound | Delete or move the imported reaction sound file before triggering it. | Relay refuses the reaction with a clear error and does not publish an incomplete output. |
+| Offline reaction save | Stop the bot connection, save reaction settings, reconnect the bot, and inspect the slash-command list. | Settings save locally while offline and `/relay reaction` synchronizes after reconnection. |
 
 ## Discord media and moderation
 
@@ -46,6 +63,6 @@ Use a disposable Discord server and synthetic local media. Do not use tokens, pr
 | Scenario | Steps | Expected result |
 | --- | --- | --- |
 | Signed update | Run against an official signed installer and release feed. | Relay accepts only the expected signed update path. |
-| Missing speech packs | Test an English or French TTS message on a Windows installation without the matching pack. | Relay reports a recoverable local error; the application remains usable. |
+| Message notifications | Send plain text, emoji and a sticker in the message channel. | Visual cards appear without speech; the configured notification sound remains optional. |
 
 Do not mark a pull request as fully smoke-tested when a required integration is unavailable. State the skipped row and why in the pull request instead.

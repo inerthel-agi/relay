@@ -27,7 +27,7 @@ use crate::{
     credentials::load_or_create_relay_secret,
     model::{
         AudioPlaybackState, MediaKind, MusicEndedEvent, OutputConnectionStatus, OutputStatuses,
-        RelayEvent, ServerStatus,
+        RelayEvent, ServerStatus, TtsEvent,
     },
     state::{AppCore, ServerRuntime},
 };
@@ -38,6 +38,7 @@ use crate::{
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct OverlayConfig {
+    reaction_geometry: OutputGeometry,
     port: u16,
     display_duration_ms: u64,
     gif_duration_ms: u64,
@@ -62,6 +63,7 @@ struct OverlayConfig {
 impl From<&AppConfig> for OverlayConfig {
     fn from(config: &AppConfig) -> Self {
         Self {
+            reaction_geometry: config.reactions.geometry,
             port: config.port,
             display_duration_ms: config.display_duration_ms,
             gif_duration_ms: config.gif_duration_ms,
@@ -165,6 +167,7 @@ struct AccessQuery {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum OutputSource {
+    Reaction,
     Visual,
     Audio,
     Tts,
@@ -196,10 +199,22 @@ impl OutputConnection {
 #[derive(Deserialize)]
 #[serde(tag = "type", content = "payload", rename_all = "camelCase")]
 enum OutputClientMessage {
+    ReactionEnded(String),
     AudioPlayback(Box<AudioPlaybackState>),
     MusicEnded(MusicEndedEvent),
+    NotificationState(Box<NotificationStateReport>),
     MediaClock(MediaClockReport),
     StageClock(StageClockReport),
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NotificationStateReport {
+    visible: bool,
+    #[serde(default)]
+    notification: Option<TtsEvent>,
+    #[serde(default)]
+    id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -278,6 +293,11 @@ pub async fn start_server(core: Arc<AppCore>) -> Result<()> {
     let router = Router::new()
         .route("/", get(root))
         .route("/health", get(health))
+        .route("/reactions", get(reaction_routes::page))
+        .route("/reaction-assets/reactions.js", get(reaction_routes::script))
+        .route("/reaction-assets/reactions.css", get(reaction_routes::style))
+        .route("/reaction-sound/{id}", get(reaction_routes::sound))
+        .route("/library-asset/{id}", get(reaction_routes::library_asset))
         .route("/overlay", get(overlay))
         .route("/medias", get(visual_overlay))
         .route("/audios", get(audio_overlay))
@@ -287,7 +307,10 @@ pub async fn start_server(core: Arc<AppCore>) -> Result<()> {
         .route("/obs-assets/obs-visual.css", get(obs_visual_css))
         .route("/obs-assets/obs-audio.css", get(obs_audio_css))
         .route("/overlay-assets/overlay.css", get(overlay_css))
+        .route("/overlay-assets/audio-card.css", get(audio_card_css))
         .route("/overlay-assets/overlay.js", get(overlay_js))
+        .route("/output-layout.js", get(output_layout))
+        .route("/output-samples/{sample}", get(output_sample))
         .route("/overlay-assets/relay-radar.png", get(radar_png))
         .route("/tts", get(tts_page))
         .route("/tts-assets/tts.css", get(tts_css))
@@ -370,437 +393,10 @@ pub async fn stop_server(core: &Arc<AppCore>) {
     *core.server_status.write().await = ServerStatus::default();
 }
 
-async fn root() -> impl IntoResponse {
-    (StatusCode::FOUND, [(header::LOCATION, "/overlay")])
-}
-
-async fn health() -> impl IntoResponse {
-    axum::Json(json!({
-        "status": "ok",
-    }))
-}
-
-async fn overlay(
-    State(state): State<RelayServerState>,
-    Query(query): Query<AccessQuery>,
-) -> Response {
-    if !secret_matches(query.secret.as_deref(), &state.relay_secret) {
-        return (StatusCode::UNAUTHORIZED, "Invalid relay secret.").into_response();
-    }
-    Html(OVERLAY_HTML).into_response()
-}
-
-async fn visual_overlay(State(state): State<RelayServerState>) -> Response {
-    short_overlay(&state, "visual")
-}
-
-async fn audio_overlay(State(state): State<RelayServerState>) -> Response {
-    short_overlay(&state, "audio")
-}
-
-async fn youtube_overlay(State(state): State<RelayServerState>, headers: HeaderMap) -> Response {
-    // Existing OBS sources may still point at 127.0.0.1; YouTube rejects that Referer.
-    if let Some(response) = redirect_path_off_loopback_ip(&headers, "/youtube") {
-        return response;
-    }
-    short_overlay(&state, "youtube")
-}
-
-async fn obs_visual_page(State(state): State<RelayServerState>, headers: HeaderMap) -> Response {
-    // Composite embeds /youtube; parent must also be localhost for a valid Referer chain.
-    if let Some(response) = redirect_path_off_loopback_ip(&headers, "/obs/visual") {
-        return response;
-    }
-    short_page(&state, OBS_VISUAL_HTML)
-}
-
-async fn obs_audio_page(State(state): State<RelayServerState>) -> Response {
-    short_page(&state, OBS_AUDIO_HTML)
-}
-
-async fn obs_visual_css() -> impl IntoResponse {
-    (
-        [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
-        OBS_VISUAL_CSS,
-    )
-}
-
-async fn obs_audio_css() -> impl IntoResponse {
-    (
-        [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
-        OBS_AUDIO_CSS,
-    )
-}
-
-/// YouTube error 150 rejects embeds whose page Referer is `http://127.0.0.1`.
-/// Serve YouTube-bearing pages only via `http://localhost` (same loopback, accepted Referer).
-fn redirect_path_off_loopback_ip(headers: &HeaderMap, path: &str) -> Option<Response> {
-    let host = headers.get(header::HOST)?.to_str().ok()?;
-    let (hostname, port) = match host.split_once(':') {
-        Some((hostname, port)) => (hostname, Some(port)),
-        None => (host, None),
-    };
-    if !hostname.eq_ignore_ascii_case("127.0.0.1") {
-        return None;
-    }
-    let embed_host = crate::widget::youtube_embed_host();
-    let location = match port.filter(|value| !value.is_empty()) {
-        Some(port) => format!("http://{embed_host}:{port}{path}"),
-        None => format!("http://{embed_host}{path}"),
-    };
-    Some(
-        (
-            StatusCode::TEMPORARY_REDIRECT,
-            [(header::LOCATION, location)],
-        )
-            .into_response(),
-    )
-}
-
-fn short_overlay(state: &RelayServerState, mode: &str) -> Response {
-    let html = OVERLAY_HTML.replace(
-        "<meta name=\"relay-mode\" content=\"all\">",
-        &format!("<meta name=\"relay-mode\" content=\"{mode}\">"),
-    );
-    short_page(state, html)
-}
-
-/// Short OBS URLs have no query secret. The page embeds the secret in a meta
-/// tag so overlay JS can authenticate WS/media requests without a host-wide
-/// cookie (cookies on 127.0.0.1 are not port-scoped). A Max-Age=0 Set-Cookie
-/// expires any leftover `relay_secret` cookie from earlier builds.
-fn short_page(state: &RelayServerState, html: impl AsRef<str>) -> Response {
-    Response::builder()
-        .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
-        .header(
-            header::SET_COOKIE,
-            "relay_secret=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0",
-        )
-        .body(inject_relay_secret(html.as_ref(), &state.relay_secret).into())
-        .expect("valid short overlay response")
-}
-
-fn inject_relay_secret(html: &str, secret: &str) -> String {
-    if !secret.bytes().all(|byte| byte.is_ascii_hexdigit())
-        || html.contains("name=\"relay-secret\"")
-    {
-        return html.to_owned();
-    }
-    let meta = format!("<meta name=\"relay-secret\" content=\"{secret}\">");
-    if let Some(index) = html.find("</head>") {
-        let mut injected = String::with_capacity(html.len() + meta.len());
-        injected.push_str(&html[..index]);
-        injected.push_str(&meta);
-        injected.push_str(&html[index..]);
-        injected
-    } else {
-        format!("{meta}{html}")
-    }
-}
-
-async fn notification_sound(
-    State(state): State<RelayServerState>,
-    Query(query): Query<AccessQuery>,
-    headers: HeaderMap,
-) -> Response {
-    if !request_secret_matches(query.secret.as_deref(), &headers, &state.relay_secret) {
-        return StatusCode::UNAUTHORIZED.into_response();
-    }
-    let Some(path) = state
-        .core
-        .config
-        .read()
-        .await
-        .notification_sound_path
-        .clone()
-    else {
-        return StatusCode::NOT_FOUND.into_response();
-    };
-    let bytes = tokio::task::spawn_blocking(move || -> anyhow::Result<(Vec<u8>, String)> {
-        let metadata = std::fs::metadata(&path)?;
-        if metadata.len() > crate::commands::NOTIFICATION_SOUND_MAX_BYTES {
-            anyhow::bail!("notification sound exceeds the size limit");
-        }
-        let bytes = std::fs::read(&path)?;
-        let extension = std::path::Path::new(&path)
-            .extension()
-            .and_then(|extension| extension.to_str())
-            .unwrap_or_default()
-            .to_ascii_lowercase();
-        let content_type = match extension.as_str() {
-            "mp3" => "audio/mpeg",
-            "flac" => "audio/flac",
-            "wav" => "audio/wav",
-            "ogg" | "oga" | "opus" => "audio/ogg",
-            "m4a" => "audio/mp4",
-            "aac" => "audio/aac",
-            "webm" | "weba" => "audio/webm",
-            _ => "application/octet-stream",
-        };
-        Ok((bytes, content_type.to_owned()))
-    })
-    .await;
-    let Ok(Ok((bytes, content_type))) = bytes else {
-        return StatusCode::NOT_FOUND.into_response();
-    };
-    Response::builder()
-        .header(header::CONTENT_TYPE, content_type)
-        .header(header::CACHE_CONTROL, "private, no-store")
-        .body(Body::from(bytes))
-        .expect("valid notification sound response")
-}
-
-async fn overlay_css() -> impl IntoResponse {
-    (
-        [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
-        OVERLAY_CSS,
-    )
-}
-
-async fn overlay_js() -> impl IntoResponse {
-    (
-        [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
-        OVERLAY_JS,
-    )
-}
-
-async fn radar_png() -> impl IntoResponse {
-    ([(header::CONTENT_TYPE, "image/png")], RADAR_PNG)
-}
-
-async fn tts_page(
-    State(state): State<RelayServerState>,
-    Query(query): Query<AccessQuery>,
-) -> Response {
-    if query.secret.is_some() && !secret_matches(query.secret.as_deref(), &state.relay_secret) {
-        return (StatusCode::UNAUTHORIZED, "Invalid relay secret.").into_response();
-    }
-    short_page(&state, TTS_HTML)
-}
-
-async fn tts_css() -> impl IntoResponse {
-    ([(header::CONTENT_TYPE, "text/css; charset=utf-8")], TTS_CSS)
-}
-
-async fn tts_js() -> impl IntoResponse {
-    (
-        [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
-        TTS_JS,
-    )
-}
-
-async fn notifications_page(
-    State(state): State<RelayServerState>,
-    Query(query): Query<AccessQuery>,
-) -> Response {
-    if query.secret.is_some() && !secret_matches(query.secret.as_deref(), &state.relay_secret) {
-        return (StatusCode::UNAUTHORIZED, "Invalid relay secret.").into_response();
-    }
-    short_page(&state, NOTIFICATIONS_HTML)
-}
-
-async fn notifications_css() -> impl IntoResponse {
-    (
-        [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
-        NOTIFICATIONS_CSS,
-    )
-}
-
-async fn notifications_js() -> impl IntoResponse {
-    (
-        [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
-        NOTIFICATIONS_JS,
-    )
-}
-
-async fn stickers_page(
-    State(state): State<RelayServerState>,
-    Query(query): Query<AccessQuery>,
-) -> Response {
-    if query.secret.is_some() && !secret_matches(query.secret.as_deref(), &state.relay_secret) {
-        return (StatusCode::UNAUTHORIZED, "Invalid relay secret.").into_response();
-    }
-    short_page(&state, STICKERS_HTML)
-}
-
-async fn stickers_css() -> impl IntoResponse {
-    (
-        [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
-        STICKERS_CSS,
-    )
-}
-
-async fn stickers_js() -> impl IntoResponse {
-    (
-        [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
-        STICKERS_JS,
-    )
-}
-
-async fn tts_audio(
-    Path(id): Path<String>,
-    State(state): State<RelayServerState>,
-    Query(query): Query<AccessQuery>,
-    headers: HeaderMap,
-) -> Response {
-    if !request_secret_matches(query.secret.as_deref(), &headers, &state.relay_secret)
-        || id.is_empty()
-        || id.len() > 20
-        || !id.chars().all(|character| character.is_ascii_digit())
-    {
-        return StatusCode::UNAUTHORIZED.into_response();
-    }
-    let audio = state
-        .core
-        .tts_audio
-        .read()
-        .await
-        .iter()
-        .find(|item| item.id == id)
-        .cloned();
-    let Some(audio) = audio else {
-        return StatusCode::NOT_FOUND.into_response();
-    };
-    Response::builder()
-        .header(header::CONTENT_TYPE, audio.content_type)
-        .header(header::CACHE_CONTROL, "private, no-store")
-        .body(Body::from(audio.bytes))
-        .expect("valid TTS audio response")
-}
-
-async fn media_artwork(
-    Path(id): Path<String>,
-    State(state): State<RelayServerState>,
-    Query(query): Query<AccessQuery>,
-    headers: HeaderMap,
-) -> Response {
-    if !request_secret_matches(query.secret.as_deref(), &headers, &state.relay_secret)
-        || id.is_empty()
-        || id.len() > 20
-        || !id.chars().all(|character| character.is_ascii_digit())
-    {
-        return StatusCode::UNAUTHORIZED.into_response();
-    }
-    let artwork = state
-        .core
-        .media_artwork
-        .read()
-        .await
-        .iter()
-        .find(|item| item.id == id)
-        .cloned();
-    let Some(artwork) = artwork else {
-        return StatusCode::NOT_FOUND.into_response();
-    };
-    Response::builder()
-        .header(header::CONTENT_TYPE, artwork.content_type)
-        .header(header::CACHE_CONTROL, "private, no-store")
-        .body(Body::from(artwork.bytes))
-        .expect("valid media artwork response")
-}
-
-async fn media_audio(
-    Path(id): Path<String>,
-    State(state): State<RelayServerState>,
-    Query(query): Query<AccessQuery>,
-    headers: HeaderMap,
-) -> Response {
-    if !request_secret_matches(query.secret.as_deref(), &headers, &state.relay_secret)
-        || id.is_empty()
-        || id.len() > 20
-        || !id.chars().all(|character| character.is_ascii_digit())
-    {
-        return StatusCode::UNAUTHORIZED.into_response();
-    }
-    let audio = state
-        .core
-        .media_audio
-        .read()
-        .await
-        .iter()
-        .find(|item| item.id == id)
-        .cloned();
-    let Some(audio) = audio else {
-        return StatusCode::NOT_FOUND.into_response();
-    };
-    Response::builder()
-        .header(header::CONTENT_TYPE, audio.content_type)
-        .header(header::CACHE_CONTROL, "private, no-store")
-        .body(Body::from(audio.bytes))
-        .expect("valid media audio response")
-}
-
-async fn cached_media(
-    Path(id): Path<String>,
-    State(state): State<RelayServerState>,
-    Query(query): Query<AccessQuery>,
-    headers: HeaderMap,
-) -> Response {
-    let authorized = request_secret_matches(query.secret.as_deref(), &headers, &state.relay_secret)
-        || secret_matches(query.token.as_deref(), &state.core.panel_token);
-    if !authorized
-        || id.is_empty()
-        || id.len() > 64
-        || !id
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || character == '-')
-    {
-        return StatusCode::UNAUTHORIZED.into_response();
-    }
-    let media = state
-        .core
-        .cached_media
-        .read()
-        .await
-        .iter()
-        .find(|item| item.id == id)
-        .cloned();
-    let Some(media) = media else {
-        return StatusCode::NOT_FOUND.into_response();
-    };
-    ranged_media_response(media, headers.get(header::RANGE))
-}
-
-fn ranged_media_response(
-    media: crate::state::CachedMedia,
-    range: Option<&HeaderValue>,
-) -> Response {
-    let total = media.bytes.len();
-    let requested = range
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.strip_prefix("bytes="))
-        .and_then(|value| value.split_once('-'))
-        .and_then(|(start, end)| {
-            let start = start.parse::<usize>().ok()?;
-            let end = if end.is_empty() {
-                total.checked_sub(1)?
-            } else {
-                end.parse::<usize>().ok()?.min(total.checked_sub(1)?)
-            };
-            (start <= end && start < total).then_some((start, end))
-        });
-    let (status, body, content_range) = if let Some((start, end)) = requested {
-        (
-            StatusCode::PARTIAL_CONTENT,
-            media.bytes.slice(start..=end),
-            Some(format!("bytes {start}-{end}/{total}")),
-        )
-    } else {
-        (StatusCode::OK, media.bytes, None)
-    };
-    let mut response = Response::builder()
-        .status(status)
-        .header(header::CONTENT_TYPE, media.content_type)
-        .header(header::ACCEPT_RANGES, "bytes")
-        .header(header::CACHE_CONTROL, "private, no-store")
-        .header(header::CONTENT_LENGTH, body.len());
-    if let Some(content_range) = content_range {
-        response = response.header(header::CONTENT_RANGE, content_range);
-    }
-    response
-        .body(Body::from(body))
-        .expect("valid cached media response")
-}
+mod http_routes;
+mod library_routes;
+mod reaction_routes;
+use http_routes::*;
 
 async fn websocket(
     upgrade: WebSocketUpgrade,
@@ -813,7 +409,7 @@ async fn websocket(
     }
     let role = query.role.as_deref().unwrap_or("overlay");
     let authorized = match role {
-        "overlay" | "tts" | "notification" | "sticker" => {
+        "overlay" | "tts" | "notification" | "sticker" | "reaction" => {
             request_secret_matches(query.secret.as_deref(), &headers, &state.relay_secret)
         }
         "panel" => secret_matches(query.token.as_deref(), &state.core.panel_token),
@@ -824,7 +420,7 @@ async fn websocket(
     }
 
     let output = match role {
-        "overlay" | "tts" | "notification" | "sticker" => {
+        "overlay" | "tts" | "notification" | "sticker" | "reaction" => {
             let Some(output) = output_connection(role, &query) else {
                 return StatusCode::BAD_REQUEST.into_response();
             };
@@ -945,6 +541,26 @@ async fn handle_socket(
     }
 
     let mut shutdown_rx = state.client_shutdown.subscribe();
+    let active_reaction = state.core.reactions.lock().await.active.clone();
+    let _ = send_json(&mut sender, &RelayEvent::Reaction(active_reaction)).await;
+    if output_is_notification(output)
+        && send_json(
+            &mut sender,
+            &RelayEvent::MessagePin(state.core.message_pin_event().await),
+        )
+        .await
+        .is_err()
+    {
+        if let Some(output) = output {
+            update_output_connection(&state, output, -1).await;
+        }
+        return;
+    }
+    let notification_client_id = if output_is_notification(output) {
+        Some(state.core.register_notification_output().await)
+    } else {
+        None
+    };
     loop {
         tokio::select! {
             _ = shutdown_rx.recv() => {
@@ -988,6 +604,9 @@ async fn handle_socket(
                             break;
                         };
                         match message {
+                            OutputClientMessage::ReactionEnded(id) if output.is_some_and(|o| o.source == OutputSource::Reaction && matches!(o.client, OutputClient::Obs | OutputClient::Widget)) => {
+                                crate::reactions::stop(&state.core, Some(&id)).await;
+                            }
                             OutputClientMessage::AudioPlayback(playback)
                                 if matches!(playback.media.kind, MediaKind::Audio)
                                     && matches!(playback.target.as_str(), "obs" | "widget") =>
@@ -1002,6 +621,24 @@ async fn handle_socket(
                                     let _ = state.core.finish_music(&event.playback_id).await;
                                 } else {
                                     let _ = state.core.stop_music_if_current(&event.playback_id).await;
+                                }
+                            }
+                            OutputClientMessage::NotificationState(report)
+                                if let Some(client_id) = notification_client_id =>
+                            {
+                                let report = *report;
+                                if report.visible {
+                                    if let Some(notification) = report.notification {
+                                        state
+                                            .core
+                                            .report_notification_output(client_id, notification)
+                                            .await;
+                                    }
+                                } else {
+                                    state
+                                        .core
+                                        .clear_notification_output(client_id, report.id.as_deref())
+                                        .await;
                                 }
                             }
                             OutputClientMessage::MediaClock(clock) if tracked_clock_source.is_some() => {
@@ -1085,6 +722,9 @@ async fn handle_socket(
         apply_stage_clock_report(&state, lane, false, &mut reported_stage_lane);
         sync_stage_scheduler(&state).await;
     }
+    if let Some(client_id) = notification_client_id {
+        state.core.clear_notification_output(client_id, None).await;
+    }
     if let Some(output) = output {
         update_output_connection(&state, output, -1).await;
     }
@@ -1100,6 +740,7 @@ async fn send_json<T: serde::Serialize>(
 
 fn output_connection(role: &str, query: &AccessQuery) -> Option<OutputConnection> {
     let source = match (role, query.source.as_deref()) {
+        ("reaction", None | Some("reaction")) => OutputSource::Reaction,
         ("overlay", None | Some("all")) => OutputSource::All,
         ("overlay", Some("visual")) => OutputSource::Visual,
         ("overlay", Some("audio") | Some("youtube")) => OutputSource::Audio,
@@ -1118,7 +759,10 @@ fn output_connection(role: &str, query: &AccessQuery) -> Option<OutputConnection
     if matches!(client, OutputClient::Widget | OutputClient::Preview)
         && !matches!(
             source,
-            OutputSource::Visual | OutputSource::Notification | OutputSource::All
+            OutputSource::Visual
+                | OutputSource::Notification
+                | OutputSource::All
+                | OutputSource::Reaction
         )
     {
         return None;
@@ -1137,6 +781,16 @@ fn output_receives_music(output: Option<OutputConnection>) -> bool {
                 | OutputSource::All
                 | OutputSource::Notification
                 | OutputSource::Tts,
+            client: OutputClient::Obs | OutputClient::Widget,
+        })
+    )
+}
+
+fn output_is_notification(output: Option<OutputConnection>) -> bool {
+    matches!(
+        output,
+        Some(OutputConnection {
+            source: OutputSource::Notification,
             client: OutputClient::Obs | OutputClient::Widget,
         })
     )
@@ -1185,6 +839,10 @@ async fn update_output_connection(
         if delta > 0 {
             output.last_connected_at = Some(current_timestamp_ms());
         }
+    }
+    drop(status);
+    if delta < 0 && connection.source == OutputSource::Reaction {
+        crate::reactions::stop_without_outputs(&state.core).await;
     }
 }
 
@@ -1356,6 +1014,7 @@ fn apply_stage_clock_report(
 
 fn output_sources(source: OutputSource) -> &'static [OutputSource] {
     match source {
+        OutputSource::Reaction => &[OutputSource::Reaction],
         OutputSource::All => &[OutputSource::Visual, OutputSource::Audio],
         OutputSource::Visual => &[OutputSource::Visual],
         OutputSource::Audio => &[OutputSource::Audio],
@@ -1370,6 +1029,7 @@ fn output_status_mut(
     source: OutputSource,
 ) -> &mut OutputConnectionStatus {
     match source {
+        OutputSource::Reaction => &mut statuses.reaction,
         OutputSource::Visual => &mut statuses.visual,
         OutputSource::Audio => &mut statuses.audio,
         OutputSource::Tts => &mut statuses.tts,
@@ -1427,720 +1087,4 @@ fn origin_allowed(origin: Option<&HeaderValue>) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    use std::io::{Read, Write};
-
-    use crate::{
-        config::AppConfig,
-        credentials::load_or_create_relay_secret,
-        model::{AuthorIdentity, MediaEvent, MediaKind, RelayEvent},
-        state::{CachedMedia, MediaArtwork, MediaAudio, TtsAudio},
-    };
-
-    #[test]
-    fn injects_hex_secret_into_html_head() {
-        let html = "<html><head></head><body></body></html>";
-        assert_eq!(
-            inject_relay_secret(html, "abc123"),
-            "<html><head><meta name=\"relay-secret\" content=\"abc123\"></head><body></body></html>"
-        );
-        assert_eq!(inject_relay_secret(html, "not hex!"), html);
-        let already = "<html><head><meta name=\"relay-secret\" content=\"abc123\"></head></html>";
-        assert_eq!(inject_relay_secret(already, "abc123"), already);
-    }
-
-    #[test]
-    fn compares_secrets_without_prefix_matches() {
-        assert!(secret_matches(Some("private"), "private"));
-        assert!(!secret_matches(Some("priv"), "private"));
-        assert!(!secret_matches(None, "private"));
-
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            header::COOKIE,
-            HeaderValue::from_static("theme=dark; relay_secret=private"),
-        );
-        assert!(request_secret_matches(None, &headers, "private"));
-    }
-
-    #[test]
-    fn accepts_only_local_overlay_and_tauri_origins() {
-        assert!(origin_allowed(None));
-        assert!(origin_allowed(Some(&HeaderValue::from_static(
-            "http://127.0.0.1:4590"
-        ))));
-        assert!(origin_allowed(Some(&HeaderValue::from_static(
-            "http://localhost:4590"
-        ))));
-        assert!(origin_allowed(Some(&HeaderValue::from_static(
-            "http://tauri.localhost"
-        ))));
-        assert!(!origin_allowed(Some(&HeaderValue::from_static(
-            "https://example.com"
-        ))));
-    }
-
-    #[test]
-    fn youtube_widget_pages_use_localhost_referrer_host() {
-        // YouTube rejects embeds whose Referer is http://127.0.0.1 (error 150)
-        // but accepts http://localhost on the same loopback interface.
-        assert!(crate::widget::youtube_embed_host().starts_with("localhost"));
-        assert_ne!(crate::widget::youtube_embed_host(), "127.0.0.1");
-    }
-
-    #[test]
-    fn youtube_loopback_ip_redirects_to_localhost() {
-        let mut headers = HeaderMap::new();
-        headers.insert(header::HOST, HeaderValue::from_static("127.0.0.1:4590"));
-        let response = redirect_path_off_loopback_ip(&headers, "/youtube").expect("redirect");
-        assert_eq!(response.status(), StatusCode::TEMPORARY_REDIRECT);
-        assert_eq!(
-            response.headers().get(header::LOCATION).unwrap(),
-            "http://localhost:4590/youtube"
-        );
-
-        let mut localhost = HeaderMap::new();
-        localhost.insert(header::HOST, HeaderValue::from_static("localhost:4590"));
-        assert!(redirect_path_off_loopback_ip(&localhost, "/youtube").is_none());
-    }
-
-    #[test]
-    fn obs_visual_loopback_ip_redirects_to_localhost() {
-        let mut headers = HeaderMap::new();
-        headers.insert(header::HOST, HeaderValue::from_static("127.0.0.1:4590"));
-        let response = redirect_path_off_loopback_ip(&headers, "/obs/visual").expect("redirect");
-        assert_eq!(
-            response.headers().get(header::LOCATION).unwrap(),
-            "http://localhost:4590/obs/visual"
-        );
-    }
-
-    #[test]
-    fn output_config_never_serializes_private_scanner_values() {
-        let config = AppConfig {
-            privacy_custom_patterns: vec!["private-value-marker".into()],
-            privacy_allowlist: vec!["allowlist-value-marker".into()],
-            ..AppConfig::default()
-        };
-        let serialized = serde_json::to_string(&OverlayConfig::from(&config)).unwrap();
-
-        assert!(!serialized.contains("private-value-marker"));
-        assert!(!serialized.contains("allowlist-value-marker"));
-        assert!(!serialized.contains("privacyCustomPatterns"));
-        assert!(!serialized.contains("privacyAllowlist"));
-    }
-
-    #[test]
-    fn classifies_valid_output_sources_and_client_contexts() {
-        let visual_preview =
-            output_connection("overlay", &access_query(Some("visual"), Some("preview")))
-                .expect("visual preview should be accepted");
-        assert_eq!(visual_preview.source, OutputSource::Visual);
-        assert_eq!(visual_preview.client, OutputClient::Preview);
-
-        let combined = output_connection("overlay", &access_query(None, None))
-            .expect("legacy overlay should remain supported");
-        assert_eq!(combined.source, OutputSource::All);
-        assert_eq!(combined.client, OutputClient::Obs);
-        let widget = output_connection("overlay", &access_query(None, Some("widget")))
-            .expect("the Windows widget should be accepted for the combined overlay");
-        assert!(output_receives_music(Some(widget)));
-
-        assert!(output_connection("tts", &access_query(Some("audio"), None)).is_none());
-        assert!(output_connection("tts", &access_query(None, Some("widget"))).is_none());
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn serves_authenticated_overlay_and_broadcasts_under_load() {
-        let port = free_local_port();
-        let directory = tempfile::tempdir().unwrap();
-        let core = AppCore::load(directory.path().join("config.json")).unwrap();
-        core.set_config(AppConfig {
-            port,
-            ..AppConfig::default()
-        })
-        .await
-        .unwrap();
-        start_server(core.clone()).await.unwrap();
-        let secret = load_or_create_relay_secret().unwrap();
-
-        assert!(http_status(port, "/overlay").starts_with("HTTP/1.1 401"));
-        assert!(
-            http_status(port, &format!("/overlay?secret={secret}")).starts_with("HTTP/1.1 200")
-        );
-        let visual_response = http_response(port, "/medias");
-        assert!(visual_response.starts_with("HTTP/1.1 200"));
-        assert!(visual_response.contains(&format!(
-            "<meta name=\"relay-secret\" content=\"{secret}\">"
-        )));
-        assert!(!visual_response.contains(&format!("relay_secret={secret}")));
-        assert!(
-            visual_response.to_ascii_lowercase().contains(
-                "set-cookie: relay_secret=; path=/; httponly; samesite=strict; max-age=0"
-            )
-        );
-        assert!(visual_response.contains("content=\"visual\""));
-        assert!(visual_response.contains("https://*.discordapp.net"));
-        assert!(visual_response.contains("https://*.klipy.com"));
-        assert!(visual_response.contains("https://i.ytimg.com"));
-        let visual_headers = visual_response.to_ascii_lowercase();
-        assert!(visual_headers.contains("referrer-policy: strict-origin-when-cross-origin"));
-        assert!(!visual_headers.contains("referrer-policy: no-referrer"));
-        let audio_response = http_response(port, "/audios");
-        assert!(audio_response.starts_with("HTTP/1.1 200"));
-        assert!(audio_response.contains("content=\"audio\""));
-        // /youtube on 127.0.0.1 must redirect: YouTube rejects that Referer (error 150).
-        let youtube_redirect = http_response(port, "/youtube");
-        assert!(youtube_redirect.starts_with("HTTP/1.1 307"));
-        assert!(youtube_redirect.contains(&format!("location: http://localhost:{port}/youtube")));
-        let youtube_response = http_response_with_host(port, "/youtube", "localhost");
-        assert!(youtube_response.starts_with("HTTP/1.1 200"));
-        assert!(youtube_response.contains("content=\"youtube\""));
-        let obs_visual_redirect = http_response(port, "/obs/visual");
-        assert!(obs_visual_redirect.starts_with("HTTP/1.1 307"));
-        assert!(
-            obs_visual_redirect.contains(&format!("location: http://localhost:{port}/obs/visual"))
-        );
-        let obs_visual = http_response_with_host(port, "/obs/visual", "localhost");
-        assert!(obs_visual.starts_with("HTTP/1.1 200"));
-        assert!(obs_visual.contains("src=\"/medias\""));
-        assert!(obs_visual.contains("src=\"/stickers\""));
-        assert!(obs_visual.contains("src=\"/notifications\""));
-        assert!(obs_visual.contains("src=\"/youtube\""));
-        assert!(obs_visual.contains("allowtransparency=\"true\""));
-        assert!(!obs_visual.contains("color-scheme\" content=\"light only\""));
-        let obs_audio = http_response(port, "/obs/audio");
-        assert!(obs_audio.starts_with("HTTP/1.1 200"));
-        assert!(obs_audio.contains("src=\"/audios\""));
-        assert!(obs_audio.contains("src=\"/tts\""));
-        assert!(http_status(port, "/tts").starts_with("HTTP/1.1 200"));
-        assert!(http_status(port, "/tts?secret=wrong").starts_with("HTTP/1.1 401"));
-        assert!(http_status(port, &format!("/tts?secret={secret}")).starts_with("HTTP/1.1 200"));
-        assert!(http_status(port, "/notifications").starts_with("HTTP/1.1 200"));
-        assert!(http_status(port, "/notifications?secret=wrong").starts_with("HTTP/1.1 401"));
-        assert!(
-            http_status(port, &format!("/notifications?secret={secret}"))
-                .starts_with("HTTP/1.1 200")
-        );
-        core.tts_audio.write().await.push_front(TtsAudio {
-            id: "123456789012345678".into(),
-            content_type: "audio/wav".into(),
-            bytes: axum::body::Bytes::from_static(b"RIFF-test"),
-        });
-        assert!(http_status(port, "/tts-audio/123456789012345678").starts_with("HTTP/1.1 401"));
-        assert!(
-            http_status(
-                port,
-                &format!("/tts-audio/123456789012345678?secret={secret}")
-            )
-            .starts_with("HTTP/1.1 200")
-        );
-        core.media_artwork.write().await.push_front(MediaArtwork {
-            id: "223456789012345678".into(),
-            content_type: "image/png".into(),
-            bytes: axum::body::Bytes::from_static(b"PNG-test"),
-        });
-        assert!(http_status(port, "/media-artwork/223456789012345678").starts_with("HTTP/1.1 401"));
-        assert!(
-            http_status(
-                port,
-                &format!("/media-artwork/223456789012345678?secret={secret}")
-            )
-            .starts_with("HTTP/1.1 200")
-        );
-        core.media_audio.write().await.push_front(MediaAudio {
-            id: "323456789012345678".into(),
-            content_type: "audio/mpeg".into(),
-            bytes: axum::body::Bytes::from_static(b"ID3-original-audio"),
-        });
-        assert!(http_status(port, "/media-audio/323456789012345678").starts_with("HTTP/1.1 401"));
-        assert!(
-            http_status(
-                port,
-                &format!("/media-audio/323456789012345678?secret={secret}")
-            )
-            .starts_with("HTTP/1.1 200")
-        );
-        core.cached_media.write().await.push_front(CachedMedia {
-            id: "423456789012345678-embed-0".into(),
-            content_type: "video/mp4".into(),
-            bytes: axum::body::Bytes::from_static(b"0123456789"),
-        });
-        assert!(
-            http_status(port, "/media-cache/423456789012345678-embed-0")
-                .starts_with("HTTP/1.1 401")
-        );
-        assert!(
-            http_status(
-                port,
-                &format!("/media-cache/423456789012345678-embed-0?secret={secret}")
-            )
-            .starts_with("HTTP/1.1 200")
-        );
-
-        let mut clients = Vec::new();
-        for _ in 0..8 {
-            let (mut client, _) = tokio_tungstenite::connect_async(format!(
-                "ws://127.0.0.1:{port}/ws?role=overlay&source=visual&client=obs&secret={secret}"
-            ))
-            .await
-            .unwrap();
-            let initial = client.next().await.unwrap().unwrap();
-            assert!(initial.to_text().unwrap().contains("\"type\":\"config\""));
-            let appearance = client.next().await.unwrap().unwrap();
-            assert!(
-                appearance
-                    .to_text()
-                    .unwrap()
-                    .contains("\"type\":\"appearance\"")
-            );
-            let clock = client.next().await.unwrap().unwrap();
-            assert!(clock.to_text().unwrap().contains("\"type\":\"mediaClock\""));
-            let stage = client.next().await.unwrap().unwrap();
-            assert!(stage.to_text().unwrap().contains("\"type\":\"stageClock\""));
-            clients.push(client);
-        }
-        let (mut preview_client, _) = tokio_tungstenite::connect_async(format!(
-            "ws://127.0.0.1:{port}/ws?role=overlay&source=visual&client=preview&secret={secret}"
-        ))
-        .await
-        .unwrap();
-        let initial = preview_client.next().await.unwrap().unwrap();
-        assert!(initial.to_text().unwrap().contains("\"type\":\"config\""));
-        let appearance = preview_client.next().await.unwrap().unwrap();
-        assert!(
-            appearance
-                .to_text()
-                .unwrap()
-                .contains("\"type\":\"appearance\"")
-        );
-        clients.push(preview_client);
-        let (mut widget_client, _) = tokio_tungstenite::connect_async(format!(
-            "ws://127.0.0.1:{port}/ws?role=overlay&source=visual&client=widget&secret={secret}"
-        ))
-        .await
-        .unwrap();
-        let initial = widget_client.next().await.unwrap().unwrap();
-        assert!(initial.to_text().unwrap().contains("\"type\":\"config\""));
-        let appearance = widget_client.next().await.unwrap().unwrap();
-        assert!(
-            appearance
-                .to_text()
-                .unwrap()
-                .contains("\"type\":\"appearance\"")
-        );
-        let stage = widget_client.next().await.unwrap().unwrap();
-        assert!(stage.to_text().unwrap().contains("\"type\":\"stageClock\""));
-        clients.push(widget_client);
-        let (mut tts_client, _) = tokio_tungstenite::connect_async(format!(
-            "ws://127.0.0.1:{port}/ws?role=tts&source=tts&client=obs&secret={secret}"
-        ))
-        .await
-        .unwrap();
-        let initial = tts_client.next().await.unwrap().unwrap();
-        assert!(initial.to_text().unwrap().contains("\"type\":\"config\""));
-        let appearance = tts_client.next().await.unwrap().unwrap();
-        assert!(
-            appearance
-                .to_text()
-                .unwrap()
-                .contains("\"type\":\"appearance\"")
-        );
-        let stage = tts_client.next().await.unwrap().unwrap();
-        assert!(stage.to_text().unwrap().contains("\"type\":\"stageClock\""));
-        clients.push(tts_client);
-        let (mut notification_client, _) = tokio_tungstenite::connect_async(format!(
-            "ws://127.0.0.1:{port}/ws?role=notification&source=notification&client=obs&secret={secret}"
-        ))
-        .await
-        .unwrap();
-        let initial = notification_client.next().await.unwrap().unwrap();
-        assert!(initial.to_text().unwrap().contains("\"type\":\"config\""));
-        let appearance = notification_client.next().await.unwrap().unwrap();
-        assert!(
-            appearance
-                .to_text()
-                .unwrap()
-                .contains("\"type\":\"appearance\"")
-        );
-        let stage = notification_client.next().await.unwrap().unwrap();
-        assert!(stage.to_text().unwrap().contains("\"type\":\"stageClock\""));
-        clients.push(notification_client);
-
-        for index in 0..300 {
-            let event = MediaEvent {
-                kind: MediaKind::Image,
-                url: format!("https://cdn.discordapp.com/test/{index}.png"),
-                proxy_url: format!("https://media.discordapp.net/test/{index}.png"),
-                filename: format!("{index}.png"),
-                content_type: "image/png".into(),
-                artwork_id: None,
-                audio_id: None,
-                cached_media_id: None,
-                title: None,
-                artist: None,
-                text: None,
-                author: AuthorIdentity {
-                    username: "stability".into(),
-                    display_avatar_url: "https://cdn.discordapp.com/avatar.png".into(),
-                },
-                timestamp: index,
-                message_id: format!("10000000000000{index:04}"),
-            };
-            {
-                let mut history = core.history.write().await;
-                history.push_front(event.clone());
-                history.truncate(crate::state::HISTORY_LIMIT);
-            }
-            let _ = core.relay_tx.send(RelayEvent::Media(event));
-        }
-
-        for client in &mut clients {
-            for _ in 0..300 {
-                let message = tokio::time::timeout(Duration::from_secs(5), client.next())
-                    .await
-                    .expect("broadcast timed out")
-                    .expect("socket closed")
-                    .expect("websocket error");
-                assert!(message.to_text().unwrap().contains("\"type\":\"media\""));
-            }
-        }
-        assert_eq!(core.history.read().await.len(), 50);
-        let status = core.server_status.read().await.clone();
-        assert_eq!(status.overlay_clients, 10);
-        assert_eq!(status.outputs.visual.obs_clients, 8);
-        assert_eq!(status.outputs.visual.preview_clients, 1);
-        assert_eq!(status.outputs.visual.widget_clients, 1);
-        assert!(status.outputs.visual.last_connected_at.is_some());
-        assert_eq!(status.outputs.tts.obs_clients, 1);
-        assert_eq!(status.outputs.notification.obs_clients, 1);
-
-        start_server(core.clone()).await.unwrap();
-        for client in &mut clients {
-            let closed = tokio::time::timeout(Duration::from_secs(5), client.next())
-                .await
-                .expect("old socket did not close after restart");
-            assert!(
-                closed.is_none()
-                    || closed.is_some_and(|message| message.is_ok_and(|value| value.is_close()))
-            );
-        }
-        drop(clients);
-        stop_server(&core).await;
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn coordinates_split_video_and_audio_outputs() {
-        let port = free_local_port();
-        let directory = tempfile::tempdir().unwrap();
-        let core = AppCore::load(directory.path().join("config.json")).unwrap();
-        core.set_config(AppConfig {
-            port,
-            ..AppConfig::default()
-        })
-        .await
-        .unwrap();
-        start_server(core.clone()).await.unwrap();
-        let secret = load_or_create_relay_secret().unwrap();
-
-        let mut audio = connect_test_output(port, &secret, "audio").await;
-        let initial_audio_clock = next_test_event(&mut audio, "mediaClock").await;
-        assert_eq!(initial_audio_clock["payload"]["videoBusy"], false);
-        assert_eq!(initial_audio_clock["payload"]["audioBusy"], false);
-
-        let mut visual = connect_test_output(port, &secret, "visual").await;
-        let initial_visual_clock = next_test_event(&mut visual, "mediaClock").await;
-        assert_eq!(initial_visual_clock["payload"]["videoBusy"], false);
-        assert_eq!(initial_visual_clock["payload"]["audioBusy"], false);
-
-        send_test_clock(&mut visual, true).await;
-        let visual_grant = next_test_event(&mut visual, "mediaGrant").await;
-        assert_eq!(visual_grant["payload"]["granted"], true);
-        let visual_busy = next_test_event(&mut visual, "mediaClock").await;
-        assert_eq!(visual_busy["payload"]["videoBusy"], true);
-        let visual_busy = next_test_event(&mut audio, "mediaClock").await;
-        assert_eq!(visual_busy["payload"]["videoBusy"], true);
-
-        send_test_clock(&mut audio, true).await;
-        let audio_grant = next_test_event(&mut audio, "mediaGrant").await;
-        assert_eq!(audio_grant["payload"]["granted"], false);
-
-        core.publish_media(test_media(MediaKind::Video, "video"))
-            .await;
-        let video_event = next_test_event(&mut audio, "media").await;
-        assert_eq!(video_event["payload"]["kind"], "video");
-        let video_event = next_test_event(&mut visual, "media").await;
-        assert_eq!(video_event["payload"]["kind"], "video");
-
-        core.publish_media(test_media(MediaKind::Audio, "audio"))
-            .await;
-        let audio_event = next_test_event(&mut visual, "media").await;
-        assert_eq!(audio_event["payload"]["kind"], "audio");
-        let audio_event = next_test_event(&mut audio, "media").await;
-        assert_eq!(audio_event["payload"]["kind"], "audio");
-
-        drop(visual);
-        let video_idle = next_test_event(&mut audio, "mediaClock").await;
-        assert_eq!(video_idle["payload"]["videoBusy"], false);
-
-        send_test_clock(&mut audio, true).await;
-        let audio_grant = next_test_event(&mut audio, "mediaGrant").await;
-        assert_eq!(audio_grant["payload"]["granted"], true);
-        let audio_busy = next_test_event(&mut audio, "mediaClock").await;
-        assert_eq!(audio_busy["payload"]["audioBusy"], true);
-
-        send_test_clock(&mut audio, false).await;
-        let audio_idle = next_test_event(&mut audio, "mediaClock").await;
-        assert_eq!(audio_idle["payload"]["audioBusy"], false);
-
-        stop_server(&core).await;
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn coordinates_media_and_tts_stage_clock() {
-        let port = free_local_port();
-        let directory = tempfile::tempdir().unwrap();
-        let core = AppCore::load(directory.path().join("config.json")).unwrap();
-        core.set_config(AppConfig {
-            port,
-            ..AppConfig::default()
-        })
-        .await
-        .unwrap();
-        start_server(core.clone()).await.unwrap();
-        let secret = load_or_create_relay_secret().unwrap();
-
-        let mut overlay = connect_test_output(port, &secret, "all").await;
-        let overlay_stage = next_test_event(&mut overlay, "stageClock").await;
-        assert_eq!(overlay_stage["payload"]["mediaBusy"], false);
-        assert_eq!(overlay_stage["payload"]["musicBusy"], false);
-        assert_eq!(overlay_stage["payload"]["ttsBusy"], false);
-
-        let (mut notification, _) = tokio_tungstenite::connect_async(format!(
-            "ws://127.0.0.1:{port}/ws?role=notification&source=notification&client=widget&secret={secret}"
-        ))
-        .await
-        .unwrap();
-        assert_eq!(
-            next_test_event(&mut notification, "config").await["type"],
-            "config"
-        );
-        assert_eq!(
-            next_test_event(&mut notification, "appearance").await["type"],
-            "appearance"
-        );
-        let notification_stage = next_test_event(&mut notification, "stageClock").await;
-        assert_eq!(notification_stage["payload"]["mediaBusy"], false);
-        assert_eq!(notification_stage["payload"]["musicBusy"], false);
-        assert_eq!(notification_stage["payload"]["ttsBusy"], false);
-
-        notification
-            .send(tokio_tungstenite::tungstenite::Message::Text(
-                json!({ "type": "stageClock", "payload": { "lane": "tts", "busy": true } })
-                    .to_string()
-                    .into(),
-            ))
-            .await
-            .unwrap();
-        let busy = next_test_event(&mut overlay, "stageClock").await;
-        assert_eq!(busy["payload"]["ttsBusy"], true);
-        assert_eq!(busy["payload"]["mediaBusy"], false);
-        let busy = next_test_event(&mut notification, "stageClock").await;
-        assert_eq!(busy["payload"]["ttsBusy"], true);
-
-        overlay
-            .send(tokio_tungstenite::tungstenite::Message::Text(
-                json!({ "type": "stageClock", "payload": { "lane": "media", "busy": true } })
-                    .to_string()
-                    .into(),
-            ))
-            .await
-            .unwrap();
-        // Media claim is rejected while TTS holds the exclusive stage.
-        let rejected = next_test_event(&mut overlay, "stageClock").await;
-        assert_eq!(rejected["payload"]["mediaBusy"], false);
-        assert_eq!(rejected["payload"]["ttsBusy"], true);
-        assert_eq!(rejected["payload"]["granted"], false);
-
-        notification
-            .send(tokio_tungstenite::tungstenite::Message::Text(
-                json!({ "type": "stageClock", "payload": { "lane": "tts", "busy": false } })
-                    .to_string()
-                    .into(),
-            ))
-            .await
-            .unwrap();
-        let idle = next_test_event(&mut overlay, "stageClock").await;
-        assert_eq!(idle["payload"]["ttsBusy"], false);
-        let idle = next_test_event(&mut notification, "stageClock").await;
-        assert_eq!(idle["payload"]["ttsBusy"], false);
-
-        overlay
-            .send(tokio_tungstenite::tungstenite::Message::Text(
-                json!({ "type": "stageClock", "payload": { "lane": "media", "busy": true } })
-                    .to_string()
-                    .into(),
-            ))
-            .await
-            .unwrap();
-        let media_only = next_test_event(&mut overlay, "stageClock").await;
-        assert_eq!(media_only["payload"]["mediaBusy"], true);
-        assert_eq!(media_only["payload"]["ttsBusy"], false);
-        let media_only = next_test_event(&mut notification, "stageClock").await;
-        assert_eq!(media_only["payload"]["mediaBusy"], true);
-        assert_eq!(media_only["payload"]["ttsBusy"], false);
-
-        let mut peer_overlay = connect_test_output(port, &secret, "all").await;
-        let peer_initial = next_test_event(&mut peer_overlay, "stageClock").await;
-        assert_eq!(peer_initial["payload"]["mediaBusy"], true);
-        peer_overlay
-            .send(tokio_tungstenite::tungstenite::Message::Text(
-                json!({ "type": "stageClock", "payload": { "lane": "media", "busy": true } })
-                    .to_string()
-                    .into(),
-            ))
-            .await
-            .unwrap();
-        // A same-lane grant must wake the claimant even though the global
-        // mediaBusy boolean was already true because another output owns it.
-        let peer_grant = next_test_event(&mut peer_overlay, "stageClock").await;
-        assert_eq!(peer_grant["payload"]["mediaBusy"], true);
-        assert_eq!(peer_grant["payload"]["ttsBusy"], false);
-
-        stop_server(&core).await;
-    }
-
-    type TestWebSocket = tokio_tungstenite::WebSocketStream<
-        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
-    >;
-
-    async fn connect_test_output(port: u16, secret: &str, source: &str) -> TestWebSocket {
-        let (mut client, _) = tokio_tungstenite::connect_async(format!(
-            "ws://127.0.0.1:{port}/ws?role=overlay&source={source}&client=obs&secret={secret}"
-        ))
-        .await
-        .unwrap();
-        assert_eq!(
-            next_test_event(&mut client, "config").await["type"],
-            "config"
-        );
-        assert_eq!(
-            next_test_event(&mut client, "appearance").await["type"],
-            "appearance"
-        );
-        client
-    }
-
-    async fn next_test_event(client: &mut TestWebSocket, expected_type: &str) -> serde_json::Value {
-        loop {
-            let message = tokio::time::timeout(Duration::from_secs(5), client.next())
-                .await
-                .expect("websocket event timed out")
-                .expect("websocket closed")
-                .expect("websocket error");
-            let event: serde_json::Value =
-                serde_json::from_str(message.to_text().expect("text websocket event")).unwrap();
-            if event["type"] == expected_type {
-                return event;
-            }
-        }
-    }
-
-    async fn send_test_clock(client: &mut TestWebSocket, busy: bool) {
-        client
-            .send(tokio_tungstenite::tungstenite::Message::Text(
-                json!({ "type": "mediaClock", "payload": { "busy": busy } })
-                    .to_string()
-                    .into(),
-            ))
-            .await
-            .unwrap();
-    }
-
-    fn test_media(kind: MediaKind, id: &str) -> MediaEvent {
-        MediaEvent {
-            kind,
-            url: format!("https://cdn.discordapp.com/{id}"),
-            proxy_url: format!("https://media.discordapp.net/{id}"),
-            filename: id.into(),
-            content_type: "application/octet-stream".into(),
-            artwork_id: None,
-            audio_id: None,
-            cached_media_id: None,
-            title: None,
-            artist: None,
-            text: None,
-            author: AuthorIdentity {
-                username: "clock-test".into(),
-                display_avatar_url: "https://cdn.discordapp.com/avatar.png".into(),
-            },
-            timestamp: 1,
-            message_id: id.into(),
-        }
-    }
-
-    fn free_local_port() -> u16 {
-        std::net::TcpListener::bind((HOST, 0))
-            .unwrap()
-            .local_addr()
-            .unwrap()
-            .port()
-    }
-
-    fn access_query(source: Option<&str>, client: Option<&str>) -> AccessQuery {
-        AccessQuery {
-            role: None,
-            secret: None,
-            token: None,
-            source: source.map(str::to_owned),
-            client: client.map(str::to_owned),
-        }
-    }
-
-    #[test]
-    fn serves_cached_video_byte_ranges_inline() {
-        let response = ranged_media_response(
-            CachedMedia {
-                id: "gif".into(),
-                content_type: "video/mp4".into(),
-                bytes: axum::body::Bytes::from_static(b"0123456789"),
-            },
-            Some(&HeaderValue::from_static("bytes=2-5")),
-        );
-        assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
-        assert_eq!(response.headers()[header::CONTENT_RANGE], "bytes 2-5/10");
-        assert_eq!(response.headers()[header::CONTENT_TYPE], "video/mp4");
-        assert!(
-            response
-                .headers()
-                .get(header::CONTENT_DISPOSITION)
-                .is_none()
-        );
-    }
-
-    fn http_status(port: u16, path: &str) -> String {
-        http_response(port, path)
-            .lines()
-            .next()
-            .unwrap_or_default()
-            .to_owned()
-    }
-
-    fn http_response(port: u16, path: &str) -> String {
-        http_response_with_host(port, path, HOST)
-    }
-
-    fn http_response_with_host(port: u16, path: &str, hostname: &str) -> String {
-        let mut stream = std::net::TcpStream::connect((HOST, port)).unwrap();
-        write!(
-            stream,
-            "GET {path} HTTP/1.1\r\nHost: {hostname}:{port}\r\nConnection: close\r\n\r\n"
-        )
-        .unwrap();
-        let mut response = String::new();
-        stream.read_to_string(&mut response).unwrap();
-        response
-    }
-}
+mod tests;

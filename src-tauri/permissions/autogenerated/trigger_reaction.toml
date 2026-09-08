@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-trigger-reaction"
+description = "Enables the trigger_reaction command without any pre-configured scope."
+commands.allow = ["trigger_reaction"]
+
+[[permission]]
+identifier = "deny-trigger-reaction"
+description = "Denies the trigger_reaction command without any pre-configured scope."
+commands.deny = ["trigger_reaction"]

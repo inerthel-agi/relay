@@ -12,7 +12,7 @@ pub struct AuthorIdentity {
     pub display_avatar_url: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GuildTagIdentity {
     pub name: String,
@@ -154,7 +154,7 @@ pub struct StickerEvent {
     pub message_id: String,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VisualSegment {
     pub kind: String,
@@ -163,7 +163,7 @@ pub struct VisualSegment {
     pub animated: bool,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TtsEvent {
     pub id: String,
@@ -175,6 +175,14 @@ pub struct TtsEvent {
     pub timestamp: u64,
     pub visual_only: bool,
     pub segments: Vec<VisualSegment>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MessagePinEvent {
+    pub pinned: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<TtsEvent>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
@@ -197,15 +205,6 @@ pub struct OutputTestEvent {
     pub tts: Option<TtsEvent>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sticker: Option<StickerEvent>,
-}
-
-#[derive(Clone, Debug)]
-pub struct TtsRequest {
-    pub id: String,
-    pub text: String,
-    pub author: AuthorIdentity,
-    pub guild_tag: Option<GuildTagIdentity>,
-    pub timestamp: u64,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -237,6 +236,7 @@ pub struct OutputConnectionStatus {
 #[derive(Clone, Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OutputStatuses {
+    pub reaction: OutputConnectionStatus,
     pub visual: OutputConnectionStatus,
     pub audio: OutputConnectionStatus,
     pub tts: OutputConnectionStatus,
@@ -276,6 +276,8 @@ impl Default for InterfacePreferences {
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "type", content = "payload", rename_all = "camelCase")]
 pub enum RelayEvent {
+    Reaction(Option<crate::reactions::ReactionPlayback>),
+    MessagePin(MessagePinEvent),
     Media(MediaEvent),
     AudioPlayback(AudioPlaybackState),
     AudioControl(AudioControlEvent),

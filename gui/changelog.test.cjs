@@ -3,7 +3,7 @@ const fs = require("node:fs");
 const test = require("node:test");
 const vm = require("node:vm");
 
-const panelSource = fs.readFileSync(__dirname + "/panel.js", "utf8");
+const panelSource = require("./test-source.cjs").panelSource();
 const panelHtml = fs.readFileSync(__dirname + "/panel.html", "utf8");
 const changelogMarkdown = fs.readFileSync(__dirname + "/../CHANGELOG.md", "utf8");
 
@@ -38,7 +38,9 @@ test("parses published changelog sections and skips Unreleased", () => {
   const releases = context.parseChangelogReleases(changelogMarkdown);
   assert.ok(releases.length >= 2);
   const version = JSON.parse(fs.readFileSync(__dirname + "/../src-tauri/tauri.conf.json", "utf8")).version;
-  assert.equal(releases[0].version, version);
+  const pending = changelogMarkdown.split("## [Unreleased]")[1]?.split(/\n## \[/)[0];
+  const target = pending?.match(/Target version: (\d+\.\d+\.\d+)\./)?.[1];
+  assert.equal(target || releases[0].version, version);
   assert.match(releases[0].date, /^\d{4}-\d{2}-\d{2}$/);
   for (const heading of [
     "### English", "### Français", "### Español", "### Deutsch",
@@ -88,12 +90,12 @@ test("an up-to-date local build shows its installed version, not the older GitHu
   const control = () => ({ classList: { toggle() {} } });
   const status = { textContent: "" };
   const local = vm.createContext({
-    currentAppVersion: "1.3.3", updateUiState: { kind: "current", version: "1.3.2" },
+    currentAppVersion: "1.3.4", updateUiState: { kind: "current", version: "1.3.3" },
     latestUpdate: { updateAvailable: false }, updateStatusElement: status,
     updateCheckButton: control(), installUpdateButton: control(), updateAvailableDot: control(),
     t: (key) => key, formatTranslation: (key, values) => `${key}: ${values.version}`,
   });
   vm.runInContext(sourceBetween(panelSource, "function renderUpdateStatus", "function setUpdateMenuOpen")
     + "\nrenderUpdateStatus();", local);
-  assert.equal(status.textContent, "upToDate: 1.3.3");
+  assert.equal(status.textContent, "upToDate: 1.3.4");
 });

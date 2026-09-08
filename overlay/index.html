@@ -6,6 +6,7 @@
     <meta name="relay-mode" content="all">
     <title>Relay</title>
     <link rel="stylesheet" href="/overlay-assets/overlay.css">
+    <link rel="stylesheet" href="/overlay-assets/audio-card.css">
   </head>
   <body>
     <main id="overlay" class="overlay" aria-live="polite">
@@ -17,6 +18,10 @@
           <span class="audio-card__label">Now playing</span>
           <strong id="audio-title" class="audio-card__title"></strong>
           <span id="audio-artist" class="audio-card__artist" hidden></span>
+          <div id="audio-author" class="audio-card__author" hidden>
+            <img id="audio-author-avatar" alt="">
+            <span id="audio-author-name"></span>
+          </div>
           <p id="audio-media-text" class="audio-card__caption" hidden></p>
           <div class="audio-card__transport">
             <span class="audio-card__wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
@@ -63,6 +68,7 @@
     <div id="widget-move-layer" class="widget-move-layer" data-tauri-drag-region>
       <span id="widget-move-label" class="widget-move-badge">Move overlay</span>
     </div>
+    <script src="/output-layout.js" defer></script>
     <script src="/overlay-assets/overlay.js" defer></script>
   </body>
 </html>

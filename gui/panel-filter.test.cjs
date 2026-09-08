@@ -3,7 +3,7 @@ const fs = require("node:fs");
 const test = require("node:test");
 const vm = require("node:vm");
 
-const panelSource = fs.readFileSync(__dirname + "/panel.js", "utf8");
+const panelSource = require("./test-source.cjs").panelSource();
 const filterSource = panelSource.slice(
   panelSource.indexOf("function filterWordKey"),
   panelSource.indexOf("function applyConfig"),

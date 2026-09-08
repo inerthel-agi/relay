@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  Relay receives images, GIFs, videos, audio, and TTS messages from Discord,<br />
+  Relay receives images, GIFs, videos, audio, and message notifications from Discord,<br />
   then routes them to dedicated OBS Browser Sources and optional Windows widgets.
 </p>
 
@@ -57,11 +57,14 @@ Relay bot ──► optional moderation ──► bounded FIFO queues
 | Area | Capability |
 |---|---|
 | Visual media | Images, animated GIFs, Discord GIF-picker embeds, MP4/WebM video, transparent idle canvas, native aspect ratios, and fade transitions |
-| Timing | Independent 1–60 second timers for static images, GIFs, stickers, and silent TTS notifications; normal videos play to completion |
+| Timing | Independent 1–60 second timers for static images, GIFs, stickers, and silent message notifications; normal videos play to completion |
 | Stickers | Discord PNG, APNG, GIF, and Lottie stickers on a dedicated OBS source with its own FIFO queue |
 | Audio | Common audio formats, original cached bytes, embedded album artwork, title and artist metadata, and a “Now playing” card |
-| Text-to-speech | Dedicated Discord channel, Windows voices, French/English detection, character limit, queue capacity, skip, and clear |
+| Message notifications | Dedicated Discord channel, visual text/emoji/sticker notifications, queue capacity, and pin/unpin controls for the current message |
 | Notifications | Independent OBS notification source, optional custom sound, and a movable Windows notification widget |
+| Media library | Local copies of images, GIFs, and videos with search, rename, replay, and delete controls |
+| Music requests | YouTube requests with a per-member pending limit, duplicate protection, and pending-track reordering |
+| Sounds and reactions | Short local sounds with optional visuals, an OBS source, an optional Windows widget, and Discord access controls |
 | Moderation | Optional local approval queue with independent image/GIF, video, and audio filters |
 | History | Last 50 media items in memory with replay and clear controls |
 | Queueing | Multi-user FIFO handling with watchdog recovery instead of silent stalls or dropped bursts |
@@ -91,8 +94,9 @@ The bot needs **View Channel** and **Read Message History** in every configured 
 ### 3. Route Discord channels
 
 - Select one channel for images, GIFs, videos, and audio.
-- Optionally select a separate channel for TTS messages.
-- Save the routing; changes apply without restarting Relay.
+- In the **Messages** module, select a separate channel for message notifications and configure its settings.
+- Optionally configure the Music and Sounds and reactions modules in the panel.
+- Save the routing and Messages settings; changes apply without restarting Relay.
 
 ### 4. Add the OBS sources
 
@@ -102,7 +106,7 @@ Open Relay’s **Overlay** page, copy each private URL, and add it as a separate
 
 Post a supported media item in the watched channel. With moderation disabled it enters the output queue immediately; with moderation enabled it waits for local approval inside Relay.
 
-For the full setup, recommended OBS dimensions, TTS configuration, widgets, and troubleshooting, read the **[Relay user guide](USAGE.md)**.
+For the full setup, recommended OBS dimensions, message notification configuration, widgets, and troubleshooting, read the **[Relay user guide](USAGE.md)**.
 
 ## OBS Browser Sources
 
@@ -112,9 +116,9 @@ Relay keeps different media classes independent so each source can be positioned
 |---|---|---|
 | Visual media | `http://127.0.0.1:4590/medias` | Images, GIFs, and videos with author overlay |
 | Audio | `http://127.0.0.1:4590/audios` | Music, soundboard clips, and Discord audio attachments |
-| TTS | `http://127.0.0.1:4590/tts` | Synthesized speech as a dedicated audio source |
-| Notifications | `http://127.0.0.1:4590/notifications` | Author and message card synchronized with TTS |
+| Notifications | `http://127.0.0.1:4590/notifications` | Author and message card shown for the configured duration |
 | Stickers | `http://127.0.0.1:4590/stickers` | Discord stickers with their own queue and duration |
+| Reactions | `http://127.0.0.1:4590/reactions` | Short sounds with optional image or GIF |
 
 The URLs shown inside Relay also carry private authorization. Copy them from the application rather than recreating them manually. If you change the local port, every displayed URL updates accordingly.
 
@@ -152,13 +156,13 @@ Relay uses a small native stack with no frontend framework and no database.
 | Layer | Technology | Responsibility |
 |---|---|---|
 | Desktop shell | Tauri 2 | Main window, tray, widgets, global shortcut, single-instance behavior |
-| Core | Rust + Tokio | Configuration, Discord lifecycle, queues, moderation, caching, TTS orchestration |
+| Core | Rust + Tokio | Configuration, Discord lifecycle, queues, moderation, caching, message notification orchestration |
 | Discord | Serenity | Gateway events, attachments, GIF embeds, channels, slash command |
 | Local server | Axum + WebSocket | Authenticated browser sources, media routes, live events, health status |
 | Metadata | Lofty | Embedded audio title, artist, and album artwork |
-| Interface | Vanilla HTML/CSS/JS | Control panel, overlay, audio source, TTS, notifications, localization |
+| Interface | Vanilla HTML/CSS/JS | Control panel, overlay, audio source, notifications, notifications, localization |
 
-No database is required. Configuration is persisted locally; history, pending media, and media caches remain in memory.
+No database is required. Configuration, the media library, and reaction sound copies are persisted locally; history, pending media, and output caches remain in memory.
 
 ## Configuration
 
@@ -167,17 +171,19 @@ Settings are editable live from Relay and stored in the application configuratio
 | Setting | Default | Notes |
 |---|---:|---|
 | Media channel | — | Watched Discord channel for visual media and audio |
-| TTS channel | — | Optional, and must differ from the media channel |
+| Message channel | — | Configure under **Messages**; it must differ from the media channel |
 | Local port | `4590` | Must be between `1024` and `65535` |
 | Image duration | `8 s` | Static images only, from `1` to `60` seconds |
 | GIF duration | `8 s` | Animated GIFs loop for this duration, from `1` to `60` seconds |
 | Sticker duration | `8 s` | Discord stickers stay visible for this duration, from `1` to `60` seconds |
-| Notification duration | `8 s` | Silent TTS notifications stay visible for this duration, from `1` to `60` seconds |
+| Notification duration | `8 s` | Silent message notifications stay visible for this duration, from `1` to `60` seconds |
 | Media volume | `50%` | Video and audio playback volume |
 | Show author | On | Displays Discord avatar and username over media |
-| TTS character limit | Unlimited | `0` keeps the full message |
-| TTS queue capacity | `50` | Maximum waiting TTS messages |
-| TTS voice | On | When disabled, TTS messages become silent notifications |
+| Message character limit | Unlimited | `0` keeps the full message |
+| Message queue capacity | `50` | Maximum waiting message notifications |
+| Music pending limit | `3` | Maximum waiting music requests per Discord member; `0` disables the limit and `1`–`10` are accepted |
+| Reject duplicate music | On | Refuses a YouTube video ID that is already waiting in the music queue |
+| Reactions | Off | Short sounds are disabled until the module is enabled and its access lists are configured |
 | Manual moderation | Off | Optional approval queue and media-type filters |
 
 Existing installations automatically migrate the previous combined image/GIF duration into the new GIF duration.
@@ -232,7 +238,7 @@ cargo clippy --all-targets -- -D warnings
 node --test gui/translations.test.cjs gui/panel-history.test.cjs gui/panel-output-status.test.cjs overlay/overlay.test.cjs notifications/notifications.test.cjs stickers/stickers.test.cjs tts/tts.test.cjs
 ```
 
-The test suite covers configuration migration, moderation, queue recovery, authenticated media ranges, GIF classification, separate timing, output readiness, TTS ordering, translations, and local server behavior.
+The test suite covers configuration migration, moderation, queue recovery, authenticated media ranges, GIF classification, separate timing, output readiness, notification ordering, translations, and local server behavior.
 
 ## Project map
 
@@ -241,9 +247,10 @@ relay-bot/
 ├── src-tauri/src/       Rust application core, Discord bot, server, commands
 ├── gui/                 Main panel and system-tray interface
 ├── overlay/             Visual media Browser Source and widget client
-├── tts/                 Dedicated TTS Browser Source
-├── notifications/       TTS notification Browser Source and widget
+├── tts/                 Legacy silent Browser Source
+├── notifications/       Message notification Browser Source and widget
 ├── stickers/            Sticker Browser Source and widget client
+├── reactions/           Sounds and reactions Browser Source
 ├── assets/              Relay identity and README visuals
 ├── docs/                Design records, YouTube API tutorial, implementation notes
 ├── scripts/             Signed release build script
@@ -253,12 +260,13 @@ relay-bot/
 
 ## Documentation
 
-- **[User guide](USAGE.md)** — Discord, OBS, moderation, TTS, widgets, YouTube music API, and troubleshooting
+- **[User guide](USAGE.md)** — Discord, OBS, moderation, notifications, widgets, YouTube music API, and troubleshooting
 - **[YouTube API setup](docs/youtube-api-setup.md)** — Google Cloud → YouTube Data API v3 → key in Relay (English)
 - **[Design system](docs/design-system.md)** — visual identity and interface constraints
 - **[Architecture](docs/architecture.md)** — runtime components, trust boundaries, and contributor source map
 - **[Contributing](CONTRIBUTING.md)** — local setup, validation, and contribution rules
 - **[Windows smoke tests](docs/windows-smoke-tests.md)** — manual checks for Windows, Discord, OBS, codecs, OCR, and signed releases
+- **[v1.3.6 modules](docs/modules-1.3.6.md)** — message pinning, media library, music request controls, and reactions
 - **[Security policy](SECURITY.md)** — private vulnerability reporting and responsible disclosure
 - **[README design record](docs/readme-redesign.md)** — goals and decisions behind this page
 
@@ -266,9 +274,9 @@ relay-bot/
 
 - Windows 10 and 11 only. There is no macOS or Linux build.
 - OBS must run on the same computer: the local server binds to `127.0.0.1` only.
-- One media channel and one optional TTS channel are watched per instance.
+- One media channel and one optional Message channel are watched per instance.
 - History keeps the last 50 media items in memory and is cleared when Relay exits.
-- Automatic TTS voice detection distinguishes French and English only; other messages use the English voice.
+- Reactions require an explicit allowed Discord channel and role, and are disabled by default.
 - OCR-based privacy inspection recognizes French and English text.
 
 ## License

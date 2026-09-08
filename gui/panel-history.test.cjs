@@ -3,7 +3,7 @@ const fs = require("node:fs");
 const test = require("node:test");
 const vm = require("node:vm");
 
-const panelSource = fs.readFileSync(__dirname + "/panel.js", "utf8");
+const panelSource = require("./test-source.cjs").panelSource();
 const thumbnailSource = panelSource.slice(
   panelSource.indexOf("function isVideoThumbnail"),
   panelSource.indexOf("function replaceHistory"),
@@ -108,6 +108,8 @@ test("history starts loading video thumbnails after rendering", () => {
   const context = vm.createContext({
     history: [],
     historyEmptyElement: {},
+    document: { querySelector: () => null },
+    t: (key) => key,
     historyListElement: {
       replaceChildren() {},
       querySelectorAll() { return [video]; },

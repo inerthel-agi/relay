@@ -1,18 +1,22 @@
 # Music channel cleanup and Loop
 
-Available in Relay 1.3.3 on Windows.
+Available in Relay 1.3.4 on Windows.
 
-## Protect the welcome message
+## Optionally protect a welcome message
 
 1. Open **Music** in Relay and select the Discord music channel.
-2. Copy the welcome message link from Discord into **Protected welcome message**.
-   A message ID also works. Relay verifies that the message exists in the selected channel.
+2. If you want to keep a welcome message, copy its link from Discord into
+   **Protected welcome message (optional)**. A message ID also works. Relay verifies
+   that the message exists in the selected channel.
 3. Enable **Automatically clean music messages** and save the music settings.
 
 The bot needs **View Channel**, **Read Message History**, and **Manage Messages**.
-Cleanup is disabled by default and requires a protected message. Replacing the music
-channel through Relay's channel recreation command disables cleanup until a new
-welcome message is configured.
+Cleanup is disabled by default. The protected welcome message is optional, including
+when cleanup is enabled: leave the field empty to protect no welcome message. If you
+provide a message, Relay verifies it in the selected channel and never deletes it.
+Recreating the music channel disables cleanup and clears the old welcome message
+reference. Save the music settings again to enable cleanup, with or without a
+protected welcome message.
 
 Requests disappear after processing. Search results disappear after a selection or
 after 120 seconds without a selection. Error replies expire after 120 seconds.
@@ -26,8 +30,8 @@ from the queue, skipped, cleared, or completed with Loop off.
 2. Select **Preview channel cleanup**.
 3. Review the count, then choose **Delete these messages** or **Cancel**.
 
-The preview examines up to the latest 1,000 messages. It excludes the welcome
-message and tracked active interactions. Confirmation uses that exact snapshot,
+The preview examines up to the latest 1,000 messages. It excludes the configured
+protected welcome message, when present, and tracked active interactions. Confirmation uses that exact snapshot,
 expires after 120 seconds, and cannot be reused. Messages arriving after the
 preview are not added to it. Changing the channel or protected message invalidates
 the preview. Deletion stops on the first Discord error; the panel reports the result.

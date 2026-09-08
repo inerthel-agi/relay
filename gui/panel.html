@@ -39,53 +39,63 @@
             <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#nav-icon-overview"></use></svg>
             <span class="navigation__label" data-i18n="navOverview">Overview</span>
           </button>
-          <button class="navigation__item" type="button" data-page-target="media">
+          <button class="navigation__item" type="button" data-page-target="messages">
             <span class="navigation__index">02</span>
+            <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v12H9l-5 4V4Z"/><path d="M8 8h8M8 12h5"/></svg>
+            <span class="navigation__label" data-i18n="moduleMessages">Messages</span>
+          </button>
+          <button class="navigation__item" type="button" data-page-target="media">
+            <span class="navigation__index">03</span>
             <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#nav-icon-media"></use></svg>
             <span class="navigation__label" data-i18n="navMedia">Media</span>
           </button>
           <button class="navigation__item" type="button" data-page-target="music">
-            <span class="navigation__index">03</span>
+            <span class="navigation__index">04</span>
             <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#nav-icon-music"></use></svg>
             <span class="navigation__label" data-i18n="navMusic">Music</span>
           </button>
+          <button class="navigation__item" type="button" data-page-target="reactions">
+            <span class="navigation__index">05</span>
+            <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10h4l5-5v14l-5-5H4v-4ZM17 8a6 6 0 0 1 0 8M20 5a10 10 0 0 1 0 14"/></svg>
+            <span class="navigation__label" data-i18n="moduleReactions">Sounds and reactions</span>
+          </button>
           <button class="navigation__item" type="button" data-page-target="overlay">
-            <span class="navigation__index">04</span>
+            <span class="navigation__index">06</span>
             <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#nav-icon-overlay"></use></svg>
             <span class="navigation__label" data-i18n="navOverlay">Overlay</span>
           </button>
           <button class="navigation__item" type="button" data-page-target="moderation">
-            <span class="navigation__index">05</span>
+            <span class="navigation__index">07</span>
             <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#nav-icon-moderation"></use></svg>
             <span class="navigation__label" data-i18n="navModeration">Moderation</span>
           </button>
           <button class="navigation__item" type="button" data-page-target="commands">
-            <span class="navigation__index">06</span>
+            <span class="navigation__index">08</span>
             <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#nav-icon-commands"></use></svg>
             <span class="navigation__label" data-i18n="navCommands">Commands</span>
           </button>
           <button class="navigation__item" type="button" data-page-target="history">
-            <span class="navigation__index">07</span>
+            <span class="navigation__index">09</span>
             <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#nav-icon-history"></use></svg>
             <span class="navigation__label" data-i18n="navHistory">History</span>
           </button>
           <button class="navigation__item" type="button" data-page-target="help">
-            <span class="navigation__index">08</span>
+            <span class="navigation__index">10</span>
             <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#nav-icon-help"></use></svg>
             <span class="navigation__label" data-i18n="navHelp">Help</span>
           </button>
           <button class="navigation__item" type="button" data-page-target="personalization">
-            <span class="navigation__index">09</span>
+            <span class="navigation__index">11</span>
             <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#nav-icon-personalization"></use></svg>
             <span class="navigation__label" data-i18n="navPersonalization">Personalization</span>
           </button>
           <button class="navigation__item" type="button" data-page-target="changelog">
-            <span class="navigation__index">10</span>
+            <span class="navigation__index">12</span>
             <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#nav-icon-changelog"></use></svg>
             <span class="navigation__label" data-i18n="navChangelog">Changelog</span>
           </button>
           <button class="navigation__item" type="button" data-page-target="about">
-            <span class="navigation__index">11</span>
+            <span class="navigation__index">13</span>
             <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#nav-icon-about"></use></svg>
             <span class="navigation__label" data-i18n="navAbout">About</span>
           </button>
@@ -116,7 +126,7 @@
               aria-expanded="false"
               aria-controls="update-menu"
             >
-              <span><span class="version__platform">Windows · </span>v<span data-app-version>1.3.3</span></span>
+              <span><span class="version__platform">Windows · </span>v<span data-app-version>1.3.4</span></span>
               <span id="update-available-dot" class="update-available-dot" hidden></span>
               <svg class="update-check__icon" viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M20 6v5h-5M4 18v-5h5M6.1 9a7 7 0 0 1 11.3-2.1L20 11M4 13l2.6 4.1A7 7 0 0 0 17.9 15"/>
@@ -293,72 +303,95 @@
                 </details>
               </details>
 
-              <details class="panel-section panel-disclosure" id="disclosure-overview-2" open>
-                <summary class="section-heading">
-                  <div>
-                    <span class="section-number">02</span>
-                    <h3 data-i18n="routingTitle">Input routing</h3>
-                  </div>
-                  <span class="section-actions">
-                    <span id="save-state" class="save-state" role="status"></span>
-                    <button id="refresh-channels" class="button button--quiet" type="button" data-i18n="refreshChannels">Refresh channels</button>
-                  </span>
-                </summary>
-                <p class="section-copy" data-i18n="routingCopy">Choose one Discord channel for media and another for spoken messages.</p>
-                <form id="routing-form" class="form-grid">
-                  <label class="field field--wide">
-                    <span data-i18n="mediaChannel">Media channel</span>
-                    <select id="channel" name="watchedChannelId">
-                      <option value="">Select a visible text channel</option>
-                    </select>
-                  </label>
-                  <label class="setting-row setting-row--switch field--wide">
-                    <span>
-                      <strong data-i18n="mediaCleanup24h">Delete media channel messages after 24 hours</strong>
-                      <small data-i18n="channelCleanup24hHelp">Checks every 5 minutes while Relay runs. Deletes messages older than 24 hours, except the protected welcome message. Requires Manage Messages.</small>
-                    </span>
-                    <span class="switch">
-                      <input id="media-cleanup-enabled" type="checkbox">
-                      <span class="switch__track" aria-hidden="true"></span>
-                    </span>
-                  </label>
-                  <label class="field field--wide">
-                    <span data-i18n="mediaWelcomeMessage">Media welcome message (optional)</span>
-                    <input id="media-welcome-message" type="text" autocomplete="off" spellcheck="false" data-i18n-placeholder="musicWelcomePlaceholder" placeholder="Discord message link or ID">
-                    <small data-i18n="channelWelcomeOptionalHelp">Leave empty only if no message needs to be kept. A supplied message must belong to this channel.</small>
-                  </label>
-                  <label class="field field--wide">
-                    <span data-i18n="ttsChannel">TTS message channel</span>
-                    <select id="tts-channel" name="ttsChannelId">
-                      <option value="">TTS disabled</option>
-                    </select>
-                  </label>
-                  <label class="setting-row setting-row--switch field--wide">
-                    <span>
-                      <strong data-i18n="ttsCleanup24h">Delete TTS channel messages after 24 hours</strong>
-                      <small data-i18n="channelCleanup24hHelp">Checks every 5 minutes while Relay runs. Deletes messages older than 24 hours, except the protected welcome message. Requires Manage Messages.</small>
-                    </span>
-                    <span class="switch">
-                      <input id="tts-cleanup-enabled" type="checkbox">
-                      <span class="switch__track" aria-hidden="true"></span>
-                    </span>
-                  </label>
-                  <label class="field field--wide">
-                    <span data-i18n="ttsWelcomeMessage">TTS welcome message (optional)</span>
-                    <input id="tts-welcome-message" type="text" autocomplete="off" spellcheck="false" data-i18n-placeholder="musicWelcomePlaceholder" placeholder="Discord message link or ID">
-                    <small data-i18n="channelWelcomeOptionalHelp">Leave empty only if no message needs to be kept. A supplied message must belong to this channel.</small>
-                  </label>
-                  <label class="field field--wide">
-                    <span data-i18n="localPort">Local port</span>
-                    <input id="port" name="port" type="number" min="1024" max="65535" step="1" required>
-                  </label>
-                  <button class="button button--primary field--wide" type="submit" data-i18n="saveRouting">Save routing</button>
-                </form>
-              </details>
             </div>
           </section>
 
+          <section class="page" data-page="messages" hidden>
+            <div class="page-intro page-intro--compact"><h2 data-i18n="moduleMessages">Messages</h2><p data-i18n="pinCopy">Keep an important message on screen while media and music continue.</p></div>
+            <section class="panel-section panel-section--wide" id="message-module"></section>
+            <section class="panel-section panel-section--wide">
+              <div class="section-heading">
+                <div>
+                  <span class="section-number">01</span>
+                  <h3 data-i18n="ttsSpeech">Message notifications</h3>
+                </div>
+                <span id="messages-save-state" class="save-state" role="status"></span>
+              </div>
+              <p class="section-copy" data-i18n="ttsSpeechHelp">Message notifications remain visual; optional notification sounds can be configured separately.</p>
+              <form id="messages-form" class="settings-list">
+                <label class="field field--wide">
+                  <span data-i18n="ttsChannel">Message notification channel</span>
+                  <select id="tts-channel" name="ttsChannelId">
+                    <option value="">Message notifications disabled</option>
+                  </select>
+                </label>
+                <label class="setting-row setting-row--switch field--wide">
+                  <span>
+                    <strong data-i18n="ttsCleanup24h">Delete notification messages after 24 hours</strong>
+                    <small data-i18n="channelCleanup24hHelp">Checks every 5 minutes while Relay runs. Deletes messages older than 24 hours, except the protected welcome message. Requires Manage Messages.</small>
+                  </span>
+                  <span class="switch">
+                    <input id="tts-cleanup-enabled" type="checkbox">
+                    <span class="switch__track" aria-hidden="true"></span>
+                  </span>
+                </label>
+                <label class="field field--wide">
+                  <span data-i18n="ttsWelcomeMessage">Notification channel welcome message (optional)</span>
+                  <input id="tts-welcome-message" type="text" autocomplete="off" spellcheck="false" data-i18n-placeholder="musicWelcomePlaceholder" placeholder="Discord message link or ID">
+                  <small data-i18n="channelWelcomeOptionalHelp">Leave empty only if no message needs to be kept. A supplied message must belong to this channel.</small>
+                </label>
+                <label class="setting-row">
+                  <span>
+                    <strong data-i18n="notificationDuration">Notification duration</strong>
+                    <small data-i18n="notificationDurationHelp">Message notifications without audio stay visible for this duration.</small>
+                  </span>
+                  <span class="field__unit field__unit--short">
+                    <input id="notification-duration" name="notificationDurationSeconds" type="number" min="1" max="60" step="1" required>
+                    <small data-i18n="seconds">sec</small>
+                  </span>
+                </label>
+                <label class="setting-row">
+                  <span>
+                    <strong data-i18n="ttsCharacterLimit">Message character limit</strong>
+                    <small data-i18n="ttsCharacterLimitHelp">Use 0 for unlimited message length.</small>
+                  </span>
+                  <span class="field__unit field__unit--short">
+                    <input id="tts-character-limit" name="ttsCharacterLimit" type="number" min="0" max="4294967295" step="1" required>
+                    <small data-i18n="characters">chars</small>
+                  </span>
+                </label>
+                <label class="setting-row">
+                  <span>
+                    <strong data-i18n="ttsQueueLimit">Message queue capacity</strong>
+                    <small data-i18n="ttsQueueLimitHelp">Maximum waiting messages, from 1 to 50.</small>
+                  </span>
+                  <span class="field__unit field__unit--short">
+                    <input id="tts-queue-limit" name="ttsQueueLimit" type="number" min="1" max="50" step="1" required>
+                    <small data-i18n="items">items</small>
+                  </span>
+                </label>
+                <label class="setting-row setting-row--switch">
+                  <span>
+                    <strong data-i18n="enableObsNotifications">Enable OBS overlay</strong>
+                    <small data-i18n="enableObsNotificationsHelp">Does not change the Windows widget.</small>
+                  </span>
+                  <span class="switch">
+                    <input id="tts-notifications-obs" name="ttsNotificationsObsEnabled" type="checkbox">
+                    <span class="switch__track" aria-hidden="true"></span>
+                  </span>
+                </label>
+                <div class="settings-actions">
+                  <button class="button button--primary" type="submit" data-i18n="savePlayback">Save messages</button>
+                </div>
+              </form>
+            </section>
+          </section>
+          <section class="page" data-page="reactions" hidden>
+            <div class="page-intro page-intro--compact"><h2 data-i18n="moduleReactions">Sounds and reactions</h2><p data-i18n="reactionCopy">Prepare short sounds and visuals, then trigger them here or from Discord.</p></div>
+            <section class="panel-section panel-section--wide" id="reaction-module"></section>
+          </section>
           <section class="page" data-page="music" hidden>
+            <section class="panel-section panel-section--wide" id="music-queue-module"></section>
             <div class="page-intro page-intro--compact">
               <p class="kicker" data-i18n="musicKicker">Discord jukebox</p>
               <h2 data-i18n="musicTitle">Search YouTube. Play locally.</h2>
@@ -389,14 +422,14 @@
                     </select>
                   </label>
                   <label class="field field--wide">
-                    <span data-i18n="musicWelcome">Protected welcome message</span>
+                    <span data-i18n="musicWelcome">Protected welcome message (optional)</span>
                     <input id="music-welcome-message" type="text" autocomplete="off" spellcheck="false" data-i18n-placeholder="musicWelcomePlaceholder" placeholder="Discord message link or ID">
-                    <small data-i18n="musicWelcomeHelp">This message is never deleted. Save its link or ID before enabling cleanup.</small>
+                    <small data-i18n="musicWelcomeHelp">Leave empty to protect no welcome message. If provided, this message is never deleted. Save its link or ID before enabling cleanup.</small>
                   </label>
                   <label class="setting-row setting-row--switch field--wide">
                     <span>
                       <strong data-i18n="musicCleanupEnabled">Automatically clean music messages</strong>
-                      <small data-i18n="musicCleanupHelp">Requires Manage Messages. Requests disappear after processing; unused results expire after 120 seconds.</small>
+                      <small data-i18n="musicCleanupHelp">Requires Manage Messages. A protected welcome message is optional; if provided, it is preserved. Requests disappear after processing; unused results expire after 120 seconds.</small>
                     </span>
                     <span class="switch">
                       <input id="music-cleanup-enabled" type="checkbox">
@@ -508,7 +541,7 @@
                 </div>
                 <span id="music-overlay-save-state" class="save-state" role="status"></span>
               </summary>
-              <p class="section-copy" data-i18n="musicOverlayCopy">Windows Now Playing uses the 16:9 media floating widget. TTS uses the separate compact notification widget.</p>
+              <p class="section-copy" data-i18n="musicOverlayCopy">Windows Now Playing uses the 16:9 media floating widget. Message notifications use the separate compact notification widget.</p>
               <div class="form-grid">
                 <div class="source-field field--wide">
                   <span data-i18n="youtubeSource">Relay Visual (includes YouTube)</span>
@@ -534,6 +567,48 @@
           </section>
 
           <section class="page" data-page="media" hidden>
+            <details class="panel-section panel-section--wide panel-disclosure" id="disclosure-overview-2" open>
+              <summary class="section-heading">
+                <div>
+                  <span class="section-number">02</span>
+                  <h3 data-i18n="routingTitle">Input routing</h3>
+                </div>
+                <span class="section-actions">
+                  <span id="save-state" class="save-state" role="status"></span>
+                  <button id="refresh-channels" class="button button--quiet" type="button" data-i18n="refreshChannels">Refresh channels</button>
+                </span>
+              </summary>
+              <p class="section-copy" data-i18n="routingCopy">Choose one Discord channel for media and another for message notifications.</p>
+              <form id="routing-form" class="form-grid">
+                <label class="field field--wide">
+                  <span data-i18n="mediaChannel">Media channel</span>
+                  <select id="channel" name="watchedChannelId">
+                    <option value="">Select a visible text channel</option>
+                  </select>
+                </label>
+                <label class="setting-row setting-row--switch field--wide">
+                  <span>
+                    <strong data-i18n="mediaCleanup24h">Delete media channel messages after 24 hours</strong>
+                    <small data-i18n="channelCleanup24hHelp">Checks every 5 minutes while Relay runs. Deletes messages older than 24 hours, except the protected welcome message. Requires Manage Messages.</small>
+                  </span>
+                  <span class="switch">
+                    <input id="media-cleanup-enabled" type="checkbox">
+                    <span class="switch__track" aria-hidden="true"></span>
+                  </span>
+                </label>
+                <label class="field field--wide">
+                  <span data-i18n="mediaWelcomeMessage">Media welcome message (optional)</span>
+                  <input id="media-welcome-message" type="text" autocomplete="off" spellcheck="false" data-i18n-placeholder="musicWelcomePlaceholder" placeholder="Discord message link or ID">
+                  <small data-i18n="channelWelcomeOptionalHelp">Leave empty only if no message needs to be kept. A supplied message must belong to this channel.</small>
+                </label>
+                <label class="field field--wide">
+                  <span data-i18n="localPort">Local port</span>
+                  <input id="port" name="port" type="number" min="1024" max="65535" step="1" required>
+                </label>
+                <button class="button button--primary field--wide" type="submit" data-i18n="saveRouting">Save routing</button>
+              </form>
+            </details>
+            <section class="panel-section panel-section--wide" id="library-module"></section>
             <div class="page-intro page-intro--compact">
               <p class="kicker" data-i18n="mediaKicker">Playback queue</p>
               <h2 data-i18n="mediaTitle">Media, on your terms.</h2>
@@ -562,6 +637,7 @@
                 </div>
                 <span id="media-save-state" class="save-state" role="status"></span>
               </div>
+              <section class="queue-panel"><h3 data-i18n="queueTitle"></h3><p id="queue-state" role="status"></p><ol id="queue-list"></ol></section>
               <form id="media-form" class="settings-list">
                 <details class="settings-disclosure" open>
                   <summary>
@@ -594,16 +670,6 @@
                     </label>
                     <label class="setting-row">
                       <span>
-                        <strong data-i18n="notificationDuration">Notification duration</strong>
-                        <small data-i18n="notificationDurationHelp">TTS notifications without audio stay visible for this duration.</small>
-                      </span>
-                      <span class="field__unit field__unit--short">
-                        <input id="notification-duration" name="notificationDurationSeconds" type="number" min="1" max="60" step="1" required>
-                        <small data-i18n="seconds">sec</small>
-                      </span>
-                    </label>
-                    <label class="setting-row">
-                      <span>
                         <strong data-i18n="gifDuration">GIF duration</strong>
                         <small data-i18n="gifDurationHelp">Animated GIFs loop for this duration.</small>
                       </span>
@@ -617,8 +683,8 @@
                 <details class="settings-disclosure">
                   <summary>
                     <span>
-                      <strong data-i18n="audioTtsGroup">Audio and TTS</strong>
-                      <small data-i18n="audioTtsGroupHelp">Volume, message length, queue and voice.</small>
+                      <strong data-i18n="audioTtsGroup">Audio and notifications</strong>
+                      <small data-i18n="audioTtsGroupHelp">Volume, message length, queue and notifications.</small>
                     </span>
                     <i aria-hidden="true"></i>
                   </summary>
@@ -626,7 +692,7 @@
                     <label class="setting-row">
                       <span>
                         <strong data-i18n="mediaVolume">Media volume</strong>
-                        <small data-i18n="mediaVolumeHelp">Applied to video, audio and spoken messages.</small>
+                        <small data-i18n="mediaVolumeHelp">Applied to YouTube, video and audio.</small>
                       </span>
                       <span class="volume-control">
                         <input id="media-volume" type="range" min="0" max="100" step="1">
@@ -640,36 +706,6 @@
                       </span>
                       <span class="switch">
                         <input id="widget-sound-enabled" name="widgetSoundEnabled" type="checkbox">
-                        <span class="switch__track" aria-hidden="true"></span>
-                      </span>
-                    </label>
-                    <label class="setting-row">
-                      <span>
-                        <strong data-i18n="ttsCharacterLimit">TTS character limit</strong>
-                        <small data-i18n="ttsCharacterLimitHelp">Use 0 for unlimited message length.</small>
-                      </span>
-                      <span class="field__unit field__unit--short">
-                        <input id="tts-character-limit" name="ttsCharacterLimit" type="number" min="0" max="4294967295" step="1" required>
-                        <small data-i18n="characters">chars</small>
-                      </span>
-                    </label>
-                    <label class="setting-row">
-                      <span>
-                        <strong data-i18n="ttsQueueLimit">TTS queue capacity</strong>
-                        <small data-i18n="ttsQueueLimitHelp">Maximum waiting messages, from 1 to 50.</small>
-                      </span>
-                      <span class="field__unit field__unit--short">
-                        <input id="tts-queue-limit" name="ttsQueueLimit" type="number" min="1" max="50" step="1" required>
-                        <small data-i18n="items">items</small>
-                      </span>
-                    </label>
-                    <label class="setting-row setting-row--switch">
-                      <span>
-                        <strong data-i18n="ttsSpeech">TTS voice</strong>
-                        <small data-i18n="ttsSpeechHelp">When off, TTS messages show as silent notifications.</small>
-                      </span>
-                      <span class="switch">
-                        <input id="tts-speech-enabled" name="ttsSpeechEnabled" type="checkbox">
                         <span class="switch__track" aria-hidden="true"></span>
                       </span>
                     </label>
@@ -756,7 +792,8 @@
                 <span data-i18n="livePreview">Live preview</span>
                 <span class="preview-badge" data-i18n="transparentCanvas">Transparent canvas</span>
               </summary>
-              <div class="preview-shell">
+              <div class="history-filters"><label class="field"><span data-i18n="sampleMedia"></span><select id="preview-sample"><option value="portrait" data-i18n="samplePortrait"></option><option value="landscape" data-i18n="sampleLandscape"></option><option value="gif" data-i18n="sampleGif"></option><option value="video" data-i18n="sampleVideo"></option><option value="audio" data-i18n="sampleAudio"></option><option value="notification" data-i18n="sampleNotification"></option><option value="sticker" data-i18n="sampleSticker"></option></select></label><button id="send-preview-sample" class="button button--quiet" type="button" data-i18n="testOutput"></button><p id="preview-sample-state" role="status"></p></div>
+               <div class="preview-shell">
                 <iframe id="preview" title="Live OBS overlay preview"></iframe>
               </div>
             </details>
@@ -786,17 +823,9 @@
                   <small class="output-readiness-card__last" data-output-last-connected="audio"></small>
                   <button class="button button--quiet output-readiness-card__test" type="button" data-test-output="audio" data-i18n="testOutput" disabled>Test output</button>
                 </article>
-                <article class="output-readiness-card" data-output-card="tts">
-                  <div class="output-readiness-card__heading">
-                    <strong data-i18n="ttsSource">TTS audio</strong>
-                    <span class="output-readiness-card__state" data-output-state="tts" role="status"></span>
-                  </div>
-                  <small class="output-readiness-card__last" data-output-last-connected="tts"></small>
-                  <button class="button button--quiet output-readiness-card__test" type="button" data-test-output="tts" data-i18n="testOutput" disabled>Test output</button>
-                </article>
                 <article class="output-readiness-card" data-output-card="notification">
                   <div class="output-readiness-card__heading">
-                    <strong data-i18n="notificationSource">TTS notifications</strong>
+                    <strong data-i18n="notificationSource">Message notifications</strong>
                     <span class="output-readiness-card__state" data-output-state="notification" role="status"></span>
                   </div>
                   <small class="output-readiness-card__last" data-output-last-connected="notification"></small>
@@ -821,14 +850,14 @@
                     <h3 data-i18n="browserSource">OBS Browser Sources</h3>
                   </div>
                 </summary>
-                <p class="section-copy" data-i18n="browserSourceHelp">Add these two URLs as OBS Browser Sources. They replace the old separate medias / audios / stickers / TTS / notifications / YouTube sources.</p>
+                <p class="section-copy" data-i18n="browserSourceHelp">Add these two URLs as OBS Browser Sources. They replace the old separate medias / audios / stickers / notifications / YouTube sources.</p>
                 <div class="source-field">
                   <span data-i18n="visualSource">Relay Visual</span>
                   <div class="url-field">
                     <input id="overlay-url" type="text" readonly aria-label="OBS Relay Visual Browser Source URL">
                     <button id="copy-url" class="button button--quiet" type="button" data-i18n="copy">Copy</button>
                   </div>
-                  <small data-i18n="visualSourceHelp">Medias, stickers, TTS notification cards, and YouTube jukebox. Use localhost (auto-copied). Suggested size 1920×1080.</small>
+                  <small data-i18n="visualSourceHelp">Medias, stickers, message notification cards, and YouTube jukebox. Use localhost (auto-copied). Suggested size 1920×1080.</small>
                 </div>
                 <div class="source-field">
                   <span data-i18n="audioSource">Relay Audio</span>
@@ -836,7 +865,7 @@
                     <input id="audio-url" type="text" readonly aria-label="OBS Relay Audio Browser Source URL">
                     <button id="copy-audio-url" class="button button--quiet" type="button" data-i18n="copy">Copy</button>
                   </div>
-                  <small data-i18n="audioSourceHelp">Discord file audio and TTS voice. Separate mixer fader from Visual.</small>
+                  <small data-i18n="audioSourceHelp">Discord file audio. Separate mixer fader from Visual.</small>
                 </div>
                 <button id="regenerate-secret" class="text-button" type="button" data-i18n="regenerateSecret">Reconnect OBS sources</button>
               </details>
@@ -862,28 +891,17 @@
                 <summary class="section-heading">
                   <div>
                     <span class="section-number">07</span>
-                    <h3 data-i18n="obsNotificationOutput">OBS TTS notification overlay</h3>
+                    <h3 data-i18n="obsNotificationOutput">OBS message notification overlay</h3>
                   </div>
-                  <span id="obs-notification-save-state" class="save-state" role="status"></span>
                 </summary>
                 <p class="section-copy" data-i18n="obsNotificationOutputHelp">Notification cards are included in Relay Visual (Overview → OBS Browser Sources). No separate Browser Source needed.</p>
                 <div class="source-field notification-output-url">
                   <span data-i18n="notificationSource">Relay Visual (includes notifications)</span>
                   <div class="url-field">
-                    <input id="notification-url" type="text" readonly aria-label="OBS Relay Visual Browser Source URL">
+                    <input id="notification-url" type="text" readonly aria-label="OBS notification Browser Source URL">
                     <button id="copy-notification-url" class="button button--quiet" type="button" data-i18n="copy">Copy</button>
                   </div>
                 </div>
-                <label class="notification-output-switch">
-                  <span>
-                    <strong data-i18n="enableObsNotifications">Enable OBS overlay</strong>
-                    <small data-i18n="enableObsNotificationsHelp">Does not change the Windows widget.</small>
-                  </span>
-                  <span class="switch">
-                    <input id="tts-notifications-obs" name="ttsNotificationsObsEnabled" type="checkbox">
-                    <span class="switch__track" aria-hidden="true"></span>
-                  </span>
-                </label>
                 <label class="setting-row setting-row--switch">
                   <span>
                     <strong data-i18n="notificationSoundObs">Notification sound in OBS</strong>
@@ -1199,7 +1217,7 @@
                   <span class="switch"><input id="command-regenerate" type="checkbox"><span class="switch__track" aria-hidden="true"></span></span>
                 </label>
                 <label class="setting-row setting-row--switch">
-                  <span><strong class="command-code">/relay clear</strong><small data-i18n="commandClearHelp">Delete messages from the configured media and TTS channels.</small></span>
+                  <span><strong class="command-code">/relay clear</strong><small data-i18n="commandClearHelp">Delete messages from the configured media and notification channels.</small></span>
                   <span class="switch"><input id="command-clear" type="checkbox"><span class="switch__track" aria-hidden="true"></span></span>
                 </label>
                 <label class="setting-row setting-row--switch">
@@ -1333,6 +1351,7 @@
               </div>
               <button id="clear-overlay" class="button button--quiet" type="button" data-i18n="clearOverlay">Clear overlay</button>
             </div>
+            <div class="history-filters"><label class="field"><span data-i18n="historySearch"></span><input id="history-search" type="search"></label><label class="field"><span data-i18n="historyAll"></span><select id="history-kind"><option value="" data-i18n="historyAll"></option><option value="image">Image</option><option value="gif">GIF</option><option value="video">Video</option><option value="audio">Audio</option></select></label></div>
             <p id="history-empty" class="empty-state" data-i18n="historyEmpty">Waiting for the first Discord media.</p>
             <ol id="history-list" class="history-list"></ol>
           </section>
@@ -1397,16 +1416,16 @@
                   <span class="help-disclosure__number">03</span>
                   <span>
                     <strong data-i18n="helpChannelsTitle">Configure Discord channels</strong>
-                    <small data-i18n="helpChannelsSummary">Separate media and spoken messages</small>
+                    <small data-i18n="helpChannelsSummary">Separate media and message notifications</small>
                   </span>
                   <i aria-hidden="true"></i>
                 </summary>
                 <div class="help-disclosure__content">
                   <ol>
                     <li data-i18n="helpChannelsStep1">Create one text channel for images, GIFs, videos and audio.</li>
-                    <li data-i18n="helpChannelsStep2">Create a second text channel for plain TTS messages.</li>
-                    <li data-i18n="helpChannelsStep3">Select media and TTS channels on Overview. Configure the Music channel on the Music page.</li>
-                    <li data-i18n="helpChannelsStep4">French and English messages automatically use the matching Windows voice.</li>
+                    <li data-i18n="helpChannelsStep2">Create a second text channel for message notifications.</li>
+                    <li data-i18n="helpChannelsStep3">Select media and notification channels on Overview. Configure the Music channel on the Music page.</li>
+                    <li data-i18n="helpChannelsStep4">Messages in this channel appear as visual notifications.</li>
                   </ol>
                 </div>
               </details>
@@ -1416,7 +1435,7 @@
                   <span class="help-disclosure__number">04</span>
                   <span>
                     <strong data-i18n="helpObsTitle">Install the OBS Browser Sources</strong>
-                    <small data-i18n="helpObsSummary">Media, TTS audio and notifications</small>
+                    <small data-i18n="helpObsSummary">Media and message notifications</small>
                   </span>
                   <i aria-hidden="true"></i>
                 </summary>
@@ -1424,7 +1443,7 @@
                   <ol>
                     <li data-i18n="helpObsStep1">In OBS, add a separate Browser Source for each URL shown on Overlay.</li>
                     <li data-i18n="helpObsStep2">Use the visual URL for media and keep its transparent background.</li>
-                    <li data-i18n="helpObsStep3">Use the TTS URL as a dedicated audio Browser Source and enable OBS audio control.</li>
+                    <li data-i18n="helpObsStep3">Use the Audio URL for Discord file audio and enable OBS audio control.</li>
                     <li data-i18n="helpObsStep4">Use the notifications URL for the PS5-style message card.</li>
                     <li data-i18n="helpObsStep5">Keep the private URLs unchanged; Relay reconnects them after every restart.</li>
                   </ol>
@@ -1463,8 +1482,8 @@
                 <div class="help-disclosure__content">
                   <ul>
                     <li data-i18n="helpTroubleshooting1">No media: verify the selected media channel and the bot's channel permissions.</li>
-                    <li data-i18n="helpTroubleshooting2">No TTS: verify the separate TTS channel and Windows speech packs.</li>
-                    <li data-i18n="helpTroubleshooting3">No notification: enable Show TTS notifications in OBS, then send a new message.</li>
+                    <li data-i18n="helpTroubleshooting2">No message notification: verify the separate notification channel and send a new message.</li>
+                    <li data-i18n="helpTroubleshooting3">No notification sound: enable the notification sound in OBS or Windows, then send a new message.</li>
                     <li data-i18n="helpTroubleshooting4">Blank OBS source: refresh it once and confirm Relay is running on the displayed local port.</li>
                     <li data-i18n="helpTroubleshooting5">Never regenerate a Discord token for a gateway-intent error; enable the intent instead.</li>
                   </ul>
@@ -1691,12 +1710,12 @@
                 <div>
                   <span class="kicker">Relay</span>
                   <strong>Relay</strong>
-                  <small>Windows · v<span data-app-version>1.3.3</span></small>
+                  <small>Windows · v<span data-app-version>1.3.4</span></small>
                 </div>
               </div>
               <div class="about-card__statement">
                 <span class="section-number">LOCAL / 01</span>
-                <p data-i18n="aboutStatement">A private broadcast utility for media, spoken messages and notifications—with permanent local OBS sources.</p>
+                <p data-i18n="aboutStatement">A private broadcast utility for media, message notifications and local sounds—with permanent local OBS sources.</p>
               </div>
             </section>
 

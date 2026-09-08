@@ -3,8 +3,26 @@ const fs = require("node:fs");
 const test = require("node:test");
 
 const panelHtml = fs.readFileSync(__dirname + "/panel.html", "utf8");
-const panelSource = fs.readFileSync(__dirname + "/panel.js", "utf8");
-const panelCss = fs.readFileSync(__dirname + "/panel.css", "utf8");
+const panelSource = require("./test-source.cjs").panelSource();
+const panelCss = require("./test-source.cjs").panelStyles();
+
+test("expanded sidebars leave room for long module labels", () => {
+  assert.match(panelCss, /:root \{[\s\S]*?--sidebar-width: 244px;/);
+  for (const design of ["anthropic", "neo-brutalism", "gridline", "lumen"]) {
+    assert.match(
+      panelCss,
+      new RegExp(`:root\\[data-design="${design}"\\][\\s\\S]*?--sidebar-width: (?:232|244|252)px;`),
+      design,
+    );
+  }
+});
+
+test("sidebar scrolling uses a slim rounded thumb without arrow buttons", () => {
+  assert.match(panelCss, /\.navigation::\-webkit-scrollbar[\s\S]*?width: 10px;/);
+  assert.match(panelCss, /\.navigation::\-webkit-scrollbar-thumb[\s\S]*?border: 3px solid transparent;[\s\S]*?border-radius: 999px;/);
+  assert.match(panelCss, /\.navigation::\-webkit-scrollbar-thumb:hover[\s\S]*?var\(--accent\)/);
+  assert.match(panelCss, /\.navigation::\-webkit-scrollbar-button[\s\S]*?display: none;[\s\S]*?width: 0;/);
+});
 
 test("sidebar layout preference persists fixed, compact and dynamic modes", () => {
   assert.match(panelHtml, /id="sidebar-layout"/);

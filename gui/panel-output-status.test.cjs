@@ -3,13 +3,13 @@ const fs = require("node:fs");
 const test = require("node:test");
 const vm = require("node:vm");
 
-const panelSource = fs.readFileSync(__dirname + "/panel.js", "utf8");
+const panelSource = require("./test-source.cjs").panelSource();
 const panelHtml = fs.readFileSync(__dirname + "/panel.html", "utf8");
 const readinessSource = panelSource.slice(
   panelSource.indexOf("function outputClientCount"),
   panelSource.indexOf("function setServerStatus"),
 );
-const targets = ["visual", "audio", "tts", "notification", "sticker"];
+const targets = ["visual", "audio", "notification", "sticker"];
 
 function classList() {
   const values = new Set();
@@ -28,7 +28,7 @@ function createHarness() {
   const lastConnected = new Map();
   const testButtons = new Map();
   for (const target of targets) {
-    cards.set(target, { classList: classList() });
+    cards.set(target, { classList: classList(), querySelector: () => ({ textContent: "" }), append() {} });
     states.set(target, { textContent: "" });
     lastConnected.set(target, { textContent: "" });
     testButtons.set(target, { disabled: false, title: "" });
@@ -43,6 +43,7 @@ function createHarness() {
     Math,
     Number,
     language: "en",
+    bootstrap: { config: {} },
     outputReadinessCards: cards,
     outputStateElements: states,
     outputLastConnectedElements: lastConnected,
@@ -93,4 +94,11 @@ test("output readiness center exposes one local test control per source", () => 
     assert.match(panelHtml, new RegExp(`data-test-output="${target}"`));
   }
   assert.match(panelSource, /invoke\("test_output", \{ target \}\)/);
+});
+
+test("voice controls are removed while message routing remains", () => {
+  assert.doesNotMatch(panelHtml, /id="tts-speech-enabled"|data-output-card="tts"/);
+  assert.match(panelHtml, /id="tts-channel"/);
+  assert.match(panelHtml, /id="tts-cleanup-enabled"/);
+  assert.match(panelSource, /ttsSpeechEnabled: false/);
 });

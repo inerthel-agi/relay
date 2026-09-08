@@ -14,6 +14,395 @@ Release 1.3.0 and later include every Relay interface language. Earlier releases
 
 ## [Unreleased]
 
+## [1.3.6] - 2026-09-08
+
+### English
+
+- Separated module cards and controls with consistent spacing, and moved media channel routing to the Media page.
+
+- Reactions now play on Windows through an invisible audio receiver as well as OBS, using the reaction volume and working with the panel hidden.
+
+- Fixed local reaction previews with Web Audio decoding and immediate audio activation; failed playback on one output no longer stops the others.
+
+- Removed the Windows reaction widget; reactions use the OBS source.
+
+- Grouped reaction settings into collapsible sections while keeping sounds and playback controls accessible.
+
+- Replaced the heavy native scrollbars with slim rounded handles, transparent tracks, and accent feedback on hover.
+
+- Widened the expanded navigation sidebar so longer module names remain readable.
+
+- Reaction names now stay in the control panel. OBS and Windows outputs display only the optional visual; sound-only reactions remain invisible.
+
+- Fixed excerpt preview playback with direct Web Audio decoding and immediate audio activation on click, preserving stop and cancellation behavior.
+
+- Fixed reaction audio trimming when the desktop app inherits an outdated PATH by detecting installed WinGet FFmpeg; removed the widget move arrow and kept dragging on its content.
+
+- Removed Windows speech synthesis and voice controls. Message, emoji and sticker notifications, optional sounds and channel cleanup remain available; existing voice settings migrate to visual-only mode.
+- Added named output presets, persistent anchors/margins and local portrait, landscape, GIF, video, audio, notification and sticker previews/tests.
+- Added a waiting queue with guarded removal, searchable/filterable history and output diagnostics.
+- Refactored localization, preset storage, output layout, audio styles, HTTP handlers, Discord music and state caches/playback; separated tests across 19 Rust modules.
+- Fixed embedded audio artwork in Now Playing and history with CSP-compatible image loading and bounded shared caching.
+- Increased audio artwork to 112 px and reduced the audio card right margin to 4 px.
+- Slightly enlarged audio artwork and increased text notification width, height, avatar and text size while retaining right alignment.
+- Aligned fitted media and audio to the right edge with a 12 px margin; reduced the notification presence indicator, including its border.
+- Removed unintended padding from audio metadata and shifted media and audio farther right within the available space.
+- Reduced audio and notification card sizes and nudged fitted media right without changing the YouTube layout.
+- Enlarged stickers, compacted sticker-only notifications, matched notification styling to audio cards, and attached author credits below fitted media or inside the audio card while preserving aspect ratios.
+- Settings saves now preserve drafts on other pages and edits made while a save is pending. Automatic word filters save only the filter list; queued form saves use the latest saved configuration.
+- Reduced introductory headings, removed empty disclosure columns, kept connection status visible in narrow windows, and distinguished unsaved, saved, and error feedback. Failed URL copies now offer a retry.
+- Made the protected music welcome message optional, including when automatic cleanup is enabled. An empty field protects no welcome message; a supplied message is never deleted. Routing saves no longer recheck an unchanged music welcome message.
+- Added message pinning so the displayed message stays visible while media and music continue; queued messages resume after removal.
+- Added a persistent local media library for importing, renaming, replaying and deleting copied images, GIFs and videos.
+- Added music request limits and duplicate protection, with controls to move or remove pending tracks.
+- Added sounds and reactions, disabled by default, with local tests, OBS and Windows output, named Discord channel and role selectors, cooldowns, and an optional protected instructions message.
+- Added a sound excerpt chooser for sounds longer than 30 seconds, with preview, a 30-second limit and preservation of the original file.
+- Added bounded FIFO reaction playback with up to 25 waiting requests, localized queue feedback, queue-full handling, and reaction-first behavior for the global skip shortcut; stopping clears all queued reactions.
+
+### Français
+
+- Espacement des blocs et commandes harmonisé ; routage du salon média déplacé dans l’onglet Médias.
+
+- Les réactions sont audibles sous Windows via un lecteur invisible ainsi que dans OBS, au volume de la réaction, même avec le panneau masqué.
+
+- Correction des tests sonores locaux avec décodage Web Audio et activation immédiate ; un échec de lecture sur une sortie n’arrête plus les autres.
+
+- Suppression du widget Windows des réactions ; diffusion via la source OBS.
+
+- Regroupement des réglages des réactions en sections repliables, avec les sons et les commandes de lecture toujours accessibles.
+
+- Remplacement des barres de défilement natives imposantes par des poignées fines et arrondies, des rails transparents et un accent au survol.
+
+- Élargissement de la barre de navigation déployée afin de mieux afficher les noms de modules longs.
+
+- Le nom des réactions reste dans le panneau. OBS et les widgets affichent uniquement le visuel facultatif ; les réactions sonores seules restent invisibles.
+
+- Correction de l’écoute des extraits avec décodage direct par Web Audio et activation audio dès le clic, en conservant l’arrêt et l’annulation.
+
+- Correction de la découpe audio quand l’application hérite d’un PATH ancien grâce à la détection de FFmpeg installé par WinGet ; suppression de la flèche du widget, déplacement conservé sur son contenu.
+
+- Suppression de la synthèse vocale Windows et des réglages de voix. Notifications de messages, emojis et stickers, sons facultatifs et nettoyage des salons conservés ; les anciens réglages vocaux passent en mode visuel.
+- Ajout des préréglages de sortie nommés, des ancrages/marges persistants et des aperçus/tests locaux portrait, paysage, GIF, vidéo, audio, notification et sticker.
+- Ajout d’une file d’attente avec retrait protégé, d’un historique recherchable et filtrable et de diagnostics des sorties.
+- Refactoring des traductions, préréglages, placements, styles audio, routes HTTP, musique Discord et caches/lecture ; séparation des tests de 19 modules Rust.
+- Correction des pochettes audio dans Now Playing et l’historique avec un chargement compatible avec la politique de sécurité et un cache partagé borné.
+- Pochette audio agrandie à 112 px et marge droite de la carte audio réduite à 4 px.
+- Pochette audio légèrement agrandie et notifications texte élargies et rehaussées, avec avatar et texte plus grands, tout en conservant l’alignement à droite.
+- Médias et audio alignés au bord droit avec une marge de 12 px ; indicateur de statut des notifications réduit, bordure comprise.
+- Suppression des espacements excessifs dans les métadonnées audio et décalage supplémentaire des médias et de l’audio vers la droite, dans l’espace disponible.
+- Cartes audio et notifications réduites ; médias légèrement décalés à droite, sans modifier le format YouTube.
+- Stickers agrandis, notifications avec sticker seul plus compactes, présentation des notifications harmonisée avec les cartes audio et auteur placé sous le média ajusté ou dans la carte audio, sans déformer les proportions.
+- Les enregistrements conservent les brouillons des autres pages et les saisies effectuées pendant une sauvegarde. Le filtre de mots automatique enregistre uniquement sa liste ; les sauvegardes successives utilisent la configuration enregistrée la plus récente.
+- Titres introductifs réduits, colonnes vides des sections repliables supprimées, état de connexion visible dans les fenêtres étroites et retours distincts pour les modifications, les sauvegardes et les erreurs. Une copie d’URL échouée permet de réessayer.
+- Message d’accueil protégé du salon musique rendu facultatif, y compris lorsque le nettoyage automatique est activé. Un champ vide ne protège aucun message d’accueil ; un message indiqué n’est jamais supprimé. Les enregistrements du routage ne revérifient plus un message d’accueil musique inchangé.
+- Ajout de l’épinglage des messages : le message affiché reste visible pendant que les médias et la musique continuent ; la file reprend après son retrait.
+- Ajout d’une bibliothèque locale persistante pour importer, renommer, rediffuser et supprimer des copies d’images, de GIF et de vidéos.
+- Ajout de limites pour les demandes musicales et d’une protection contre les doublons, avec des boutons pour monter, descendre ou retirer les titres en attente.
+- Ajout de sons et réactions désactivés par défaut, avec tests locaux, sorties OBS et Windows, sélecteurs nommés de salons et rôles Discord, délais et message d’instructions protégé facultatif.
+- Ajout d’un sélecteur d’extrait pour les sons de plus de 30 secondes, avec aperçu, limite à 30 secondes et conservation du fichier original.
+- Ajout d’une file FIFO bornée de 25 réactions en attente, avec position affichée dans le panneau et Discord ; le raccourci global traite d’abord les réactions et l’arrêt vide la file.
+
+### Español
+
+- Espaciado uniforme entre bloques y controles; configuración del canal multimedia trasladada a Medios.
+
+- Las reacciones se oyen en Windows mediante un receptor invisible y en OBS, al volumen de la reacción, incluso con el panel oculto.
+
+- Corregidas las pruebas locales con Web Audio y activación inmediata; un fallo de reproducción en una salida ya no detiene las demás.
+
+- Eliminado el widget de reacciones de Windows; se utiliza la fuente OBS.
+
+- Ajustes de reacciones agrupados en secciones plegables, con sonidos y controles de reproducción accesibles.
+
+- Se sustituyeron las barras de desplazamiento nativas por controles finos y redondeados, pistas transparentes y un acento al pasar el cursor.
+
+- Se amplió la barra de navegación desplegada para mostrar mejor los nombres largos de los módulos.
+
+- Los nombres de las reacciones quedan en el panel. OBS y los widgets muestran solo el visual opcional; las reacciones de solo sonido permanecen invisibles.
+
+- Corregida la escucha de extractos mediante decodificación directa con Web Audio y activación al hacer clic, manteniendo la parada y cancelación.
+
+- Corregido el recorte de audio al detectar FFmpeg instalado por WinGet cuando PATH está desactualizado; eliminada la flecha del widget, cuyo contenido sigue pudiéndose arrastrar.
+
+- Eliminadas la síntesis de voz de Windows y sus controles. Se conservan las notificaciones de mensajes, emojis y stickers, sonidos opcionales y limpieza de canales; los ajustes anteriores pasan al modo visual.
+- Añadidos ajustes de salida guardados, anclajes/márgenes persistentes y vistas previas/pruebas locales de imágenes, GIF, vídeo, audio, notificaciones y stickers.
+- Añadidas cola con retirada protegida, búsqueda y filtros del historial y diagnósticos de salida.
+- Separados traducciones, ajustes, diseño, estilos de audio, rutas HTTP, música Discord, caché y reproducción, además de las pruebas de 19 módulos Rust.
+- Corregidas las carátulas de audio en Now Playing y el historial mediante carga compatible con CSP y caché compartida limitada.
+- Carátula de audio ampliada a 112 px y margen derecho reducido a 4 px.
+- Carátula de audio algo más grande y notificaciones de texto más anchas y altas, con avatar y texto ampliados, manteniendo la alineación derecha.
+- Medios y audio alineados al borde derecho con 12 px de margen; indicador de estado reducido, incluido el borde.
+- Eliminado el espaciado excesivo del audio y desplazados los medios más a la derecha dentro del espacio disponible.
+- Tarjetas de audio y notificaciones más pequeñas; medios desplazados ligeramente a la derecha sin cambiar YouTube.
+- Stickers más grandes, notificaciones de solo sticker más compactas, estilo unificado con las tarjetas de audio y autor situado bajo el medio o dentro de la tarjeta de audio, conservando las proporciones.
+- El guardado conserva los borradores de otras páginas y los cambios realizados mientras se guarda. El filtro automático guarda solo su lista; los guardados en cola utilizan la última configuración guardada.
+- Títulos más compactos, secciones plegables sin columnas vacías, estado de conexión visible en ventanas estrechas e indicadores distintos de cambios, guardado y error. Las copias de URL fallidas permiten reintentar.
+- El mensaje de bienvenida protegido del canal de música ahora es opcional, incluso con la limpieza automática activada. Un campo vacío no protege ninguna bienvenida; un mensaje indicado nunca se elimina. Los guardados del enrutamiento ya no vuelven a verificar una bienvenida de música sin cambios.
+- Añadido el fijado de mensajes: el mensaje mostrado permanece visible mientras continúan los medios y la música; la cola se reanuda al retirarlo.
+- Añadida una biblioteca local persistente para importar, renombrar, volver a emitir y eliminar copias de imágenes, GIF y vídeos.
+- Añadidos límites para las solicitudes musicales y protección contra duplicados, con controles para subir, bajar o quitar pistas pendientes.
+- Añadidos sonidos y reacciones desactivados de forma predeterminada, con pruebas locales, salidas OBS y Windows, selectores con nombres para canales y roles de Discord, enfriamientos y un mensaje de instrucciones protegido opcional.
+- Añadido un selector de fragmentos para sonidos de más de 30 segundos, con vista previa, límite de 30 segundos y conservación del archivo original.
+- Añadida una cola FIFO limitada a 25 reacciones en espera, con posición mostrada en el panel y Discord; el atajo global trata primero las reacciones y detenerlas vacía la cola.
+
+### Deutsch
+
+- Abstände zwischen Modulen und Bedienelementen vereinheitlicht; Medienkanal-Routing zur Medienseite verschoben.
+
+- Reaktionen spielen unter Windows über einen unsichtbaren Audioempfänger und in OBS, mit der Reaktionslautstärke und auch bei ausgeblendetem Panel.
+
+- Lokale Reaktionstests nutzen Web Audio und sofortige Aktivierung; Wiedergabefehler einer Ausgabe stoppen die anderen nicht mehr.
+
+- Windows-Reaktionswidget entfernt; Reaktionen verwenden die OBS-Quelle.
+
+- Reaktionseinstellungen in einklappbare Abschnitte gegliedert; Sounds und Wiedergabesteuerung bleiben zugänglich.
+
+- Die auffälligen nativen Bildlaufleisten wurden durch schmale, abgerundete Griffe mit transparenten Spuren und Akzent beim Überfahren ersetzt.
+
+- Die ausgeklappte Navigationsleiste wurde verbreitert, damit längere Modulnamen besser lesbar bleiben.
+
+- Reaktionsnamen bleiben im Bedienfeld. OBS und Widgets zeigen nur das optionale Bild; reine Audioreaktionen bleiben unsichtbar.
+
+- Ausschnittvorschau durch direkte Web-Audio-Dekodierung und sofortige Audioaktivierung beim Klicken korrigiert; Stoppen und Abbrechen bleiben erhalten.
+
+- Audiozuschnitt bei veraltetem PATH durch Erkennung der WinGet-FFmpeg-Installation korrigiert; Widget-Pfeil entfernt, Verschieben am Inhalt bleibt möglich.
+
+- Windows-Sprachausgabe und Sprachsteuerung entfernt. Nachrichten-, Emoji- und Sticker-Benachrichtigungen, optionale Töne und Kanalbereinigung bleiben erhalten; bisherige Spracheinstellungen werden auf visuell umgestellt.
+- Benannte Ausgabevorlagen, gespeicherte Anker/Abstände und lokale Vorschauen/Tests für Bilder, GIF, Video, Audio, Benachrichtigungen und Sticker hinzugefügt.
+- Warteschlange mit geschütztem Entfernen, Verlaufssuche/-filter und Ausgabediagnose hinzugefügt.
+- Übersetzungen, Vorlagen, Layout, Audiostile, HTTP-Routen, Discord-Musik und Zustandscaches/Wiedergabe modularisiert; Tests von 19 Rust-Modulen getrennt.
+- Audiocover in Now Playing und Verlauf durch CSP-kompatibles Laden und begrenzten gemeinsamen Cache korrigiert.
+- Audiocover auf 112 px vergrößert und rechter Kartenabstand auf 4 px reduziert.
+- Audiocover leicht vergrößert; Textbenachrichtigungen breiter und höher mit größerem Avatar und Text, weiterhin rechts ausgerichtet.
+- Medien und Audio mit 12 px Abstand rechts ausgerichtet; Statuspunkt einschließlich Rand verkleinert.
+- Übermäßige Abstände in Audioangaben entfernt und Medien sowie Audio im verfügbaren Platz weiter nach rechts verschoben.
+- Audio- und Benachrichtigungskarten verkleinert; Medien leicht nach rechts verschoben, YouTube unverändert.
+- Größere Sticker, kompaktere reine Sticker-Benachrichtigungen, einheitliche Gestaltung mit Audiokarten und Autorenangaben direkt unter Medien oder innerhalb der Audiokarte bei unveränderten Seitenverhältnissen.
+- Beim Speichern bleiben Entwürfe anderer Seiten und während des Speicherns eingegebene Änderungen erhalten. Der automatische Wortfilter speichert nur seine Liste; aufeinanderfolgende Speichervorgänge verwenden die zuletzt gespeicherte Konfiguration.
+- Kompaktere Überschriften, keine leeren Spalten bei eingeklappten Bereichen, sichtbarer Verbindungsstatus in schmalen Fenstern und getrennte Hinweise für Änderungen, Erfolg und Fehler. Fehlgeschlagene URL-Kopien können wiederholt werden.
+- Geschützte Willkommensnachrichten im Musikkanal sind jetzt optional, auch bei aktivierter automatischer Bereinigung. Ein leeres Feld schützt keine Willkommensnachricht; eine angegebene Nachricht wird nie gelöscht. Beim Speichern der Zuordnung wird eine unveränderte Musik-Begrüßung nicht erneut geprüft.
+- Nachrichten können jetzt angeheftet werden: Die angezeigte Nachricht bleibt sichtbar, während Medien und Musik weiterlaufen; nach dem Entfernen wird die Warteschlange fortgesetzt.
+- Eine dauerhafte lokale Medienbibliothek zum Importieren, Umbenennen, erneuten Ausgeben und Löschen kopierter Bilder, GIFs und Videos wurde hinzugefügt.
+- Limits für Musikanfragen und Schutz vor Duplikaten wurden ergänzt; wartende Titel können nach oben, nach unten oder entfernt werden.
+- Töne und Reaktionen sind jetzt standardmäßig deaktiviert und bieten lokale Tests, OBS- und Windows-Ausgabe, benannte Discord-Kanal- und Rollenauswahl, Abklingzeiten und eine optionale geschützte Anleitungsnachricht.
+- Eine Auswahl für Ausschnitte aus Sounds über 30 Sekunden wurde ergänzt, mit Vorschau, 30-Sekunden-Limit und unveränderter Originaldatei.
+- Begrenzte FIFO-Warteschlange für Reaktionen mit bis zu 25 wartenden Anfragen und lokalisierter Positionsanzeige in Panel und Discord hinzugefügt; der globale Shortcut überspringt zuerst Reaktionen und Stoppen leert die Warteschlange.
+
+### Русский
+
+- Выровнены отступы между блоками и элементами управления; настройка медиаканала перенесена на вкладку «Медиа».
+
+- Реакции воспроизводятся в Windows невидимым аудиоплеером и в OBS с заданной громкостью, даже при скрытой панели.
+
+- Локальные тесты используют Web Audio с немедленной активацией; ошибка одного выхода больше не останавливает остальные.
+
+- Виджет реакций Windows удалён; реакции используют источник OBS.
+
+- Настройки реакций сгруппированы в сворачиваемые разделы; звуки и управление воспроизведением остаются доступны.
+
+- Громоздкие системные полосы прокрутки заменены тонкими закруглёнными ползунками с прозрачной дорожкой и акцентом при наведении.
+
+- Расширена открытая панель навигации, чтобы длинные названия модулей оставались читаемыми.
+
+- Названия реакций остаются в панели. OBS и виджеты показывают только выбранное изображение; звуковые реакции без него невидимы.
+
+- Исправлено прослушивание фрагментов через прямое декодирование Web Audio и активацию звука при нажатии; остановка и отмена сохранены.
+
+- Исправлена обрезка звука при устаревшем PATH через обнаружение FFmpeg из WinGet; стрелка виджета удалена, перемещение за содержимое сохранено.
+
+- Удалены синтез речи Windows и настройки голоса. Сохранены уведомления сообщений, эмодзи и стикеров, необязательные звуки и очистка каналов; старые настройки переведены в визуальный режим.
+- Добавлены именованные наборы вывода, привязки/отступы и локальные предпросмотры/тесты изображений, GIF, видео, аудио, уведомлений и стикеров.
+- Добавлены очередь с защищённым удалением, поиск и фильтры истории и диагностика выходов.
+- Разделены переводы, наборы, размещение, стили аудио, HTTP, музыка Discord и кэш/воспроизведение; тесты 19 модулей Rust вынесены отдельно.
+- Исправлены обложки аудио в Now Playing и истории: загрузка совместима с CSP, общий кэш ограничен.
+- Обложка аудио увеличена до 112 пикселей, правый отступ карточки уменьшен до 4 пикселей.
+- Немного увеличена обложка аудио; текстовые уведомления стали шире и выше, с более крупными аватаром и текстом, сохраняя выравнивание справа.
+- Медиа и аудио выровнены по правому краю с отступом 12 пикселей; индикатор статуса уменьшен вместе с рамкой.
+- Убраны лишние отступы в аудиокарточке, медиа и аудио сдвинуты правее в пределах доступного места.
+- Уменьшены карточки аудио и уведомлений; медиа немного сдвинуты вправо, формат YouTube сохранён.
+- Увеличены стикеры, уплотнены уведомления только со стикером, оформление согласовано с аудиокарточками. Автор расположен под медиа или внутри аудиокарточки с сохранением пропорций.
+- Сохранение настроек сохраняет черновики других страниц и изменения, введённые во время сохранения. Автоматический фильтр слов сохраняет только свой список; очередь сохранений использует последнюю сохранённую конфигурацию.
+- Уменьшены вводные заголовки, убраны пустые столбцы сворачиваемых разделов, статус соединения виден в узких окнах. Изменения, сохранение и ошибки имеют разные индикаторы; копирование URL можно повторить после ошибки.
+- Защищённое приветственное сообщение музыкального канала теперь необязательно, в том числе при включённой автоматической очистке. Пустое поле ничего не защищает; указанное сообщение никогда не удаляется. При сохранении маршрутизации неизменённое музыкальное приветствие больше не проверяется повторно.
+- Добавлено закрепление сообщений: отображаемое сообщение остаётся на экране, пока медиа и музыка продолжают работу; после снятия закрепления очередь возобновляется.
+- Добавлена постоянная локальная медиатека для импорта, переименования, повторного показа и удаления копий изображений, GIF и видео.
+- Добавлены ограничения музыкальных запросов и защита от дубликатов, а также управление порядком и удалением ожидающих треков.
+- Добавлены звуки и реакции, отключённые по умолчанию, с локальным тестированием, выводом в OBS и Windows, именованными селекторами каналов и ролей Discord, задержками и необязательным защищённым сообщением с инструкциями.
+- Добавлен выбор фрагмента для звуков длительностью более 30 секунд с предпрослушиванием, ограничением в 30 секунд и сохранением исходного файла.
+- Добавлена ограниченная FIFO-очередь до 25 ожидающих реакций с локализованной позицией в панели и Discord; глобальное сочетание сначала пропускает реакции, а остановка очищает очередь.
+
+### 简体中文
+
+- 统一模块和控件间距，并将媒体频道路由移至媒体页面。
+
+- 反应同时通过 Windows 隐藏音频播放器和 OBS 播放，使用反应音量，面板隐藏时仍可播放。
+
+- 本地反应测试使用 Web Audio 解码并立即激活音频；单个输出播放失败不再停止其他输出。
+
+- 移除 Windows 反应小组件；反应通过 OBS 源播放。
+
+- 反应设置分组为可折叠区域，声音和播放控件仍可直接访问。
+
+- 将厚重的原生滚动条替换为纤细圆角滑块、透明轨道和悬停强调效果。
+
+- 加宽展开的导航侧栏，使较长的模块名称更易阅读。
+
+- 反应名称仅显示在控制面板中。OBS 和小组件只显示可选图像，纯声音反应不显示任何内容。
+
+- 使用 Web Audio 直接解码并在点击时立即激活音频，修复片段预览播放，保留停止和取消操作。
+
+- 通过检测 WinGet 安装的 FFmpeg，修复旧 PATH 导致的音频剪辑失败；移除小组件箭头，仍可拖动内容移动。
+
+- 移除Windows语音合成和语音设置。保留消息、表情、贴纸通知、可选提示音和频道清理；旧语音设置迁移为纯视觉模式。
+- 新增命名输出预设、持久化锚点/边距，以及图片、GIF、视频、音频、通知和贴纸的本地预览与测试。
+- 新增安全移除等待项目的队列、历史搜索/筛选以及输出诊断。
+- 拆分翻译、预设、布局、音频样式、HTTP、Discord音乐和缓存/播放模块，并分离19个Rust模块的测试。
+- 修复Now Playing和历史记录中的音频封面，使用兼容CSP的加载方式和有容量限制的共享缓存。
+- 音频封面增大至112像素，音频卡片右边距缩小至4像素。
+- 略微放大音频封面，增加文字通知的宽高、头像及字号，保持右对齐。
+- 媒体和音频右对齐并保留12像素边距，缩小状态指示点及其边框。
+- 移除音频信息的多余间距，并在可用空间内将媒体和音频进一步右移。
+- 缩小音频和通知卡片，媒体略向右移，保持YouTube布局不变。
+- 放大贴纸，精简单贴纸通知，使通知与音频卡片风格一致，并将作者放在媒体下方或音频卡片内，同时保持媒体比例。
+- 保存设置时保留其他页面的草稿以及保存期间输入的修改。自动词语过滤器仅保存词语列表；排队的保存操作使用最新已保存配置。
+- 缩小介绍标题，移除折叠区域的空白列，在窄窗口中保留连接状态，并区分未保存、已保存和错误状态。URL复制失败后可以重试。
+- 受保护的音乐频道欢迎消息现为可选项，即使启用自动清理也可以留空。留空时不保护任何欢迎消息；填写的消息永不删除。保存输入路由时不再重复验证未更改的音乐欢迎消息。
+- 新增消息固定功能：媒体和音乐继续运行时，当前消息会保持显示；取消固定后队列会继续。
+- 新增持久本地媒体库，可导入、重命名、重新播放和删除图片、GIF 与视频副本。
+- 新增音乐请求数量限制和重复保护，并可调整或移除等待中的曲目。
+- 新增默认关闭的声音与反应功能，支持本地测试、OBS 和 Windows 输出、带名称的 Discord 频道和角色选择、冷却时间及可选的受保护说明消息。
+- 新增超过 30 秒声音的片段选择器，支持预览，限制为 30 秒且保留原始文件。
+- 新增最多等待 25 个反应的有界 FIFO 队列，在控制面板和 Discord 中显示本地化位置；全局快捷键优先跳过反应，停止操作会清空队列。
+
+### 한국어
+
+- 모듈과 컨트롤 간격을 정리하고 미디어 채널 라우팅을 미디어 페이지로 옮겼습니다.
+
+- 반응은 Windows의 보이지 않는 오디오 수신기와 OBS에서 설정된 볼륨으로 재생되며 패널을 숨겨도 작동합니다.
+
+- 로컬 반응 테스트에 Web Audio 디코딩과 즉시 활성화를 적용했습니다. 한 출력의 재생 실패가 다른 출력을 중지하지 않습니다.
+
+- Windows 반응 위젯을 제거하고 OBS 소스로 반응을 재생합니다.
+
+- 반응 설정을 접을 수 있는 섹션으로 묶고 사운드와 재생 제어는 계속 표시합니다.
+
+- 두꺼운 기본 스크롤바를 투명한 트랙, 얇고 둥근 핸들, 마우스 오버 강조 효과로 교체했습니다.
+
+- 긴 모듈 이름을 더 잘 표시하도록 펼친 탐색 사이드바의 너비를 늘렸습니다.
+
+- 반응 이름은 제어 패널에만 표시됩니다. OBS와 위젯은 선택한 이미지만 표시하며 소리만 있는 반응은 보이지 않습니다.
+
+- Web Audio 직접 디코딩과 클릭 시 즉시 오디오 활성화로 구간 미리 듣기를 수정했으며, 정지와 취소 동작을 유지합니다.
+
+- WinGet으로 설치된 FFmpeg를 찾아 오래된 PATH로 인한 오디오 자르기 오류를 수정했습니다. 위젯 화살표를 제거했으며 콘텐츠를 드래그해 이동할 수 있습니다.
+
+- Windows 음성 합성과 음성 설정을 제거했습니다. 메시지·이모지·스티커 알림, 선택적 알림음과 채널 정리는 유지되며 기존 음성 설정은 시각 알림으로 전환됩니다.
+- 이름 있는 출력 프리셋, 저장되는 기준 위치/여백, 이미지·GIF·동영상·오디오·알림·스티커의 로컬 미리 보기와 테스트를 추가했습니다.
+- 안전한 항목 제거를 지원하는 대기열, 기록 검색/필터와 출력 진단을 추가했습니다.
+- 번역, 프리셋, 배치, 오디오 스타일, HTTP, Discord 음악, 캐시/재생을 분리하고 19개 Rust 모듈의 테스트를 별도 파일로 옮겼습니다.
+- CSP 호환 이미지 로딩과 제한된 공유 캐시로 Now Playing 및 기록의 오디오 표지를 수정했습니다.
+- 오디오 표지를 112px로 확대하고 카드 오른쪽 여백을 4px로 줄였습니다.
+- 오디오 표지를 조금 키우고 텍스트 알림의 너비와 높이, 아바타와 글자를 확대하면서 오른쪽 정렬을 유지했습니다.
+- 미디어와 오디오를 오른쪽에 12px 여백으로 정렬하고 상태 표시점을 테두리와 함께 줄였습니다.
+- 오디오 정보의 불필요한 여백을 제거하고 미디어와 오디오를 가용 공간 안에서 더 오른쪽으로 이동했습니다.
+- 오디오와 알림 카드를 줄이고 미디어를 오른쪽으로 조금 이동했습니다. YouTube 형식은 유지합니다.
+- 스티커를 확대하고 스티커 전용 알림을 간결하게 정리했습니다. 알림과 오디오 카드의 스타일을 통일하고 작성자를 미디어 아래 또는 오디오 카드 안에 배치하며 화면 비율을 유지합니다.
+- 설정 저장 시 다른 페이지의 초안과 저장 중 입력한 변경 사항을 유지합니다. 자동 단어 필터는 목록만 저장하며, 대기 중인 저장 작업은 최신 저장 설정을 사용합니다.
+- 소개 제목을 줄이고 접이식 영역의 빈 열을 제거했습니다. 좁은 창에서도 연결 상태를 표시하며 미저장, 저장 완료, 오류를 구분합니다. URL 복사 실패 후 다시 시도할 수 있습니다.
+- 음악 채널의 보호된 환영 메시지를 자동 정리를 켠 경우에도 선택 사항으로 변경했습니다. 비워 두면 어떤 환영 메시지도 보호하지 않으며, 입력한 메시지는 삭제하지 않습니다. 라우팅을 저장할 때 변경되지 않은 음악 환영 메시지를 다시 확인하지 않습니다.
+- 메시지 고정을 추가했습니다. 미디어와 음악이 계속 실행되는 동안 현재 메시지를 화면에 유지하며, 고정을 해제하면 대기열이 다시 진행됩니다.
+- 이미지, GIF, 동영상 복사본을 가져오고 이름을 바꾸고 다시 방송하거나 삭제할 수 있는 영구 로컬 미디어 라이브러리를 추가했습니다.
+- 음악 요청 수 제한과 중복 보호를 추가하고 대기 중인 트랙을 위아래로 이동하거나 제거할 수 있게 했습니다.
+- 기본적으로 꺼져 있는 소리 및 반응 기능을 추가했습니다. 로컬 테스트, OBS 및 Windows 출력, 이름이 표시되는 Discord 채널·역할 선택, 대기 시간과 선택적 보호 안내 메시지를 지원합니다.
+- 30초가 넘는 사운드에서 구간을 선택하는 기능을 추가했습니다. 미리 듣기와 30초 제한을 지원하며 원본 파일은 보존됩니다.
+- 최대 25개의 반응을 기다리게 하는 제한된 FIFO 대기열과 패널·Discord의 현지화된 위치 표시를 추가했습니다. 전역 단축키는 반응을 먼저 건너뛰며 중지하면 대기열을 비웁니다.
+
+### 日本語
+
+- モジュールと操作部分の間隔を整え、メディアチャンネル設定をメディアページへ移動しました。
+
+- リアクションは非表示の Windows 音声プレーヤーと OBS の両方で設定音量で再生され、パネルを隠しても動作します。
+
+- ローカルテストに Web Audio デコードと即時有効化を適用し、1つの出力の再生失敗が他の出力を停止しないよう修正しました。
+
+- Windows リアクションウィジェットを削除し、OBS ソースで再生します。
+
+- リアクション設定を折りたたみ可能なセクションに整理し、サウンドと再生操作は引き続き直接利用できます。
+
+- 太い標準スクロールバーを、透明なトラックと細い丸型ハンドル、ホバー時のアクセント表示に置き換えました。
+
+- 長いモジュール名を読みやすくするため、展開時のナビゲーションサイドバーを広げました。
+
+- リアクション名は操作パネルにのみ表示。OBSとウィジェットは任意の画像だけを表示し、音声のみのリアクションは非表示になります。
+
+- Web Audioによる直接デコードとクリック時の音声有効化で抜粋のプレビュー再生を修正。停止とキャンセルの動作は維持しました。
+
+- WinGetでインストールされたFFmpegを検出し、古いPATHによる音声切り抜きの失敗を修正。ウィジェットの矢印を削除し、内容のドラッグによる移動は維持しました。
+
+- Windows音声合成と音声設定を削除しました。メッセージ・絵文字・ステッカー通知、任意の通知音、チャンネル整理は維持し、従来の音声設定は表示のみへ移行します。
+- 名前付き出力プリセット、保存可能な基準位置・余白、画像・GIF・動画・音声・通知・ステッカーのローカルプレビューとテストを追加しました。
+- 安全に取り除ける待機キュー、履歴の検索・絞り込み、出力診断を追加しました。
+- 翻訳、プリセット、配置、音声スタイル、HTTP、Discord音楽、キャッシュ・再生を分離し、19個のRustモジュールのテストを別ファイルに移動しました。
+- CSPに対応した画像読み込みと上限付き共有キャッシュで、Now Playingと履歴の音声アートワークを修正しました。
+- 音声アートワークを112pxに拡大し、カードの右余白を4pxに縮小しました。
+- 音声のアートワークを少し拡大し、文字通知の幅・高さ・アバター・文字を大きくしました。右寄せは維持します。
+- メディアと音声を右端から12pxで配置し、通知の状態表示を枠線込みで小さくしました。
+- 音声情報の余分な余白を除去し、利用可能な範囲でメディアと音声をさらに右へ移動しました。
+- 音声・通知カードを小さくし、メディアを少し右へ移動しました。YouTubeの形式は維持します。
+- ステッカーを拡大し、ステッカーのみの通知をコンパクトにしました。通知と音声カードのデザインを統一し、縦横比を保ちながら投稿者をメディアの下または音声カード内に配置します.
+- 設定保存時に他のページの下書きと保存中の入力を保持します。自動単語フィルターは単語一覧のみを保存し、待機中の保存処理は最新の保存済み設定を使用します。
+- 導入見出しを小さくし、折りたたみ領域の空の列をなくしました。狭いウィンドウでも接続状態を表示し、未保存・保存済み・エラーを区別します。URLのコピー失敗後に再試行できます。
+- 音楽チャンネルの保護案内メッセージを、音楽の自動整理を有効にした場合も任意にしました。空欄では案内メッセージを保護せず、指定したメッセージは削除されません。ルーティング保存時に変更されていない音楽案内メッセージを再確認しません。
+- メッセージ固定を追加しました。メディアや音楽の再生中も表示中のメッセージを保持し、固定を解除すると待機キューが再開します。
+- 画像、GIF、動画のコピーをインポート、名前変更、再配信、削除できる永続ローカルメディアライブラリを追加しました。
+- 音楽リクエストの上限と重複保護を追加し、待機中のトラックを上下に移動または削除できるようにしました。
+- デフォルトで無効なサウンドとリアクションを追加しました。ローカルテスト、OBS と Windows 出力、名前付きの Discord チャンネル・ロール選択、クールダウン、任意の保護案内メッセージに対応します。
+- 30 秒を超えるサウンドから、プレビュー付きで 30 秒以内の範囲を選べる機能を追加しました。元のファイルは保持されます。
+- 最大25件のリアクションを待機できる上限付きFIFOキューと、パネル・Discordでの位置表示を追加しました。グローバルショートカットはリアクションを優先してスキップし、停止するとキューを消去します。
+
+### Bahasa Indonesia
+
+- Merapikan jarak antarblok dan kontrol serta memindahkan pengaturan kanal media ke halaman Media.
+
+- Reaksi diputar melalui penerima audio Windows yang tidak terlihat serta OBS, memakai volume reaksi dan tetap berjalan saat panel disembunyikan.
+
+- Pengujian lokal menggunakan dekode Web Audio dan aktivasi langsung; kegagalan satu keluaran tidak lagi menghentikan keluaran lainnya.
+
+- Widget reaksi Windows dihapus; reaksi menggunakan sumber OBS.
+
+- Pengaturan reaksi dikelompokkan dalam bagian yang dapat dilipat; suara dan kontrol pemutaran tetap dapat diakses.
+
+- Mengganti scrollbar bawaan yang tebal dengan pegangan tipis membulat, jalur transparan, dan aksen saat diarahkan.
+
+- Memperlebar sidebar navigasi saat dibuka agar nama modul yang panjang tetap mudah dibaca.
+
+- Nama reaksi hanya ditampilkan di panel kontrol. OBS dan widget hanya menampilkan visual opsional; reaksi suara saja tetap tidak terlihat.
+
+- Memperbaiki pratinjau cuplikan melalui dekode Web Audio langsung dan aktivasi audio saat diklik, dengan fungsi berhenti dan batal tetap tersedia.
+
+- Memperbaiki pemotongan audio saat PATH usang dengan mendeteksi FFmpeg dari WinGet; menghapus panah widget dan tetap mengizinkan pemindahan dengan menyeret kontennya.
+
+- Menghapus sintesis suara Windows dan pengaturan suara. Notifikasi pesan, emoji, stiker, bunyi opsional dan pembersihan kanal tetap tersedia; pengaturan lama beralih ke mode visual.
+- Menambahkan preset keluaran bernama, jangkar/margin tersimpan, serta pratinjau dan uji lokal gambar, GIF, video, audio, notifikasi dan stiker.
+- Menambahkan antrean dengan penghapusan terlindungi, pencarian/filter riwayat dan diagnosis keluaran.
+- Memisahkan terjemahan, preset, tata letak, gaya audio, HTTP, musik Discord dan cache/pemutaran; pengujian 19 modul Rust dipisahkan.
+- Memperbaiki sampul audio di Now Playing dan riwayat dengan pemuatan sesuai CSP serta cache bersama terbatas.
+- Sampul audio diperbesar menjadi 112 px dan jarak kanan kartu diperkecil menjadi 4 px.
+- Sampul audio sedikit diperbesar; notifikasi teks diperlebar dan ditinggikan dengan avatar serta teks lebih besar, tetap rata kanan.
+- Media dan audio diratakan ke kanan dengan jarak 12 px; indikator status diperkecil termasuk tepinya.
+- Menghapus jarak berlebih pada informasi audio dan menggeser media serta audio lebih ke kanan dalam ruang tersedia.
+- Kartu audio dan notifikasi diperkecil, media digeser sedikit ke kanan, format YouTube tetap.
+- Stiker diperbesar, notifikasi khusus stiker dibuat ringkas, gaya notifikasi disamakan dengan kartu audio, dan pengirim ditempatkan di bawah media atau di dalam kartu audio tanpa mengubah rasio aspek.
+- Penyimpanan pengaturan mempertahankan draf halaman lain dan perubahan yang diketik saat penyimpanan berlangsung. Filter kata otomatis hanya menyimpan daftarnya; antrean penyimpanan menggunakan konfigurasi tersimpan terbaru.
+- Judul pengantar diperkecil, kolom kosong pada bagian lipat dihapus, status koneksi tetap terlihat di jendela sempit, dan perubahan, penyimpanan, serta kesalahan ditandai berbeda. Penyalinan URL yang gagal dapat dicoba kembali.
+- Pesan sambutan terlindungi di channel musik kini opsional, termasuk saat pembersihan otomatis diaktifkan. Kolom kosong tidak melindungi pesan sambutan apa pun; pesan yang ditentukan tidak pernah dihapus. Penyimpanan perutean tidak lagi memverifikasi ulang pesan sambutan musik yang tidak berubah.
+- Menambahkan penyematan pesan: pesan yang sedang ditampilkan tetap terlihat saat media dan musik terus berjalan; antrean dilanjutkan setelah penyematan dilepas.
+- Menambahkan pustaka media lokal permanen untuk mengimpor, mengganti nama, menyiarkan ulang, dan menghapus salinan gambar, GIF, dan video.
+- Menambahkan batas permintaan musik dan perlindungan duplikat, serta kontrol untuk menaikkan, menurunkan, atau menghapus trek yang menunggu.
+- Menambahkan suara dan reaksi yang nonaktif secara default, dengan pengujian lokal, keluaran OBS dan Windows, pemilih kanal dan peran Discord berdasarkan nama, jeda penggunaan, serta pesan instruksi terlindungi yang opsional.
+- Menambahkan pemilih cuplikan untuk suara lebih dari 30 detik, dengan pratinjau, batas 30 detik, dan file asli tetap dipertahankan.
+- Menambahkan antrean FIFO terbatas untuk hingga 25 reaksi yang menunggu dengan posisi terjemahan di panel dan Discord; pintasan global melewati reaksi terlebih dahulu dan tombol berhenti mengosongkan antrean.
+
 ## [1.3.3] - 2026-09-04
 
 ### English
@@ -1160,7 +1549,8 @@ Release 1.3.0 and later include every Relay interface language. Earlier releases
 - Sorties séparées pour les médias, l’audio, le TTS et les notifications.
 - Modération locale, contrôles de lecture, historique, personnalisation et interface multilingue.
 
-[Unreleased]: https://github.com/stealthsrc/relay/compare/v1.3.1...HEAD
+[Unreleased]: https://github.com/stealthsrc/relay/compare/v1.3.6...HEAD
+[1.3.6]: https://github.com/stealthsrc/relay/compare/v1.3.3...v1.3.6
 [1.3.1]: https://github.com/stealthsrc/relay/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/stealthsrc/relay/compare/v1.2.7...v1.3.0
 [1.2.7]: https://github.com/stealthsrc/relay/compare/v1.2.6...v1.2.7

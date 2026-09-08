@@ -46,6 +46,34 @@ pub async fn make_webview_compatible(
     let Some(input) = download_video(url, proxy_url).await else {
         return VideoCompatibility::HevcFallback;
     };
+    transcode_video_bytes(input).await
+}
+
+/// Applies the same HEVC detection, size limits, transcode semaphore, and
+/// fallback behavior to bytes that already belong to a trusted local asset.
+/// The caller is responsible for obtaining those bytes from managed storage;
+/// this function never opens or downloads a path or URL.
+pub async fn make_webview_compatible_from_bytes(
+    bytes: Vec<u8>,
+    filename: &str,
+    content_type: &str,
+) -> VideoCompatibility {
+    if !is_mp4_candidate(filename, content_type) {
+        return VideoCompatibility::Unchanged;
+    }
+    if !is_hevc_mp4(&bytes) {
+        return VideoCompatibility::Unchanged;
+    }
+    if bytes.len() > MAX_VIDEO_INPUT_BYTES {
+        return VideoCompatibility::HevcFallback;
+    }
+    let Ok(_permit) = TRANSCODE_SLOT.acquire().await else {
+        return VideoCompatibility::HevcFallback;
+    };
+    transcode_video_bytes(bytes).await
+}
+
+async fn transcode_video_bytes(input: Vec<u8>) -> VideoCompatibility {
     match tauri::async_runtime::spawn_blocking(move || transcode_to_h264(input)).await {
         Ok(Ok(output)) => VideoCompatibility::Transcoded(output),
         _ => VideoCompatibility::HevcFallback,
@@ -218,27 +246,4 @@ impl Drop for TemporaryDirectory {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn minimal_mp4(codec: &[u8; 4]) -> Vec<u8> {
-        let mut bytes = b"\0\0\0\x18ftypisom\0\0\0\0isom".to_vec();
-        bytes.extend_from_slice(codec);
-        bytes
-    }
-
-    #[test]
-    fn identifies_hevc_sample_entries_in_mp4_probes() {
-        assert!(is_hevc_mp4(&minimal_mp4(b"hvc1")));
-        assert!(is_hevc_mp4(&minimal_mp4(b"hev1")));
-        assert!(!is_hevc_mp4(&minimal_mp4(b"avc1")));
-        assert!(!is_hevc_mp4(b"not-an-mp4-hvc1"));
-    }
-
-    #[test]
-    fn accepts_mp4_mime_types_and_common_extensions() {
-        assert!(is_mp4_candidate("clip.bin", "video/mp4; charset=binary"));
-        assert!(is_mp4_candidate("clip.MOV", "application/octet-stream"));
-        assert!(!is_mp4_candidate("clip.webm", "video/webm"));
-    }
-}
+mod tests;

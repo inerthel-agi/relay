@@ -2,7 +2,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const test = require("node:test");
 
-const panelSource = fs.readFileSync(__dirname + "/panel.js", "utf8");
+const panelSource = require("./test-source.cjs").panelSource();
 const commandsSource = fs.readFileSync(__dirname + "/../src-tauri/src/commands.rs", "utf8");
 const librarySource = fs.readFileSync(__dirname + "/../src-tauri/src/lib.rs", "utf8");
 

@@ -35,6 +35,8 @@ pub struct MusicStrings {
     pub playback_started: &'static str,
     pub playback_queued: &'static str,
     pub queue_full: &'static str,
+    pub user_queue_full: &'static str,
+    pub duplicate_pending: &'static str,
     pub skip_not_owner: &'static str,
     pub playback_stopped: &'static str,
 }
@@ -73,6 +75,8 @@ const EN: MusicStrings = MusicStrings {
     playback_started: "Playback started: {title} ({range}) · added by {user}.",
     playback_queued: "Queued: {title} (#{position}) · added by {user}.",
     queue_full: "The YouTube queue is full. Wait for a track to finish, then try again.",
+    user_queue_full: "You already have {limit} tracks waiting in the queue.",
+    duplicate_pending: "That track is already waiting in the music queue.",
     skip_not_owner: "Request denied: only the person who started the track can stop it.",
     playback_stopped: "⏹ Playback stopped.",
 };
@@ -111,6 +115,8 @@ const FR: MusicStrings = MusicStrings {
     playback_started: "Lecture lancée : {title} ({range}) · ajouté par {user}.",
     playback_queued: "En file : {title} (#{position}) · ajouté par {user}.",
     queue_full: "La file YouTube est pleine. Attends qu'un titre se termine, puis réessaie.",
+    user_queue_full: "Tu as déjà {limit} titres en attente dans la file.",
+    duplicate_pending: "Ce titre est déjà en attente dans la file musicale.",
     skip_not_owner: "Requête refusée : seule la personne qui a lancé le titre peut l'arrêter.",
     playback_stopped: "⏹ Lecture arrêtée.",
 };
@@ -149,6 +155,8 @@ const ES: MusicStrings = MusicStrings {
     playback_started: "Reproducción iniciada: {title} ({range}) · añadido por {user}.",
     playback_queued: "En cola: {title} (#{position}) · añadido por {user}.",
     queue_full: "La cola de YouTube está llena. Espera a que termine una pista e inténtalo de nuevo.",
+    user_queue_full: "Ya tienes {limit} títulos esperando en la cola.",
+    duplicate_pending: "Ese título ya está esperando en la cola de música.",
     skip_not_owner: "Solicitud denegada: solo quien inició el título puede detenerlo.",
     playback_stopped: "⏹ Reproducción detenida.",
 };
@@ -187,6 +195,8 @@ const DE: MusicStrings = MusicStrings {
     playback_started: "Wiedergabe gestartet: {title} ({range}) · hinzugefügt von {user}.",
     playback_queued: "Warteschlange: {title} (#{position}) · hinzugefügt von {user}.",
     queue_full: "Die YouTube-Warteschlange ist voll. Warte, bis ein Titel endet, und versuche es erneut.",
+    user_queue_full: "Du hast bereits {limit} Titel in der Warteschlange.",
+    duplicate_pending: "Dieser Titel wartet bereits in der Musik-Warteschlange.",
     skip_not_owner: "Anfrage abgelehnt: nur die Person, die den Titel gestartet hat, kann ihn stoppen.",
     playback_stopped: "⏹ Wiedergabe gestoppt.",
 };
@@ -225,6 +235,8 @@ const RU: MusicStrings = MusicStrings {
     playback_started: "Воспроизведение начато: {title} ({range}) · добавил(а) {user}.",
     playback_queued: "В очереди: {title} (#{position}) · добавил(а) {user}.",
     queue_full: "Очередь YouTube заполнена. Дождитесь окончания трека и попробуйте снова.",
+    user_queue_full: "У вас уже {limit} треков в очереди ожидания.",
+    duplicate_pending: "Этот трек уже находится в музыкальной очереди.",
     skip_not_owner: "Отклонено: остановить трек может только тот, кто его запустил.",
     playback_stopped: "⏹ Воспроизведение остановлено.",
 };
@@ -263,6 +275,8 @@ const ZH: MusicStrings = MusicStrings {
     playback_started: "已开始播放：{title} ({range}) · 由 {user} 添加。",
     playback_queued: "已排队：{title} (#{position}) · 由 {user} 添加。",
     queue_full: "YouTube 队列已满。请等当前曲目结束后再试。",
+    user_queue_full: "你已有 {limit} 首曲目在等待队列中。",
+    duplicate_pending: "该曲目已在音乐队列中等待。",
     skip_not_owner: "请求被拒绝：只有发起该曲目的人可以停止。",
     playback_stopped: "⏹ 已停止播放。",
 };
@@ -301,6 +315,8 @@ const KO: MusicStrings = MusicStrings {
     playback_started: "재생 시작: {title} ({range}) · {user}님이 추가.",
     playback_queued: "대기열: {title} (#{position}) · {user}님이 추가.",
     queue_full: "YouTube 대기열이 가득 찼습니다. 곡이 끝난 뒤 다시 시도하세요.",
+    user_queue_full: "대기열에 이미 {limit}곡이 기다리고 있습니다.",
+    duplicate_pending: "이 곡은 이미 음악 대기열에서 기다리고 있습니다.",
     skip_not_owner: "요청 거부: 곡을 시작한 사람만 중지할 수 있습니다.",
     playback_stopped: "⏹ 재생이 중지되었습니다.",
 };
@@ -339,6 +355,8 @@ const JA: MusicStrings = MusicStrings {
     playback_started: "再生を開始しました: {title} ({range}) · {user} が追加。",
     playback_queued: "キューに追加: {title} (#{position}) · {user} が追加。",
     queue_full: "YouTube のキューがいっぱいです。曲が終わってから再試行してください。",
+    user_queue_full: "キューにはすでに {limit} 曲が待機しています。",
+    duplicate_pending: "この曲はすでに音楽キューで待機しています。",
     skip_not_owner: "拒否されました。曲を開始した人だけが停止できます。",
     playback_stopped: "⏹ 再生を停止しました。",
 };
@@ -377,6 +395,8 @@ const ID: MusicStrings = MusicStrings {
     playback_started: "Pemutaran dimulai: {title} ({range}) · ditambahkan oleh {user}.",
     playback_queued: "Antrian: {title} (#{position}) · ditambahkan oleh {user}.",
     queue_full: "Antrian YouTube penuh. Tunggu lagu selesai, lalu coba lagi.",
+    user_queue_full: "Anda sudah memiliki {limit} lagu yang menunggu dalam antrian.",
+    duplicate_pending: "Lagu itu sudah menunggu di antrian musik.",
     skip_not_owner: "Ditolak: hanya orang yang memulai lagu yang dapat menghentikannya.",
     playback_stopped: "⏹ Pemutaran dihentikan.",
 };
@@ -409,28 +429,4 @@ pub fn fill(template: &str, pairs: &[(&str, &str)]) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn french_interface_uses_french_music_copy() {
-        assert_eq!(
-            music_strings_for_language("fr").results_title,
-            "Résultats YouTube"
-        );
-        assert_eq!(music_strings_for_language("fr-FR").cancel, "Annuler");
-        assert!(
-            music_strings_for_language("fr")
-                .search_cooldown
-                .contains("{seconds}")
-        );
-    }
-
-    #[test]
-    fn unknown_language_falls_back_to_english() {
-        assert_eq!(
-            music_strings_for_language("pt-BR").results_title,
-            "YouTube results"
-        );
-    }
-}
+mod tests;

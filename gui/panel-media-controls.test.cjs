@@ -3,7 +3,7 @@ const fs = require("node:fs");
 const test = require("node:test");
 
 const panelHtml = fs.readFileSync(__dirname + "/panel.html", "utf8");
-const panelSource = fs.readFileSync(__dirname + "/panel.js", "utf8");
+const panelSource = require("./test-source.cjs").panelSource();
 const commandsSource = fs.readFileSync(__dirname + "/../src-tauri/src/commands.rs", "utf8");
 
 test("media settings expose a captured global shortcut", () => {

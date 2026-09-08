@@ -3,7 +3,7 @@ const fs = require("node:fs");
 const test = require("node:test");
 
 const panelHtml = fs.readFileSync(__dirname + "/panel.html", "utf8");
-const panelSource = fs.readFileSync(__dirname + "/panel.js", "utf8");
+const panelSource = require("./test-source.cjs").panelSource();
 const locales = [
   "en-US", "en-GB", "en-IN", "fr-FR", "de-DE", "es-ES", "es-419",
   "ru-RU", "zh-CN", "ko-KR", "ja-JP", "id-ID",

@@ -7,16 +7,20 @@ mod config;
 mod credentials;
 mod custom_commands;
 mod media_compat;
+mod media_library;
 mod model;
 mod music;
 mod music_cleanup;
 mod music_i18n;
 mod notification_widget;
 mod privacy;
+mod reaction_protection;
+mod reaction_trim;
+mod reactions;
+mod reactions_messages;
 mod server;
 mod stage_scheduler;
 mod state;
-mod tts;
 mod updater;
 mod widget;
 mod youtube;
@@ -41,13 +45,13 @@ use crate::{
         apply_config, approve_pending_media, clear_notification_sound, clear_overlay,
         clear_pending_media, control_audio, download_history_media, get_bootstrap,
         get_media_artwork, get_runtime_status, get_widget_bootstrap, pick_notification_sound,
-        refresh_channels, regenerate_secret, reject_pending_media, replay_media,
-        save_command_settings, save_credentials, save_custom_commands, set_interface_preferences,
-        set_media_caption_visibility, set_music_widget_size, set_notification_sound_enabled,
-        set_notification_sound_obs_enabled, set_notification_widget_locked,
-        set_notification_widget_visible, set_output_geometry, set_skip_shortcut,
-        set_tts_notifications_obs_enabled, set_widget_locked, skip_media, store_youtube_api_key,
-        test_output, toggle_widget,
+        preview_output_sample, refresh_channels, regenerate_secret, reject_pending_media,
+        remove_queued_media, replay_media, save_command_settings, save_credentials,
+        save_custom_commands, set_interface_preferences, set_media_caption_visibility,
+        set_music_widget_size, set_notification_sound_enabled, set_notification_sound_obs_enabled,
+        set_notification_widget_locked, set_notification_widget_visible, set_output_geometry,
+        set_skip_shortcut, set_tts_notifications_obs_enabled, set_widget_locked, skip_media,
+        store_youtube_api_key, test_output, toggle_widget,
     },
     config::{DEFAULT_SKIP_SHORTCUT, migrate_legacy_config},
     model::{MediaKind, RelayEvent, ServerStatus},
@@ -133,6 +137,10 @@ pub fn run() {
                 if server_started {
                     let _ = restore_widget(&app_handle, core.clone()).await;
                     let _ = restore_notification_widget(&app_handle, core.clone()).await;
+                    if let Err(error) = commands::reactions::restore_audio(&app_handle, &core).await
+                    {
+                        core.server_status.write().await.error = Some(error);
+                    }
                     let (media_delivery, requests) = tokio::sync::mpsc::unbounded_channel();
                     core.set_media_delivery(media_delivery).await;
                     tauri::async_runtime::spawn(deliver_media_to_local_widget(
@@ -154,11 +162,37 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::music_queue::get_music_queue,
+            commands::music_queue::move_music_queue,
+            commands::music_queue::remove_music_queue,
+            commands::music_queue::save_music_queue_settings,
+            commands::media_library::get_media_library,
+            commands::media_library::import_library_media,
+            commands::media_library::save_history_to_library,
+            commands::media_library::rename_library_media,
+            commands::media_library::delete_library_media,
+            commands::media_library::play_library_media,
+            commands::media_library::preview_library_asset,
+            commands::message_pin::get_message_status,
+            commands::message_pin::pin_message,
+            commands::message_pin::unpin_message,
+            commands::reactions::get_reactions,
+            commands::reactions::get_reaction_access_options,
+            commands::reactions::save_reactions,
+            commands::reactions::import_reaction_sound,
+            commands::reactions::preview_reaction_trim,
+            commands::reactions::finish_reaction_trim,
+            commands::reactions::cancel_reaction_trim,
+            commands::reactions::trigger_reaction,
+            commands::reactions::stop_reaction,
+            commands::reactions::preview_reaction_sound,
             preview_music_cleanup,
             confirm_music_cleanup,
             get_bootstrap,
             get_widget_bootstrap,
             get_runtime_status,
+            remove_queued_media,
+            preview_output_sample,
             refresh_channels,
             set_interface_preferences,
             set_output_geometry,

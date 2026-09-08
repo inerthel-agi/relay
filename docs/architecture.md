@@ -53,7 +53,7 @@ The local server exposes authenticated routes for visual media, audio, TTS, noti
 | Custom Discord actions | `src-tauri/src/custom_commands.rs`, `src-tauri/src/bot.rs` |
 | Local output server | `src-tauri/src/server.rs` and the matching output directory |
 | Windows widgets | `src-tauri/src/widget.rs`, `src-tauri/src/notification_widget.rs` |
-| TTS | `src-tauri/src/tts.rs`, `tts/`, `notifications/` |
+| Message notifications | `src-tauri/src/state.rs`, `notifications/` |
 | UI, themes, and translations | `gui/panel.html`, `gui/panel.css`, `gui/panel.js`, `gui/tray.*` |
 
 ## Validation layers
@@ -61,4 +61,10 @@ The local server exposes authenticated routes for visual media, audio, TTS, noti
 - Rust unit and integration tests: `cargo test` from `src-tauri`.
 - Rust style and static analysis: `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings` from `src-tauri`.
 - Interface and Browser Source tests: `node --test gui/*.test.cjs overlay/*.test.cjs notifications/*.test.cjs stickers/*.test.cjs tts/*.test.cjs` from the repository root.
-- Windows-dependent checks such as installed speech packs and signed installer verification remain optional local smoke checks because they require configured Windows or release state.
+- Windows-dependent checks such as signed installer verification remain optional local smoke checks because they require configured Windows or release state.
+
+## Refactored modules and output controls
+
+Panel translations and output presets use native JavaScript modules. Shared output placement lives in `outputs/layout.js`; generated local samples live in `outputs/samples/`. HTTP handlers live in `src-tauri/src/server/http_routes.rs`, Discord music handlers in `src-tauri/src/bot/music_handlers.rs`, and state music/cache operations in `src-tauri/src/state/`. Rust tests are stored in each module directory.
+
+See [Output controls and refactoring](refactoring-and-output-controls.md) for feature locations, compatibility and validation boundaries.

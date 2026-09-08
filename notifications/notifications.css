@@ -45,9 +45,9 @@ body {
   --notification-scale: var(--content-scale);
   position: relative;
   display: grid;
-  grid-template-columns: calc(58px * var(--notification-scale)) minmax(0, 1fr) calc(4px * var(--notification-scale));
-  width: min(640px, calc(100vw - 32px));
-  min-height: calc(94px * var(--notification-scale));
+  grid-template-columns: calc(32px * var(--notification-scale)) minmax(0, 1fr);
+  width: min(360px, calc(100vw - 32px));
+  min-height: calc(76px * var(--notification-scale));
   box-sizing: border-box;
   gap: calc(14px * var(--notification-scale));
   align-content: center;
@@ -56,7 +56,7 @@ body {
   overflow: hidden;
   /* Opaque border — semi-transparent edges fringe as a soft black halo in WebView2/OBS. */
   border: 1px solid #2a2e36;
-  border-radius: calc(18px * var(--notification-scale));
+  border-radius: calc(22px * var(--notification-scale));
   color: #f7f8fb;
   /* Opaque fill — translucent glass blur left a soft black halo on OBS. */
   background: #0a0c10;
@@ -67,14 +67,6 @@ body {
   transform: translateX(34px);
   transform-origin: right top;
   transition: opacity 220ms ease, transform 360ms cubic-bezier(0.2, 0.9, 0.24, 1.12);
-}
-
-.notification-card::before {
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 2px;
-  background: var(--accent);
-  content: "";
 }
 
 .notification-card.is-visible {
@@ -94,8 +86,8 @@ body {
 
 .notification-card__avatar-shell {
   position: relative;
-  width: calc(58px * var(--notification-scale));
-  height: calc(58px * var(--notification-scale));
+  width: calc(32px * var(--notification-scale));
+  height: calc(32px * var(--notification-scale));
 }
 
 .notification-card__avatar {
@@ -109,11 +101,12 @@ body {
 
 .notification-card__presence {
   position: absolute;
+  box-sizing: border-box;
   right: 0;
   bottom: 1px;
-  width: calc(11px * var(--notification-scale));
-  height: calc(11px * var(--notification-scale));
-  border: calc(3px * var(--notification-scale)) solid #0a0c10;
+  width: calc(9px * var(--notification-scale));
+  height: calc(9px * var(--notification-scale));
+  border: calc(2px * var(--notification-scale)) solid #0a0c10;
   border-radius: 50%;
 }
 
@@ -122,7 +115,7 @@ body {
   min-width: 0;
   min-height: 0;
   align-content: center;
-  gap: calc(2px * var(--notification-scale));
+  gap: calc(4px * var(--notification-scale));
 }
 
 .notification-card__identity {
@@ -130,12 +123,13 @@ body {
   min-width: 0;
   align-items: center;
   gap: calc(6px * var(--notification-scale));
+  flex-wrap: wrap;
 }
 
 .notification-card__author {
   min-width: 0;
   overflow: hidden;
-  font-size: calc(14px * var(--font-scale) * var(--notification-scale));
+  font-size: calc(13px * var(--font-scale) * var(--notification-scale));
   font-weight: 650;
   letter-spacing: -0.01em;
   text-overflow: ellipsis;
@@ -174,8 +168,8 @@ body {
   margin: 1px 0 0;
   overflow: hidden;
   color: rgb(244 247 252 / 76%);
-  font-size: calc(12px * var(--font-scale) * var(--notification-scale));
-  line-height: 1.25;
+  font-size: calc(14px * var(--font-scale) * var(--notification-scale));
+  line-height: 1.4;
   text-wrap: pretty;
   overflow-wrap: anywhere;
   -webkit-box-orient: vertical;
@@ -191,17 +185,14 @@ body {
 }
 
 .notification-card__sticker {
-  width: calc(42px * var(--notification-scale));
-  height: calc(42px * var(--notification-scale));
+  width: calc(56px * var(--notification-scale));
+  height: calc(56px * var(--notification-scale));
   vertical-align: middle;
   object-fit: contain;
 }
 
 .notification-card__signal {
-  width: calc(3px * var(--notification-scale));
-  height: calc(34px * var(--notification-scale));
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--accent) 24%, transparent);
+  display: none;
 }
 
 .notification-move-layer {
@@ -241,11 +232,11 @@ html.notification-widget .notification-stage {
 html.notification-widget .notification-card {
   position: relative;
   inset: auto;
-  width: calc(100% - 8px);
-  max-width: none;
+  width: 100%;
+  max-width: 360px;
   /* Keep the rounded bottom edge inside a short native widget window. */
-  height: calc(100% - 8px);
-  max-height: calc(100% - 8px);
+  height: auto;
+  max-height: 100%;
   min-height: 0;
   --notification-scale: calc(
     var(--content-scale) * clamp(
@@ -257,11 +248,7 @@ html.notification-widget .notification-card {
   gap: calc(10px * var(--notification-scale));
   padding: calc(6px * var(--notification-scale)) calc(10px * var(--notification-scale))
     calc(6px * var(--notification-scale)) calc(12px * var(--notification-scale));
-}
-
-html.notification-widget .notification-card__signal {
-  width: calc(2px * var(--notification-scale));
-  height: calc(26px * var(--notification-scale));
+  align-self: center;
 }
 
 html.widget-edit .notification-move-layer {
@@ -272,4 +259,49 @@ html.widget-edit .notification-move-layer {
   .notification-card {
     transition-duration: 1ms;
   }
+}
+
+/* Use the audio card's visual language without a redundant side signal. */
+.notification-card__message:has(.notification-card__sticker) {
+  display: block;
+  -webkit-line-clamp: unset;
+}
+.notification-card__sticker {
+  max-width: 100%;
+  margin: 4px 4px 0 0;
+}
+.notification-card.is-sticker-only {
+  grid-template-columns: calc(32px * var(--notification-scale)) minmax(0, 1fr) auto;
+  width: fit-content;
+  max-width: min(360px, calc(100vw - 32px));
+}
+.notification-card.is-sticker-only .notification-card__copy { display: contents; }
+.notification-card.is-sticker-only .notification-card__message { margin: 0; }
+.notification-card.is-sticker-only .notification-card__identity { min-width: 72px; }
+.notification-card.is-sticker-only .notification-card__sticker { margin: 0; }
+html.notification-widget .notification-card.is-sticker-only { width: fit-content; max-width: min(360px, 100%); }
+html.notification-widget .notification-card__sticker {
+  width: min(calc(56px * var(--notification-scale)), max(32px, calc(100vh - 24px)));
+  height: min(calc(56px * var(--notification-scale)), max(32px, calc(100vh - 24px)));
+}
+
+/* Give text notifications more reading space without enlarging sticker-only cards. */
+.notification-card:not(.is-sticker-only) {
+  grid-template-columns: calc(40px * var(--notification-scale)) minmax(0, 1fr);
+  width: min(400px, calc(100vw - 32px));
+  min-height: calc(88px * var(--notification-scale));
+}
+.notification-card:not(.is-sticker-only) .notification-card__avatar-shell {
+  width: calc(40px * var(--notification-scale));
+  height: calc(40px * var(--notification-scale));
+}
+.notification-card:not(.is-sticker-only) .notification-card__author,
+.notification-card:not(.is-sticker-only) .notification-card__message {
+  font-size: calc(15px * var(--font-scale) * var(--notification-scale));
+}
+html.notification-widget .notification-card:not(.is-sticker-only) {
+  width: 100%;
+  max-width: 400px;
+  min-height: min(calc(88px * var(--notification-scale)), calc(100vh - 8px));
+  padding: calc(10px * var(--notification-scale)) calc(14px * var(--notification-scale));
 }

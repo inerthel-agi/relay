@@ -26,7 +26,7 @@ pub struct MusicCleanup {
 struct CleanupSnapshot {
     token: String,
     channel: u64,
-    protected: u64,
+    protected: Option<u64>,
     messages: Vec<u64>,
     expires: Instant,
 }
@@ -35,7 +35,7 @@ impl MusicCleanup {
     fn take_preview(
         &mut self,
         token: &str,
-        scope: (u64, u64),
+        scope: (u64, Option<u64>),
         now: Instant,
     ) -> Result<CleanupSnapshot, String> {
         let snapshot = self
@@ -89,8 +89,49 @@ pub fn protected_message_id(value: &str, channel: &str) -> Result<String, String
     Ok(id.to_owned())
 }
 
-fn may_delete(id: u64, protected: u64, active: bool) -> bool {
-    id != protected && !active
+pub(crate) fn requires_verification(
+    previous: &crate::config::AppConfig,
+    enabled: bool,
+    channel: &str,
+    welcome: &str,
+) -> bool {
+    enabled
+        && !welcome.trim().is_empty()
+        && (!previous.music_cleanup_enabled
+            || previous.music_channel_id != channel
+            || previous.music_welcome_message_id != welcome)
+}
+
+pub(crate) fn optional_protected_message(value: &str) -> Result<Option<u64>, String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Ok(None);
+    }
+    value
+        .parse::<u64>()
+        .ok()
+        .filter(|id| *id != 0)
+        .map(Some)
+        .ok_or_else(|| "Enter a valid Discord welcome message ID or link.".into())
+}
+
+pub(crate) async fn verify_protected_message(
+    http: &Http,
+    channel: u64,
+    protected: Option<u64>,
+    error: &str,
+) -> Result<(), String> {
+    if let Some(message) = protected {
+        ChannelId::new(channel)
+            .message(http, MessageId::new(message))
+            .await
+            .map_err(|_| error.to_owned())?;
+    }
+    Ok(())
+}
+
+fn may_delete(id: u64, protected: Option<u64>, active: bool) -> bool {
+    Some(id) != protected && !active
 }
 
 async fn http(core: &AppCore) -> Result<Arc<Http>, String> {
@@ -102,7 +143,7 @@ async fn http(core: &AppCore) -> Result<Arc<Http>, String> {
         .ok_or_else(|| "Connect the Discord bot first.".into())
 }
 
-async fn configured(core: &AppCore) -> Result<(u64, u64), String> {
+async fn configured(core: &AppCore) -> Result<(u64, Option<u64>), String> {
     let config = core.config.read().await;
     if !config.music_cleanup_enabled {
         return Err("Enable music channel cleanup first.".into());
@@ -111,10 +152,7 @@ async fn configured(core: &AppCore) -> Result<(u64, u64), String> {
         .music_channel_id
         .parse::<u64>()
         .map_err(|_| "Select a music channel first.")?;
-    let protected = config
-        .music_welcome_message_id
-        .parse::<u64>()
-        .map_err(|_| "Set the welcome message first.")?;
+    let protected = optional_protected_message(&config.music_welcome_message_id)?;
     Ok((channel, protected))
 }
 
@@ -136,11 +174,24 @@ async fn active(core: &AppCore, channel: u64, message: u64) -> bool {
         .contains(&(channel, message))
 }
 
+async fn reaction_protected(core: &AppCore, channel: u64, message: u64) -> bool {
+    let config = core.config.read().await;
+    crate::reaction_protection::is_protected(
+        &config.reactions.protected_channel_id,
+        &config.reactions.protected_message_id,
+        channel,
+        message,
+    )
+}
+
 pub async fn delete(core: &AppCore, http: &Http, channel: u64, message: u64) {
     let Ok((configured_channel, protected)) = configured(core).await else {
         return;
     };
-    if channel != configured_channel || !may_delete(message, protected, false) {
+    if channel != configured_channel
+        || !may_delete(message, protected, false)
+        || reaction_protected(core, channel, message).await
+    {
         return;
     }
     core.music_cleanup
@@ -162,7 +213,10 @@ pub async fn expire_message(core: &Arc<AppCore>, http: &Arc<Http>, channel: u64,
     let Ok((configured_channel, protected)) = configured(core).await else {
         return;
     };
-    if channel != configured_channel || message == protected {
+    if channel != configured_channel
+        || Some(message) == protected
+        || reaction_protected(core, channel, message).await
+    {
         return;
     }
     core.music_cleanup
@@ -195,12 +249,13 @@ pub async fn preview_music_cleanup(
 ) -> Result<CleanupPreview, String> {
     let (channel, protected) = configured(&core).await?;
     let http = http(&core).await?;
-    ChannelId::new(channel)
-        .message(&http, MessageId::new(protected))
-        .await
-        .map_err(
-            |_| "The welcome message could not be found in this channel. Nothing was deleted.",
-        )?;
+    verify_protected_message(
+        &http,
+        channel,
+        protected,
+        "The welcome message could not be found in this channel. Nothing was deleted.",
+    )
+    .await?;
     let mut messages = Vec::new();
     let mut cursor = None;
     let mut scanned = 0;
@@ -223,7 +278,8 @@ pub async fn preview_music_cleanup(
                 message.id.get(),
                 protected,
                 active(&core, channel, message.id.get()).await,
-            ) {
+            ) && !reaction_protected(&core, channel, message.id.get()).await
+            {
                 messages.push(message.id.get());
             }
         }
@@ -261,10 +317,13 @@ pub async fn confirm_music_cleanup(
         .await
         .take_preview(&token, scope, Instant::now())?;
     let http = http(&core).await?;
-    ChannelId::new(snapshot.channel)
-        .message(&http, MessageId::new(snapshot.protected))
-        .await
-        .map_err(|_| "The protected welcome message is no longer available. Cleanup cancelled.")?;
+    verify_protected_message(
+        &http,
+        snapshot.channel,
+        snapshot.protected,
+        "The protected welcome message is no longer available. Cleanup cancelled.",
+    )
+    .await?;
     let mut result = CleanupResult {
         deleted: 0,
         failed: 0,
@@ -278,7 +337,8 @@ pub async fn confirm_music_cleanup(
             id,
             snapshot.protected,
             active(&core, snapshot.channel, id).await,
-        ) {
+        ) || reaction_protected(&core, snapshot.channel, id).await
+        {
             result.skipped += 1;
             continue;
         }
@@ -303,70 +363,4 @@ pub async fn confirm_music_cleanup(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn welcome_message_links_must_match_the_music_channel() {
-        assert_eq!(
-            protected_message_id("https://discord.com/channels/1/2/3", "2"),
-            Ok("3".into())
-        );
-        assert!(protected_message_id("https://discord.com/channels/1/4/3", "2").is_err());
-        assert!(protected_message_id("0", "2").is_err());
-        assert!(protected_message_id("not-an-id", "2").is_err());
-        assert_eq!(protected_message_id("3", "2"), Ok("3".into()));
-    }
-
-    #[test]
-    fn cleanup_preserves_welcome_and_active_messages() {
-        assert!(!may_delete(7, 7, false));
-        assert!(!may_delete(8, 7, true));
-        assert!(may_delete(8, 7, false));
-    }
-
-    #[test]
-    fn confirmation_is_single_use_and_bound_to_channel_message_and_expiration() {
-        let now = Instant::now();
-        for (token, scope, time, valid) in [
-            ("one", (2, 7), now, true),
-            ("wrong", (2, 7), now, false),
-            ("one", (3, 7), now, false),
-            ("one", (2, 8), now, false),
-            ("one", (2, 7), now + TTL, false),
-        ] {
-            let mut cleanup = MusicCleanup {
-                preview: Some(CleanupSnapshot {
-                    token: "one".into(),
-                    channel: 2,
-                    protected: 7,
-                    messages: vec![8, 9],
-                    expires: now + TTL,
-                }),
-                ..Default::default()
-            };
-            let result = cleanup.take_preview(token, scope, time);
-            assert_eq!(result.is_ok(), valid);
-            if let Ok(snapshot) = result {
-                assert_eq!(snapshot.messages, vec![8, 9]);
-            }
-            assert!(cleanup.take_preview("one", (2, 7), now).is_err());
-        }
-    }
-
-    #[tokio::test]
-    async fn automatic_cleanup_does_not_request_deletion_for_protected_or_foreign_messages() {
-        let directory = tempfile::tempdir().unwrap();
-        let core = AppCore::load(directory.path().join("config.json")).unwrap();
-        {
-            let mut config = core.config.write().await;
-            config.music_cleanup_enabled = true;
-            config.music_channel_id = "2".into();
-            config.music_welcome_message_id = "7".into();
-        }
-        let http = Http::new("unused-test-token");
-        delete(&core, &http, 2, 7).await;
-        delete(&core, &http, 3, 8).await;
-        assert!(core.bot_status.read().await.error.is_none());
-    }
-}
+mod tests;

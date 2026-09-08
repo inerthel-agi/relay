@@ -53,7 +53,7 @@ test("media previews stay visible and isolated from the live media queue", () =>
   assert.match(panelSource, /url\.searchParams\.set\("preview", "1"\)/);
   assert.match(panelSource, /http:\/\/127\.0\.0\.1:\$\{port\}\$\{path\}/);
   assert.match(panelSource, /path = metadata\.previewKey === "notificationUrl" \? "\/notifications" : "\/medias"/);
-  const overlayCss = fs.readFileSync(__dirname + "/overlay.css", "utf8");
+  const overlayCss = require("./test-source.cjs").styles();
   assert.match(overlayCss, /html\.overlay-preview,\s*html\.overlay-preview body\s*\{[^}]*background:\s*#000/s);
 });
 
@@ -143,6 +143,7 @@ function createHarness(search = "?secret=private", mode = "all", autoGrantStage 
   const selectors = [
     "#image", "#video", "#audio", "#audio-card", "#audio-artwork", "#audio-title", "#audio-artist", "#audio-media-text",
     "#audio-time", "#audio-progress", "#audio-progress-fill",
+    "#audio-author", "#audio-author-avatar", "#audio-author-name",
     "#author", "#author-avatar", "#author-name", "#media-text", "#youtube-player",
     "#youtube-credit", "#youtube-credit-label",
     "#youtube-credit-channel", "#youtube-credit-source", "#youtube-credit-added",
@@ -298,6 +299,7 @@ function createHarness(search = "?secret=private", mode = "all", autoGrantStage 
     encodeURIComponent,
     window,
   });
+  vm.runInContext(fs.readFileSync(__dirname + "/../outputs/layout.js", "utf8"), context);
   vm.runInContext(fs.readFileSync(__dirname + "/overlay.js", "utf8"), context);
   return {
     context,
@@ -396,7 +398,7 @@ test("media output applies live crop and scale for OBS and widgets", () => {
   assert.equal(widget.cssProperties["--crop-bottom"], "0%");
   assert.equal(widget.cssProperties["--content-scale"], "1");
 
-  const css = fs.readFileSync(__dirname + "/overlay.css", "utf8");
+  const css = require("./test-source.cjs").styles();
   assert.match(css, /clip-path: inset\(var\(--crop-top\)/);
   assert.match(css, /\.audio-card[\s\S]*var\(--content-scale\)/);
   assert.match(css, /\.audio-card\s*\{[^}]*top:\s*16px/s);
@@ -404,18 +406,28 @@ test("media output applies live crop and scale for OBS and widgets", () => {
   assert.match(css, /\.overlay__author[\s\S]*var\(--content-scale\)/);
 });
 
-test("video fitting preserves its aspect ratio without touching the WebView2 viewport edge", () => {
+test("media fitting preserves portrait, landscape and square ratios with space for attribution", () => {
+  const { context } = createHarness();
+  for (const [width, height] of [[408, 720], [1280, 720], [512, 512]]) {
+    for (const scale of [0.5, 1, 2]) {
+      const layout = context.mediaLayout(width, height, 640, 360, scale, 44 * scale);
+      assert.ok(Math.abs(layout.width / layout.height - width / height) < 0.00001);
+      assert.ok(layout.left >= 12);
+      assert.ok(Math.abs(layout.left + layout.displayedWidth - 628) < 0.001);
+      assert.ok(layout.width * scale <= 616);
+      assert.ok(layout.bottom + 44 * scale <= 348.001);
+    }
+  }
+});
+
+test("audio attribution is inside the card and respects the author toggle", () => {
   const { context, elements } = createHarness();
-  vm.runInContext("fitVisualToViewport(videoElement, 408, 720, VIDEO_COMPOSITOR_INSET_PX)", context);
-  assert.equal(elements["#video"].style.width, "auto");
-  assert.equal(elements["#video"].style.height, "calc((100% - 4px) / 1)");
-
-  vm.runInContext("fitVisualToViewport(videoElement, 1280, 720, VIDEO_COMPOSITOR_INSET_PX)", context);
-  assert.equal(elements["#video"].style.width, "calc((100% - 4px) / 1)");
-  assert.equal(elements["#video"].style.height, "auto");
-
-  vm.runInContext("fitVisualToViewport(imageElement, 408, 720)", context);
-  assert.equal(elements["#image"].style.height, "calc(100% / 1)");
+  vm.runInContext('setAuthor({ kind: "audio", author: { username: "Listener" } })', context);
+  assert.equal(elements["#author"].hidden, true);
+  assert.equal(elements["#audio-author"].hidden, false);
+  assert.equal(elements["#audio-author-name"].textContent, "Listener");
+  vm.runInContext('config.showAuthor = false; setAuthor({ kind: "audio", author: { username: "Listener" } })', context);
+  assert.equal(elements["#audio-author"].hidden, true);
 });
 
 test("media overlay reads the camelCase Discord avatar and falls back locally", () => {
@@ -475,9 +487,11 @@ test("media messages are bounded upstream and independently visible in OBS and w
   );
   assert.equal(obs.elements["#media-text"].hidden, false);
   assert.equal(obs.elements["#media-text"].classList.contains("is-visible"), true);
-  assert.equal(obs.elements["#media-text"].style.left, "113px");
-  assert.equal(obs.elements["#media-text"].style.bottom, "33px");
-  assert.equal(obs.elements["#media-text"].style.maxWidth, "374px");
+  const image = obs.elements["#image"];
+  const caption = obs.elements["#media-text"];
+  assert.ok(Number.parseFloat(caption.style.top) > Number.parseFloat(image.style.top) + Number.parseFloat(image.style.height) / 2);
+  assert.equal(caption.style.bottom, "auto");
+  assert.equal(Number.parseFloat(caption.style.maxWidth), Number.parseFloat(image.style.width));
 
   const widget = createHarness("?secret=private&widget=1");
   widget.socket.emit("message", JSON.stringify({
@@ -1636,4 +1650,10 @@ test("OBS visual recovers when stageClock clears a missed musicIdle", () => {
   assert.deepEqual(visual.socket.sent.at(-1), { type: "mediaClock", payload: { busy: true } });
   sendMediaGrant(visual, true, { videoBusy: true });
   assert.equal(visual.elements["#image"].src, "https://cdn.discordapp.com/loop.gif");
+});
+
+test("the combined audio output no longer embeds the voice source", () => {
+  const html = fs.readFileSync(__dirname + "/obs-audio.html", "utf8");
+  assert.doesNotMatch(html, /src="\/tts"/);
+  assert.match(html, /src="\/audios"/);
 });

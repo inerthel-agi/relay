@@ -34,7 +34,7 @@ use crate::{
     model::{
         AuthorIdentity, BotStatus, ChannelSummary, GuildTagIdentity, MediaEvent, MediaKind,
         MusicPlaybackEvent, MusicPlaybackMode, OutputConnectionStatus, OutputTestTarget,
-        ServerStatus, StickerEvent, TtsRequest, VisualSegment,
+        ServerStatus, StickerEvent, VisualSegment,
     },
     music::{
         MusicSelection, MusicStartResult, SearchSelection, SelectionTake, cooldown_wait_seconds,
@@ -327,51 +327,18 @@ impl EventHandler for Handler {
                 let Some(ticket) = stage_ticket else {
                     return;
                 };
-                if !config.tts_speech_enabled {
-                    self.core
-                        .publish_visual_tts_if_allowed_with_ticket_and_roles(
-                            ticket,
-                            message.id.to_string(),
-                            text.clone(),
-                            author,
-                            guild_tag,
-                            message_timestamp(&message),
-                            plain_text_segments(text),
-                            &role_ids,
-                        )
-                        .await;
-                    return;
-                }
-                let request = TtsRequest {
-                    id: message.id.to_string(),
-                    text: text.clone(),
-                    author,
-                    guild_tag,
-                    timestamp: message_timestamp(&message),
-                };
-                if let Err(error) = self
-                    .core
-                    .publish_tts_with_ticket_and_roles(ticket, request.clone(), &role_ids)
-                    .await
-                {
-                    let visual_published = self
-                        .core
-                        .publish_visual_tts_if_allowed_with_ticket_and_roles(
-                            ticket,
-                            request.id,
-                            request.text.clone(),
-                            request.author,
-                            request.guild_tag,
-                            request.timestamp,
-                            plain_text_segments(request.text),
-                            &role_ids,
-                        )
-                        .await;
-                    self.core.bot_status.write().await.error =
-                        tts_failure_status(&error.to_string(), visual_published);
-                } else {
-                    self.core.bot_status.write().await.error = None;
-                }
+                self.core
+                    .publish_visual_tts_if_allowed_with_ticket_and_roles(
+                        ticket,
+                        message.id.to_string(),
+                        text.clone(),
+                        author,
+                        guild_tag,
+                        message_timestamp(&message),
+                        plain_text_segments(text),
+                        &role_ids,
+                    )
+                    .await;
             } else if let Some(ticket) = stage_ticket {
                 self.core.cancel_stage_output(ticket).await;
             }
@@ -729,804 +696,11 @@ impl EventHandler for Handler {
     }
 }
 
-async fn music_notice(core: &Arc<AppCore>, http: &Arc<Http>, channel: ChannelId, text: &str) {
-    if let Ok(reply) = channel.say(http, text).await {
-        crate::music_cleanup::expire_message(core, http, channel.get(), reply.id.get()).await;
-    }
-}
-
-async fn handle_music_message(
-    core: &Arc<AppCore>,
-    http: &Arc<Http>,
-    message: &Message,
-    scoped_config: &AppConfig,
-) {
-    let query = message.content.trim();
-    if query.is_empty() || query.chars().any(char::is_control) {
-        return;
-    }
-    let text_report = classify_message_privacy(message, scoped_config);
-    if block_and_delete_message_if_needed(core, http, message, &text_report, scoped_config).await {
-        return;
-    }
-    if privacy::privacy_rules_enabled(scoped_config)
-        && matches!(
-            privacy::action_for(&text_report, scoped_config),
-            privacy::PrivacyAction::Review
-        )
-    {
-        return;
-    }
-
-    let strings = music_locale(core).await;
-    let api_key = match load_youtube_api_key() {
-        Ok(Some(api_key)) => api_key,
-        Ok(None) => {
-            music_notice(core, http, message.channel_id, strings.not_configured).await;
-            return;
-        }
-        Err(_) => {
-            core.bot_status.write().await.error =
-                Some("Unable to read the saved YouTube API key.".into());
-            music_notice(core, http, message.channel_id, strings.search_unavailable).await;
-            return;
-        }
-    };
-
-    let user_id = message.author.id.get();
-    {
-        let mut music = core.music.lock().await;
-        let now = Instant::now();
-        if let Some(remaining) = music.search_cooldown_remaining(user_id, now) {
-            let seconds = cooldown_wait_seconds(remaining).to_string();
-            let reply = music_i18n::fill(strings.search_cooldown, &[("seconds", &seconds)]);
-            music_notice(core, http, message.channel_id, &reply).await;
-            return;
-        }
-        // Mark before the API call so failed/retried spam still burns the cooldown.
-        music.mark_search_attempt(user_id, now);
-    }
-
-    let results = match youtube::search(query, &api_key).await {
-        Ok(results) => results,
-        Err(error) => {
-            let detail = error.to_string();
-            core.bot_status.write().await.error = Some(detail.clone());
-            let reply = if detail.to_ascii_lowercase().contains("quota") {
-                "YouTube API quota exceeded for today. Try again after the daily reset, or raise the quota in Google Cloud."
-            } else {
-                strings.search_unavailable
-            };
-            music_notice(core, http, message.channel_id, reply).await;
-            return;
-        }
-    };
-    if results.is_empty() {
-        music_notice(core, http, message.channel_id, strings.no_results).await;
-        return;
-    }
-
-    let query = query.chars().take(200).collect::<String>();
-    let search_id = core.music.lock().await.insert_search(
-        message.author.id.get(),
-        message.channel_id.get(),
-        query.clone(),
-        results.clone(),
-    );
-    let mut embed = CreateEmbed::new()
-        .title(strings.results_title)
-        .description(music_i18n::fill(
-            strings.choose_title,
-            &[("query", &truncate_text(&query, 180))],
-        ));
-    let mut options = Vec::with_capacity(results.len());
-    for (index, track) in results.iter().enumerate() {
-        embed = embed.field(
-            format!("{}. {}", index + 1, truncate_text(&track.title, 180)),
-            format!(
-                "{} · {}",
-                truncate_text(&track.channel_title, 80),
-                format_duration(track.duration_seconds)
-            ),
-            false,
-        );
-        options.push(
-            CreateSelectMenuOption::new(truncate_text(&track.title, 100), track.video_id.clone())
-                .description(format!(
-                    "{} · {}",
-                    truncate_text(&track.channel_title, 80),
-                    format_duration(track.duration_seconds)
-                )),
-        );
-    }
-    let message_builder = CreateMessage::new()
-        .embed(embed)
-        .components(vec![CreateActionRow::SelectMenu(
-            CreateSelectMenu::new(
-                format!("{MUSIC_SEARCH_PREFIX}{search_id}"),
-                CreateSelectMenuKind::String { options },
-            )
-            .placeholder(strings.choose_placeholder),
-        )])
-        .allowed_mentions(CreateAllowedMentions::new());
-    match message.channel_id.send_message(http, message_builder).await {
-        Ok(reply) => {
-            crate::music_cleanup::expire_message(core, http, reply.channel_id.get(), reply.id.get())
-                .await
-        }
-        Err(_) => {
-            core.bot_status.write().await.error =
-                Some("Discord rejected the YouTube search results.".into())
-        }
-    }
-}
-
-async fn handle_music_component(
-    core: &Arc<AppCore>,
-    context: &Context,
-    component: &ComponentInteraction,
-) {
-    let strings = music_locale(core).await;
-    let custom_id = component.data.custom_id.as_str();
-    if let Some(search_id) = custom_id.strip_prefix(MUSIC_SEARCH_PREFIX) {
-        let Some(video_id) = (match &component.data.kind {
-            ComponentInteractionDataKind::StringSelect { values } => values.first().cloned(),
-            _ => None,
-        }) else {
-            respond_music_component(
-                core,
-                context,
-                component,
-                strings.nothing_selected,
-                Vec::new(),
-            )
-            .await;
-            return;
-        };
-        let selection = core.music.lock().await.select_search(
-            search_id,
-            component.user.id.get(),
-            &music_requester_name(&component.user),
-            &video_id,
-        );
-        match selection {
-            SearchSelection::Selected(selection_id) => {
-                let duration_seconds = core
-                    .music
-                    .lock()
-                    .await
-                    .selection_duration_seconds(&selection_id)
-                    .unwrap_or(0);
-                let preview_seconds = duration_seconds.min(30);
-                let preview_end = format_duration(preview_seconds);
-                let full_end = format_duration(duration_seconds);
-                let content = format!(
-                    "{}\n{}\n{}\n{}\n{}",
-                    strings.choose_mode,
-                    music_i18n::fill(strings.preview_bullet, &[("end", &preview_end)]),
-                    music_i18n::fill(strings.full_bullet, &[("end", &full_end)]),
-                    strings.custom_bullet,
-                    strings.owner_only_action,
-                );
-                respond_music_component(
-                    core,
-                    context,
-                    component,
-                    &content,
-                    music_mode_components(&selection_id, duration_seconds, &strings),
-                )
-                .await;
-                crate::music_cleanup::delete(
-                    core,
-                    &context.http,
-                    component.channel_id.get(),
-                    component.message.id.get(),
-                )
-                .await;
-            }
-            SearchSelection::NotOwner => {
-                respond_music_component(
-                    core,
-                    context,
-                    component,
-                    strings.search_not_owner,
-                    Vec::new(),
-                )
-                .await;
-            }
-            SearchSelection::NotFound | SearchSelection::InvalidVideo => {
-                respond_music_component(
-                    core,
-                    context,
-                    component,
-                    strings.search_expired,
-                    Vec::new(),
-                )
-                .await;
-            }
-        }
-        return;
-    }
-
-    if let Some(rest) = custom_id.strip_prefix(MUSIC_MODE_PREFIX) {
-        let Some((selection_id, mode_name)) = rest.rsplit_once(':') else {
-            return;
-        };
-        if mode_name == "cancel" {
-            let result = core
-                .music
-                .lock()
-                .await
-                .cancel_selection(selection_id, component.user.id.get());
-            let content = match result {
-                SelectionTake::Taken(_) => strings.selection_cancelled,
-                SelectionTake::NotOwner => strings.selection_not_owner,
-                SelectionTake::NotFound => strings.selection_expired,
-            };
-            respond_music_component(core, context, component, content, Vec::new()).await;
-            return;
-        }
-        if mode_name == "custom" {
-            let access = core
-                .music
-                .lock()
-                .await
-                .peek_selection(selection_id, component.user.id.get());
-            match access {
-                SelectionTake::Taken(_) => {
-                    let _ = core
-                        .music
-                        .lock()
-                        .await
-                        .touch_selection(selection_id, component.user.id.get());
-                    let modal = CreateModal::new(
-                        format!("{MUSIC_CUSTOM_PREFIX}{selection_id}"),
-                        truncate_text(strings.custom_modal_title, 45),
-                    )
-                    .components(vec![
-                        CreateActionRow::InputText(
-                            CreateInputText::new(
-                                InputTextStyle::Short,
-                                truncate_text(strings.custom_start_label, 45),
-                                MUSIC_CUSTOM_START_ID,
-                            )
-                            .placeholder(truncate_text(strings.custom_start_placeholder, 100))
-                            .required(true)
-                            .max_length(12),
-                        ),
-                        CreateActionRow::InputText(
-                            CreateInputText::new(
-                                InputTextStyle::Short,
-                                truncate_text(strings.custom_end_label, 45),
-                                MUSIC_CUSTOM_END_ID,
-                            )
-                            .placeholder(truncate_text(strings.custom_end_placeholder, 100))
-                            .required(true)
-                            .max_length(12),
-                        ),
-                    ]);
-                    if component
-                        .create_response(&context.http, CreateInteractionResponse::Modal(modal))
-                        .await
-                        .is_err()
-                    {
-                        core.bot_status.write().await.error =
-                            Some("Discord rejected the custom clip modal.".into());
-                    }
-                }
-                SelectionTake::NotOwner => {
-                    respond_music_component(
-                        core,
-                        context,
-                        component,
-                        strings.selection_not_owner,
-                        Vec::new(),
-                    )
-                    .await;
-                }
-                SelectionTake::NotFound => {
-                    respond_music_component(
-                        core,
-                        context,
-                        component,
-                        strings.selection_expired,
-                        Vec::new(),
-                    )
-                    .await;
-                }
-            }
-            return;
-        }
-        let mode = match mode_name {
-            "preview" => MusicPlaybackMode::Preview,
-            "full" => MusicPlaybackMode::Full,
-            _ => return,
-        };
-        let selection = match core
-            .music
-            .lock()
-            .await
-            .take_selection(selection_id, component.user.id.get())
-        {
-            SelectionTake::Taken(selection) => selection,
-            SelectionTake::NotOwner => {
-                respond_music_component(
-                    core,
-                    context,
-                    component,
-                    strings.selection_not_owner,
-                    Vec::new(),
-                )
-                .await;
-                return;
-            }
-            SelectionTake::NotFound => {
-                respond_music_component(
-                    core,
-                    context,
-                    component,
-                    strings.selection_expired,
-                    Vec::new(),
-                )
-                .await;
-                return;
-            }
-        };
-        let result = core
-            .start_music(
-                selection.clone(),
-                mode,
-                current_timestamp_ms(),
-                &component.id.to_string(),
-            )
-            .await;
-        match &result {
-            MusicStartResult::QueueFull => {
-                core.music
-                    .lock()
-                    .await
-                    .restore_selection(selection_id, selection.clone());
-                respond_music_component(core, context, component, strings.queue_full, Vec::new())
-                    .await;
-            }
-            MusicStartResult::Started(_) | MusicStartResult::Queued { .. } => {
-                announce_music_playback(
-                    core,
-                    context,
-                    &selection,
-                    &result,
-                    &strings,
-                    Some(component),
-                )
-                .await;
-            }
-        }
-        return;
-    }
-
-    if let Some(control_id) = custom_id.strip_prefix(MUSIC_LOOP_PREFIX) {
-        let result = core
-            .music
-            .lock()
-            .await
-            .toggle_loop(control_id, component.user.id.get());
-        match result {
-            Ok(looping) => {
-                if !looping {
-                    let waiting = core.music.lock().await.waiting_repeat_id(control_id);
-                    if let Some(id) = waiting {
-                        let _ = component
-                            .create_response(&context.http, CreateInteractionResponse::Acknowledge)
-                            .await;
-                        core.cancel_pending_music(&id).await;
-                        return;
-                    }
-                }
-                let response = CreateInteractionResponse::UpdateMessage(
-                    CreateInteractionResponseMessage::new()
-                        .components(music_control_components(control_id, looping, &strings)),
-                );
-                if component
-                    .create_response(&context.http, response)
-                    .await
-                    .is_err()
-                {
-                    core.bot_status.write().await.error =
-                        Some("Unable to update the Loop button.".into());
-                }
-            }
-            Err(_) => {
-                respond_music_component(
-                    core,
-                    context,
-                    component,
-                    strings.skip_not_owner,
-                    Vec::new(),
-                )
-                .await
-            }
-        }
-        return;
-    }
-    if let Some(control_id) = custom_id.strip_prefix(MUSIC_SKIP_PREFIX) {
-        let result = core
-            .music
-            .lock()
-            .await
-            .control_playback_id(control_id, component.user.id.get());
-        let playback_id = match result {
-            Ok(id) => id,
-            Err(_) => {
-                respond_music_component(
-                    core,
-                    context,
-                    component,
-                    strings.skip_not_owner,
-                    Vec::new(),
-                )
-                .await;
-                return;
-            }
-        };
-        let _ = component
-            .create_response(&context.http, CreateInteractionResponse::Acknowledge)
-            .await;
-        if core.stop_music_if_current(&playback_id).await.is_none() {
-            core.cancel_pending_music(&playback_id).await;
-        }
-    }
-}
-
-async fn respond_music_component(
-    core: &Arc<AppCore>,
-    context: &Context,
-    component: &ComponentInteraction,
-    content: &str,
-    components: Vec<CreateActionRow>,
-) {
-    let response = CreateInteractionResponse::Message(
-        CreateInteractionResponseMessage::new()
-            .content(content)
-            .ephemeral(true)
-            .components(components)
-            .allowed_mentions(CreateAllowedMentions::new()),
-    );
-    if component
-        .create_response(&context.http, response)
-        .await
-        .is_err()
-    {
-        core.bot_status.write().await.error =
-            Some("Discord rejected the music interaction.".into());
-    }
-}
-
-async fn music_locale(core: &AppCore) -> MusicStrings {
-    let language = core.interface_preferences.read().await.language.clone();
-    music_i18n::music_strings_for_language(&language)
-}
-
-fn music_mode_components(
-    selection_id: &str,
-    duration_seconds: u64,
-    strings: &MusicStrings,
-) -> Vec<CreateActionRow> {
-    let preview_seconds = duration_seconds.min(30);
-    let preview_end = format_duration(preview_seconds);
-    let full_duration = format_duration(duration_seconds);
-    let preview_label = music_i18n::fill(strings.preview_button, &[("end", &preview_end)]);
-    let full_label = music_i18n::fill(strings.full_button, &[("duration", &full_duration)]);
-    vec![CreateActionRow::Buttons(vec![
-        CreateButton::new(format!("{MUSIC_MODE_PREFIX}{selection_id}:preview"))
-            .label(truncate_text(&preview_label, 80))
-            .style(ButtonStyle::Primary),
-        CreateButton::new(format!("{MUSIC_MODE_PREFIX}{selection_id}:full"))
-            .label(truncate_text(&full_label, 80))
-            .style(ButtonStyle::Secondary),
-        CreateButton::new(format!("{MUSIC_MODE_PREFIX}{selection_id}:custom"))
-            .label(truncate_text(strings.custom_button, 80))
-            .style(ButtonStyle::Secondary),
-        CreateButton::new(format!("{MUSIC_MODE_PREFIX}{selection_id}:cancel"))
-            .label(truncate_text(strings.cancel, 80))
-            .style(ButtonStyle::Danger),
-    ])]
-}
-
-async fn handle_music_custom_modal(
-    core: &Arc<AppCore>,
-    context: &Context,
-    modal: &ModalInteraction,
-) {
-    let strings = music_locale(core).await;
-    let Some(selection_id) = modal.data.custom_id.strip_prefix(MUSIC_CUSTOM_PREFIX) else {
-        return;
-    };
-    let start_raw = modal_input_value(modal, MUSIC_CUSTOM_START_ID).unwrap_or_default();
-    let end_raw = modal_input_value(modal, MUSIC_CUSTOM_END_ID).unwrap_or_default();
-    let (Some(start_seconds), Some(end_seconds)) =
-        (parse_timestamp(&start_raw), parse_timestamp(&end_raw))
-    else {
-        respond_music_modal(core, context, modal, strings.custom_invalid).await;
-        return;
-    };
-
-    let selection = match core
-        .music
-        .lock()
-        .await
-        .take_selection(selection_id, modal.user.id.get())
-    {
-        SelectionTake::Taken(selection) => selection,
-        SelectionTake::NotOwner => {
-            respond_music_modal(core, context, modal, strings.selection_not_owner).await;
-            return;
-        }
-        SelectionTake::NotFound => {
-            respond_music_modal(core, context, modal, strings.selection_expired).await;
-            return;
-        }
-    };
-
-    let result = match core
-        .start_music_custom(
-            selection.clone(),
-            start_seconds,
-            end_seconds,
-            current_timestamp_ms(),
-            &modal.id.to_string(),
-        )
-        .await
-    {
-        Ok(result) => result,
-        Err(_) => {
-            core.music
-                .lock()
-                .await
-                .restore_selection(selection_id, selection);
-            respond_music_modal(core, context, modal, strings.custom_invalid).await;
-            return;
-        }
-    };
-
-    match &result {
-        MusicStartResult::QueueFull => {
-            core.music
-                .lock()
-                .await
-                .restore_selection(selection_id, selection.clone());
-            respond_music_modal(core, context, modal, strings.queue_full).await;
-        }
-        MusicStartResult::Started(playback) | MusicStartResult::Queued { playback, .. } => {
-            announce_music_playback(core, context, &selection, &result, &strings, None).await;
-            let range = music_playback_range_label(playback);
-            let started_title = truncate_text(&playback.title, 140);
-            let user = truncate_text(&playback.requested_by, 40);
-            let content = match &result {
-                MusicStartResult::Queued { position, .. } => music_i18n::fill(
-                    strings.playback_queued,
-                    &[
-                        ("title", &started_title),
-                        ("position", &position.to_string()),
-                        ("user", &user),
-                    ],
-                ),
-                _ => music_i18n::fill(
-                    strings.playback_started,
-                    &[
-                        ("title", &started_title),
-                        ("range", &range),
-                        ("user", &user),
-                    ],
-                ),
-            };
-            respond_music_modal(core, context, modal, &content).await;
-        }
-    }
-}
-
-fn modal_input_value(modal: &ModalInteraction, custom_id: &str) -> Option<String> {
-    for row in &modal.data.components {
-        for component in &row.components {
-            if let ActionRowComponent::InputText(input) = component
-                && input.custom_id == custom_id
-            {
-                return input.value.clone();
-            }
-        }
-    }
-    None
-}
-
-async fn announce_music_playback(
-    core: &Arc<AppCore>,
-    context: &Context,
-    selection: &MusicSelection,
-    result: &MusicStartResult,
-    strings: &MusicStrings,
-    component: Option<&ComponentInteraction>,
-) {
-    let (playback, queued_position) = match result {
-        MusicStartResult::Started(playback) => (playback, None),
-        MusicStartResult::Queued { playback, position } => (playback, Some(*position)),
-        MusicStartResult::QueueFull => return,
-    };
-    let range = music_playback_range_label(playback);
-    let title = truncate_text(&playback.title, 160);
-    let channel = truncate_text(&playback.channel_title, 60);
-    let user = truncate_text(&playback.requested_by, 40);
-
-    let content = if let Some(position) = queued_position {
-        music_i18n::fill(
-            strings.playback_queued,
-            &[
-                ("title", &title),
-                ("position", &position.to_string()),
-                ("user", &user),
-            ],
-        )
-    } else {
-        music_i18n::fill(
-            strings.now_playing,
-            &[
-                ("title", &title),
-                ("channel", &channel),
-                ("range", &range),
-                ("user", &user),
-            ],
-        )
-    };
-    let now_playing = CreateMessage::new()
-        .content(content)
-        .components(music_control_components(
-            &playback.playback_id,
-            false,
-            strings,
-        ))
-        .allowed_mentions(CreateAllowedMentions::new());
-    if let Ok(now_playing_message) = ChannelId::new(selection.channel_id)
-        .send_message(&context.http, now_playing)
-        .await
-    {
-        let attached = core
-            .music
-            .lock()
-            .await
-            .set_now_playing_message_id(&playback.playback_id, now_playing_message.id.get());
-        if !attached {
-            core.delete_now_playing_message(
-                selection.channel_id,
-                Some(now_playing_message.id.get()),
-            )
-            .await;
-        }
-    }
-    if let Some(component) = component {
-        let started_title = truncate_text(&playback.title, 140);
-        respond_music_component(
-            core,
-            context,
-            component,
-            &music_i18n::fill(
-                strings.playback_started,
-                &[
-                    ("title", &started_title),
-                    ("range", &range),
-                    ("user", &user),
-                ],
-            ),
-            Vec::new(),
-        )
-        .await;
-    }
-}
-
-pub(crate) async fn refresh_music_card(core: &AppCore) {
-    let Some(card) = core.music.lock().await.current_card() else {
-        return;
-    };
-    let Some(http) = core
-        .bot_runtime
-        .lock()
-        .await
-        .as_ref()
-        .map(|runtime| runtime.http.clone())
-    else {
-        return;
-    };
-    let strings = music_locale(core).await;
-    let content = music_i18n::fill(
-        strings.now_playing,
-        &[
-            ("title", &truncate_text(&card.playback.title, 160)),
-            ("channel", &truncate_text(&card.playback.channel_title, 60)),
-            ("range", &music_playback_range_label(&card.playback)),
-            ("user", &truncate_text(&card.playback.requested_by, 40)),
-        ],
-    );
-    let _ = ChannelId::new(card.channel_id)
-        .edit_message(
-            &http,
-            MessageId::new(card.message_id),
-            EditMessage::new()
-                .content(content)
-                .components(music_control_components(
-                    &card.control_id,
-                    card.looping,
-                    &strings,
-                ))
-                .allowed_mentions(CreateAllowedMentions::new()),
-        )
-        .await;
-}
-
-async fn respond_music_modal(
-    core: &Arc<AppCore>,
-    context: &Context,
-    modal: &ModalInteraction,
-    content: &str,
-) {
-    let response = CreateInteractionResponse::Message(
-        CreateInteractionResponseMessage::new()
-            .content(content)
-            .ephemeral(true)
-            .allowed_mentions(CreateAllowedMentions::new()),
-    );
-    if modal
-        .create_response(&context.http, response)
-        .await
-        .is_err()
-    {
-        core.bot_status.write().await.error =
-            Some("Discord rejected the music modal response.".into());
-    }
-}
-
-fn music_requester_name(user: &User) -> String {
-    user.global_name
-        .clone()
-        .filter(|name| !name.trim().is_empty())
-        .unwrap_or_else(|| user.name.clone())
-}
-
-fn music_playback_range_label(playback: &MusicPlaybackEvent) -> String {
-    let start = format_duration(playback.start_seconds);
-    let end = playback
-        .end_seconds
-        .map(format_duration)
-        .unwrap_or_else(|| format_duration(playback.duration_seconds));
-    format!("{start}→{end}")
-}
-
-fn music_control_components(
-    control_id: &str,
-    looping: bool,
-    strings: &MusicStrings,
-) -> Vec<CreateActionRow> {
-    vec![CreateActionRow::Buttons(vec![
-        CreateButton::new(format!("{MUSIC_SKIP_PREFIX}{control_id}"))
-            .label(truncate_text(strings.skip, 80))
-            .style(ButtonStyle::Secondary),
-        CreateButton::new(format!("{MUSIC_LOOP_PREFIX}{control_id}"))
-            .label(if looping { "Loop: ON" } else { "Loop: OFF" })
-            .style(if looping {
-                ButtonStyle::Success
-            } else {
-                ButtonStyle::Secondary
-            }),
-    ])]
-}
-
-fn truncate_text(value: &str, max_chars: usize) -> String {
-    let mut value = value.chars().take(max_chars).collect::<String>();
-    if value.chars().count() == max_chars && value.chars().count() < value.len() {
-        value.push('…');
-    }
-    value
-}
-
-fn format_duration(seconds: u64) -> String {
-    format!("{}:{:02}", seconds / 60, seconds % 60)
-}
+mod music_handlers;
+mod reaction_access;
+use music_handlers::*;
+pub(crate) use music_handlers::{refresh_music_card, refresh_pending_music_cards};
+pub(crate) use reaction_access::{ReactionAccessOptions, get_reaction_access_options};
 
 fn bounded_privacy_text(value: &str) -> String {
     let value = value.trim();
@@ -2104,7 +1278,6 @@ fn relay_command(config: &AppConfig) -> CreateCommand {
                 )
                 .add_string_choice("Media", "visual")
                 .add_string_choice("Audio", "audio")
-                .add_string_choice("TTS", "tts")
                 .add_string_choice("Notification", "notification")
                 .add_string_choice("Sticker", "sticker")
                 .required(true),
@@ -2162,6 +1335,28 @@ fn relay_command(config: &AppConfig) -> CreateCommand {
                 .required(true),
             ),
         );
+    if config.reactions.enabled {
+        let mut choice =
+            CreateCommandOption::new(CommandOptionType::String, "name", "Reaction to play")
+                .required(true);
+        for reaction in config
+            .reactions
+            .definitions
+            .iter()
+            .filter(|item| item.enabled)
+            .take(25)
+        {
+            choice = choice.add_string_choice(&reaction.name, &reaction.id);
+        }
+        command = command.add_option(
+            CreateCommandOption::new(
+                CommandOptionType::SubCommand,
+                "reaction",
+                "Play a prepared sound or reaction",
+            )
+            .add_sub_option(choice),
+        );
+    }
     for custom in config
         .custom_commands
         .iter()
@@ -2194,6 +1389,41 @@ async fn handle_relay(
     http: &Http,
     command: &CommandInteraction,
 ) -> Result<String> {
+    if let Some(option) = command
+        .data
+        .options
+        .first()
+        .filter(|option| option.name == "reaction")
+    {
+        let CommandDataOptionValue::SubCommand(arguments) = &option.value else {
+            anyhow::bail!("Invalid reaction command.");
+        };
+        if command.guild_id.is_none() {
+            anyhow::bail!("Reactions require a server.");
+        }
+        let id = arguments
+            .iter()
+            .find_map(|argument| match &argument.value {
+                CommandDataOptionValue::String(value) if argument.name == "name" => {
+                    Some(value.as_str())
+                }
+                _ => None,
+            })
+            .context("Choose a reaction.")?;
+        let roles = command
+            .member
+            .as_ref()
+            .map(|member| member.roles.iter().map(ToString::to_string).collect())
+            .unwrap_or_default();
+        let result = crate::reactions::trigger(
+            core,
+            id,
+            Some((command.user.id.get(), command.channel_id.to_string(), roles)),
+        )
+        .await;
+        let language = core.interface_preferences.read().await.language.clone();
+        return Ok(crate::reactions_messages::reply(&language, result));
+    }
     if !default_command_authorized(
         command.guild_id,
         command
@@ -2281,7 +1511,7 @@ async fn handle_relay(
                 })
                 .filter(|count| (1..=1_000).contains(count))
                 .context("a message count between 1 and 1000 is required")?;
-            clear_selected_channel(http, channel_id, count).await
+            clear_selected_channel(core, http, channel_id, count).await
         }
         "nuke" => {
             let channel_id = arguments
@@ -2308,8 +1538,7 @@ async fn handle_relay(
     }
 }
 
-const CHANGELOG_URL: &str =
-    "https://raw.githubusercontent.com/stealthsrc/relay/main/CHANGELOG.md";
+const CHANGELOG_URL: &str = "https://raw.githubusercontent.com/stealthsrc/relay/main/CHANGELOG.md";
 const CHANGELOG_PAGE_URL: &str = "https://github.com/stealthsrc/relay/blob/main/CHANGELOG.md";
 const CHANGELOG_MAX_BYTES: usize = 256 * 1024;
 const CHANGELOG_EMBED_DESCRIPTION_LIMIT: usize = 3_900;
@@ -2587,11 +1816,20 @@ fn split_at_char_boundary(value: &str, char_count: usize) -> (&str, &str) {
 }
 
 pub(crate) async fn clear_selected_channel(
+    core: &AppCore,
     http: &Http,
     channel_id: ChannelId,
     count: usize,
 ) -> Result<String> {
-    let deleted = clear_channel_messages(http, channel_id, count).await?;
+    let protected = {
+        let config = core.config.read().await;
+        crate::reaction_protection::protected_message_for_channel(
+            &config.reactions.protected_channel_id,
+            &config.reactions.protected_message_id,
+            channel_id.get(),
+        )
+    };
+    let deleted = clear_channel_messages(http, channel_id, count, protected).await?;
     Ok(format!(
         "Cleared {deleted} message(s) from <#{channel_id}>."
     ))
@@ -2602,6 +1840,19 @@ async fn nuke_selected_channel(
     http: &Http,
     channel_id: ChannelId,
 ) -> Result<String> {
+    let protected = {
+        let config = core.config.read().await;
+        crate::reaction_protection::is_channel_protected(
+            &config.reactions.protected_channel_id,
+            &config.reactions.protected_message_id,
+            channel_id.get(),
+        )
+    };
+    if protected {
+        bail!(
+            "Cannot recreate this channel while it contains the protected reaction message. Clear or change the protected message first."
+        );
+    }
     let Channel::Guild(channel) = channel_id.to_channel(http).await? else {
         bail!("only text and announcement channels can be recreated");
     };
@@ -2671,7 +1922,12 @@ fn replace_configured_channel_id(
     }
 }
 
-async fn clear_channel_messages(http: &Http, channel_id: ChannelId, limit: usize) -> Result<usize> {
+async fn clear_channel_messages(
+    http: &Http,
+    channel_id: ChannelId,
+    limit: usize,
+    protected: Option<u64>,
+) -> Result<usize> {
     let mut before = None;
     let mut deleted = 0;
     while deleted < limit {
@@ -2689,6 +1945,7 @@ async fn clear_channel_messages(http: &Http, channel_id: ChannelId, limit: usize
         let (recent, old): (Vec<MessageId>, Vec<MessageId>) = messages
             .iter()
             .take(limit - deleted)
+            .filter(|message| clear_candidate(message.id, protected))
             .map(|message| message.id)
             .partition(|message_id| is_bulk_deletable(*message_id, now));
 
@@ -2708,6 +1965,10 @@ async fn clear_channel_messages(http: &Http, channel_id: ChannelId, limit: usize
         }
     }
     Ok(deleted)
+}
+
+fn clear_candidate(message_id: MessageId, protected: Option<u64>) -> bool {
+    Some(message_id.get()) != protected
 }
 
 fn is_bulk_deletable(message_id: MessageId, now_seconds: u64) -> bool {
@@ -2792,15 +2053,14 @@ fn format_relay_status(
          Bot: {bot_state}\n\
          Local server: {}\n\
          Media channel: {media_channel}\n\
-         TTS channel: {tts_channel}\n\
+         Message channel: {tts_channel}\n\
          Moderation: {moderation}\n\
-         TTS preparing: {tts_pending}\n\
+         Messages preparing: {tts_pending}\n\
          Media widget: {media_widget}\n\
          Notification widget: {notification_widget}\n\
          **Connected outputs (OBS / widget / preview)**\n\
          Visual: {}\n\
          Audio: {}\n\
-         TTS: {}\n\
          Notifications: {}\n\
          Stickers: {}",
         if server.connected {
@@ -2810,7 +2070,6 @@ fn format_relay_status(
         },
         output_status(&server.outputs.visual),
         output_status(&server.outputs.audio),
-        output_status(&server.outputs.tts),
         output_status(&server.outputs.notification),
         output_status(&server.outputs.sticker),
     )
@@ -2852,7 +2111,7 @@ fn output_test_target(value: &str) -> Option<OutputTestTarget> {
     match value {
         "visual" | "media" => Some(OutputTestTarget::Visual),
         "audio" => Some(OutputTestTarget::Audio),
-        "tts" => Some(OutputTestTarget::Tts),
+        "tts" => Some(OutputTestTarget::Notification),
         "notification" => Some(OutputTestTarget::Notification),
         "sticker" => Some(OutputTestTarget::Sticker),
         _ => None,
@@ -2877,7 +2136,7 @@ fn output_test_label(target: OutputTestTarget) -> &'static str {
     match target {
         OutputTestTarget::Visual => "media",
         OutputTestTarget::Audio => "audio",
-        OutputTestTarget::Tts => "TTS",
+        OutputTestTarget::Tts => "notifications",
         OutputTestTarget::Notification => "notification",
         OutputTestTarget::Sticker => "sticker",
     }
@@ -3438,727 +2697,5 @@ fn current_timestamp_ms() -> u64 {
         .as_millis() as u64
 }
 
-fn tts_failure_status(error: &str, visual_published: bool) -> Option<String> {
-    (!visual_published).then(|| format!("Windows TTS failed: {error}"))
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn successful_visual_fallback_clears_the_tts_error_status() {
-        assert_eq!(tts_failure_status("voice unavailable", true), None);
-        assert_eq!(
-            tts_failure_status("voice unavailable", false),
-            Some("Windows TTS failed: voice unavailable".into())
-        );
-    }
-
-    #[test]
-    fn honeypot_reports_each_failure_without_masking_other_failures() {
-        for dm_delivered in [false, true] {
-            for action_failed in [false, true] {
-                for deletion_failed in [false, true] {
-                    let error =
-                        honeypot_outcome_error(dm_delivered, action_failed, deletion_failed);
-                    assert_eq!(
-                        error.is_none(),
-                        dm_delivered && !action_failed && !deletion_failed
-                    );
-                    let text = error.unwrap_or_default();
-                    assert_eq!(text.contains("DM could not"), !dm_delivered);
-                    assert_eq!(text.contains("Kick or ban failed"), action_failed);
-                    assert_eq!(text.contains("Message deletion failed"), deletion_failed);
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn honeypot_targets_only_the_configured_channel_with_english_notices() {
-        let config = AppConfig {
-            honeypot_channel_id: "123456789012345678".into(),
-            honeypot_action: HoneypotAction::Ban,
-            ..AppConfig::default()
-        };
-
-        assert_eq!(
-            honeypot_action_for_channel(&config, "123456789012345678"),
-            Some(HoneypotAction::Ban)
-        );
-        assert_eq!(
-            honeypot_action_for_channel(&config, "223456789012345678"),
-            None
-        );
-        assert!(honeypot_notice(HoneypotAction::Kick).contains("kicked from the server"));
-        assert!(honeypot_notice(HoneypotAction::Ban).contains("banned from the server"));
-        for notice in [
-            honeypot_notice(HoneypotAction::Kick),
-            honeypot_notice(HoneypotAction::Ban),
-        ] {
-            assert!(notice.contains("token-grabbing"));
-            assert!(notice.contains("Change your Discord password"));
-            assert!(notice.contains("two-factor authentication"));
-        }
-    }
-
-    #[test]
-    fn deferred_embed_updates_fetch_roles_before_using_the_partial_fallback() {
-        let source = include_str!("bot.rs");
-        let handler = source
-            .split("async fn message_update(")
-            .nth(1)
-            .and_then(|value| value.split("async fn interaction_create(").next())
-            .expect("message update handler");
-        let fetch = handler
-            .find("get_message(event.channel_id, event.id)")
-            .unwrap();
-        let partial = handler.find("role_ids: Vec::new()").unwrap();
-        assert!(fetch < partial);
-    }
-
-    #[test]
-    fn extracts_only_enabled_discord_guild_tags() {
-        let tagged_user: User = serde_json::from_value(serde_json::json!({
-            "id": "123456789012345678",
-            "username": "Stealthy.",
-            "primary_guild": {
-                "identity_guild_id": "987654321098765432",
-                "identity_enabled": true,
-                "tag": "RE",
-                "badge": "7d1734ae5a615e82bc7a4033b98fade8"
-            }
-        }))
-        .unwrap();
-        let tag = guild_tag_from_user(&tagged_user).unwrap();
-        assert_eq!(tag.name, "RE");
-        assert_eq!(
-            tag.badge_url.as_deref(),
-            Some(
-                "https://cdn.discordapp.com/guild-tag-badges/987654321098765432/7d1734ae5a615e82bc7a4033b98fade8.png?size=1024"
-            )
-        );
-
-        let hidden_user: User = serde_json::from_value(serde_json::json!({
-            "id": "123456789012345678",
-            "username": "Stealthy.",
-            "primary_guild": {
-                "identity_guild_id": "987654321098765432",
-                "identity_enabled": false,
-                "tag": "RE",
-                "badge": "7d1734ae5a615e82bc7a4033b98fade8"
-            }
-        }))
-        .unwrap();
-        assert!(guild_tag_from_user(&hidden_user).is_none());
-    }
-
-    #[test]
-    fn formats_local_overlay_urls_without_secret() {
-        let config = AppConfig {
-            port: 5_321,
-            ..AppConfig::default()
-        };
-        assert_eq!(overlay_url(&config), "http://localhost:5321/obs/visual");
-        assert_eq!(
-            audio_overlay_url(&config),
-            "http://127.0.0.1:5321/obs/audio"
-        );
-        let details = connection_details(&config);
-        assert!(details.contains("http://localhost:5321/obs/visual"));
-        assert!(!details.contains("secret"));
-    }
-
-    #[test]
-    fn builds_invite_url_with_required_scopes_and_permissions() {
-        assert_eq!(
-            invite_url("123456789012345678", &AppConfig::default()),
-            "https://discord.com/oauth2/authorize?client_id=123456789012345678&permissions=268510224&scope=bot%20applications.commands"
-        );
-    }
-
-    #[test]
-    fn disables_commands_individually() {
-        let config = AppConfig {
-            command_clear_enabled: false,
-            command_status_enabled: false,
-            command_test_enabled: false,
-            ..AppConfig::default()
-        };
-        assert!(!command_enabled(&config, "clear"));
-        assert!(!command_enabled(&config, "status"));
-        assert!(!command_enabled(&config, "test"));
-        assert!(command_enabled(&config, "lock"));
-        assert!(!command_enabled(&config, "unknown"));
-    }
-
-    #[test]
-    fn default_commands_still_require_an_administrator_inside_a_guild() {
-        let guild_id = Some(GuildId::new(123_456_789_012_345_678));
-        assert!(default_command_authorized(
-            guild_id,
-            Some(Permissions::ADMINISTRATOR)
-        ));
-        assert!(!default_command_authorized(
-            guild_id,
-            Some(Permissions::MANAGE_MESSAGES)
-        ));
-        assert!(!default_command_authorized(
-            None,
-            Some(Permissions::ADMINISTRATOR)
-        ));
-    }
-
-    #[test]
-    fn formats_live_status_for_obs_and_windows_outputs() {
-        let config = AppConfig {
-            watched_channel_id: "123456789012345678".into(),
-            tts_channel_id: "223456789012345678".into(),
-            moderation_enabled: true,
-            widget_visible: true,
-            widget_locked: true,
-            ..AppConfig::default()
-        };
-        let bot = BotStatus {
-            connected: true,
-            username: Some("Relay".into()),
-            ..BotStatus::default()
-        };
-        let mut server = ServerStatus {
-            connected: true,
-            ..ServerStatus::default()
-        };
-        server.outputs.visual.obs_clients = 1;
-        server.outputs.visual.widget_clients = 1;
-        server.outputs.notification.preview_clients = 1;
-
-        let status = format_relay_status(&config, &bot, &server, 3, 2);
-
-        assert!(status.contains("Bot: connected as Relay"));
-        assert!(status.contains("Media channel: <#123456789012345678>"));
-        assert!(status.contains("Moderation: enabled (3 pending)"));
-        assert!(status.contains("TTS preparing: 2"));
-        assert!(status.contains("Media widget: visible and locked"));
-        assert!(status.contains("Visual: 1 / 1 / 0"));
-        assert!(status.contains("Notifications: 0 / 0 / 1"));
-        assert!(!status.contains("secret"));
-    }
-
-    #[test]
-    fn clear_command_requires_a_bounded_message_count() {
-        let command = serde_json::to_value(relay_command(&AppConfig::default())).unwrap();
-        let clear = command["options"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|option| option["name"] == "clear")
-            .unwrap();
-        let channel = &clear["options"][0];
-        assert_eq!(channel["name"], "channel");
-        assert_eq!(channel["required"], true);
-        let count = &clear["options"][1];
-        assert_eq!(count["name"], "count");
-        assert_eq!(count["required"], true);
-        assert_eq!(count["min_value"], 1);
-        assert_eq!(count["max_value"], 1_000);
-    }
-
-    #[test]
-    fn nuke_command_requires_a_text_or_announcement_channel() {
-        let command = serde_json::to_value(relay_command(&AppConfig::default())).unwrap();
-        let nuke = command["options"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|option| option["name"] == "nuke")
-            .expect("nuke subcommand must be registered");
-        let channel = &nuke["options"][0];
-        assert_eq!(channel["name"], "channel");
-        assert_eq!(channel["required"], true);
-        assert_eq!(channel["channel_types"], serde_json::json!([0, 5]));
-    }
-
-    #[test]
-    fn nuke_replaces_configured_channel_references() {
-        let mut config = AppConfig {
-            watched_channel_id: "1".into(),
-            tts_channel_id: "1".into(),
-            music_channel_id: "2".into(),
-            honeypot_channel_id: "1".into(),
-            channel_lock: Some(ChannelLockSnapshot {
-                channel_id: "1".into(),
-                overwrites: Vec::new(),
-            }),
-            ..AppConfig::default()
-        };
-
-        replace_configured_channel_id(&mut config, ChannelId::new(1), ChannelId::new(3));
-
-        assert_eq!(config.watched_channel_id, "3");
-        assert_eq!(config.tts_channel_id, "3");
-        assert_eq!(config.music_channel_id, "2");
-        assert_eq!(config.honeypot_channel_id, "3");
-        assert_eq!(config.channel_lock.unwrap().channel_id, "3");
-    }
-
-    #[test]
-    fn custom_commands_share_the_relay_schema_without_a_global_admin_gate() {
-        let config = AppConfig {
-            custom_commands: vec![custom_commands::CustomCommandDefinition {
-                name: "rules".into(),
-                description: "Show the configured rules".into(),
-                action: custom_commands::CustomCommandAction::Reply {
-                    text: "Rules".into(),
-                    ephemeral: true,
-                },
-                ..custom_commands::CustomCommandDefinition::default()
-            }],
-            ..AppConfig::default()
-        };
-        let command = serde_json::to_value(relay_command(&config)).unwrap();
-        assert!(command.get("default_member_permissions").is_none());
-        assert!(
-            command["options"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|option| option["name"] == "rules")
-        );
-    }
-
-    #[test]
-    fn test_command_exposes_every_local_output() {
-        let command = serde_json::to_value(relay_command(&AppConfig::default())).unwrap();
-        let test = command["options"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|option| option["name"] == "test")
-            .unwrap();
-        let output = &test["options"][0];
-        assert_eq!(output["name"], "output");
-        assert_eq!(output["required"], true);
-        let values = output["choices"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|choice| choice["value"].as_str().unwrap())
-            .collect::<Vec<_>>();
-        assert_eq!(
-            values,
-            vec!["visual", "audio", "tts", "notification", "sticker"]
-        );
-    }
-
-    #[tokio::test]
-    async fn discord_output_tests_require_a_live_output_and_bypass_history() {
-        let directory = tempfile::tempdir().unwrap();
-        let core = AppCore::load(directory.path().join("config.json")).unwrap();
-
-        let unavailable = relay_output_test(&core, OutputTestTarget::Visual)
-            .await
-            .unwrap();
-        assert!(unavailable.contains("No live media output is connected"));
-
-        {
-            let mut server = core.server_status.write().await;
-            server.connected = true;
-            server.outputs.visual.obs_clients = 1;
-        }
-        let mut events = core.relay_tx.subscribe();
-        let confirmation = relay_output_test(&core, OutputTestTarget::Visual)
-            .await
-            .unwrap();
-
-        assert!(confirmation.contains("Local media test sent to 1 connected output"));
-        assert!(confirmation.contains("Nothing was posted to Discord"));
-        assert!(matches!(
-            events.recv().await.unwrap(),
-            crate::model::RelayEvent::TestOutput(_)
-        ));
-        assert!(core.history.read().await.is_empty());
-    }
-
-    #[test]
-    fn extracts_the_latest_release_section_from_the_changelog() {
-        let changelog = "# Changelog\n\nIntro text.\n\n## [Unreleased]\n\n- Pending change.\n\n## [1.1.0] - 2026-07-12\n\n### Added\n\n- New feature.\n\n## [1.0.0] - 2026-07-12\n\n- First release.\n\n[Unreleased]: https://example.com/compare\n[1.1.0]: https://example.com/tag\n";
-        let section = latest_changelog_section(changelog).unwrap();
-        assert_eq!(section.version, "1.1.0");
-        assert_eq!(section.date.as_deref(), Some("2026-07-12"));
-        assert_eq!(section.heading, "## [1.1.0] - 2026-07-12");
-        assert!(section.body.contains("New feature."));
-        assert!(!section.body.contains("Pending change."));
-        assert!(!section.body.contains("First release."));
-        assert!(!section.body.contains("example.com"));
-        assert!(
-            latest_changelog_section("# Changelog\n\n## [Unreleased]\n\n- Only pending.\n")
-                .is_none()
-        );
-    }
-
-    #[test]
-    fn formats_changelog_markdown_for_discord_embeds() {
-        let body = "### English\n\n#### Added\n\n- New feature.\n\n### Français\n\n#### Ajouté\n\n- Nouvelle fonctionnalité.\n";
-        let formatted = discord_format_changelog_body(body);
-        assert!(formatted.contains("**English**"));
-        assert!(formatted.contains("**Added**"));
-        assert!(formatted.contains("• New feature."));
-        assert!(formatted.contains("**Français**"));
-        assert!(formatted.contains("• Nouvelle fonctionnalité."));
-        assert!(!formatted.contains("####"));
-    }
-
-    #[test]
-    fn builds_changelog_embeds_with_version_title_and_github_link() {
-        let section = ChangelogSection {
-            heading: "## [1.2.6] - 2026-08-14".into(),
-            version: "1.2.6".into(),
-            date: Some("2026-08-14".into()),
-            body: "### English\n\n#### Fixed\n\n- One fix.\n\n### Français\n\n#### Corrigé\n\n- Un correctif.\n".into(),
-        };
-        let (embeds, truncated) = build_changelog_embeds(&section);
-        assert!(!truncated);
-        assert_eq!(embeds.len(), 1);
-    }
-
-    #[test]
-    fn splits_long_changelog_sections_into_discord_sized_messages() {
-        let long_line = "x".repeat(80);
-        let text = (0..60)
-            .map(|_| long_line.clone())
-            .collect::<Vec<_>>()
-            .join("\n");
-        let chunks = split_message_chunks(&text, 1_900);
-        assert!(chunks.len() > 1);
-        assert!(chunks.iter().all(|chunk| char_len(chunk) <= 1_900));
-        assert_eq!(chunks.join("\n"), text);
-    }
-
-    #[test]
-    fn hard_splits_oversized_changelog_lines() {
-        let line = "y".repeat(5_000);
-        let chunks = split_message_chunks(&line, 1_000);
-        assert!(chunks.len() > 1);
-        assert!(chunks.iter().all(|chunk| char_len(chunk) <= 1_000));
-        assert_eq!(chunks.concat(), line);
-    }
-
-    #[test]
-    fn snapshots_missing_permission_overwrites_for_exact_restoration() {
-        let kind = PermissionOverwriteType::Role(serenity::all::RoleId::new(42));
-        let saved = snapshot_permission(&[], kind).unwrap();
-        assert_eq!(saved.target_kind, "role");
-        assert_eq!(saved.target_id, "42");
-        assert!(!saved.existed);
-        assert_eq!(saved.allow, 0);
-        assert_eq!(saved.deny, 0);
-    }
-
-    #[test]
-    fn bulk_deletes_only_messages_safely_inside_discords_two_week_limit() {
-        let now = current_timestamp_ms() / 1_000;
-        let recent = MessageId::new(((now - 60) * 1_000 - 1_420_070_400_000) << 22);
-        let old = MessageId::new(((now - 14 * 24 * 60 * 60) * 1_000 - 1_420_070_400_000) << 22);
-        assert!(is_bulk_deletable(recent, now));
-        assert!(!is_bulk_deletable(old, now));
-    }
-
-    #[test]
-    fn classifies_supported_media_by_content_type_and_extension() {
-        assert!(matches!(
-            classify_media("still.png", None),
-            Some(MediaKind::Image)
-        ));
-        assert!(matches!(
-            classify_media("loop.gif", None),
-            Some(MediaKind::Gif)
-        ));
-        assert!(matches!(
-            classify_media("clip.bin", Some("video/mp4")),
-            Some(MediaKind::Video)
-        ));
-        assert!(matches!(
-            classify_media("track.opus", None),
-            Some(MediaKind::Audio)
-        ));
-        assert!(classify_media("notes.txt", Some("text/plain")).is_none());
-    }
-
-    #[test]
-    fn extracts_discord_gifv_embeds_as_muted_video_gifs() {
-        let embed: serenity::all::Embed = serde_json::from_value(serde_json::json!({
-            "type": "gifv",
-            "title": "Tenor animation",
-            "url": "https://tenor.com/view/example",
-            "video": {
-                "url": "https://media.tenor.com/example.mp4",
-                "proxy_url": "https://images-ext-1.discordapp.net/example.mp4"
-            },
-            "thumbnail": { "url": "https://media.tenor.com/example.gif" }
-        }))
-        .unwrap();
-        let gif = embedded_gif(&embed).expect("Discord gifv should be relayed");
-        assert_eq!(gif.url, "https://media.tenor.com/example.mp4");
-        assert_eq!(gif.content_type, "video/mp4");
-        assert_eq!(gif.title.as_deref(), Some("Tenor animation"));
-    }
-
-    #[test]
-    fn accepts_klipy_image_embeds_even_without_gifv_type() {
-        let embed: serenity::all::Embed = serde_json::from_value(serde_json::json!({
-            "type": "image",
-            "provider": { "name": "KLIPY", "url": "https://klipy.com" },
-            "image": { "url": "https://cdn.klipy.com/animated.webp" }
-        }))
-        .unwrap();
-        let gif = embedded_gif(&embed).expect("KLIPY image embed should be relayed");
-        assert_eq!(gif.url, "https://cdn.klipy.com/animated.webp");
-        assert_eq!(gif.content_type, "image/webp");
-    }
-
-    #[test]
-    fn treats_klipy_image_proxy_mp4_as_video_gif() {
-        let embed: serenity::all::Embed = serde_json::from_value(serde_json::json!({
-            "type": "image",
-            "title": "Klipy picker GIF",
-            "provider": { "name": "KLIPY", "url": "https://klipy.com" },
-            "image": {
-                "url": "https://static.klipy.com/preview.jpg",
-                "proxy_url": "https://images-ext-1.discordapp.net/external/example/clip.mp4"
-            }
-        }))
-        .unwrap();
-        let gif = embedded_gif(&embed).expect("KLIPY MP4 proxy should be relayed");
-        assert_eq!(
-            gif.url,
-            "https://images-ext-1.discordapp.net/external/example/clip.mp4"
-        );
-        assert_eq!(gif.content_type, "video/mp4");
-    }
-
-    #[test]
-    fn accepts_discord_favorite_gifs_stored_as_thumbnail_only_images() {
-        let embed: serenity::all::Embed = serde_json::from_value(serde_json::json!({
-            "type": "image",
-            "url": "https://media.tenor.com/example/john-pork-is-calling.gif",
-            "thumbnail": {
-                "url": "https://media.tenor.com/example/john-pork-is-calling.gif",
-                "proxy_url": "https://images-ext-1.discordapp.net/external/example/john-pork-is-calling.gif",
-                "height": 387,
-                "width": 220
-            }
-        }))
-        .unwrap();
-
-        let gif = embedded_gif(&embed).expect("thumbnail-only Discord favorite should be relayed");
-        assert_eq!(
-            gif.url,
-            "https://media.tenor.com/example/john-pork-is-calling.gif"
-        );
-        assert_eq!(
-            gif.proxy_url,
-            "https://images-ext-1.discordapp.net/external/example/john-pork-is-calling.gif"
-        );
-        assert_eq!(gif.content_type, "image/gif");
-    }
-
-    #[test]
-    fn accepts_thumbnail_only_direct_gifs_without_a_known_provider() {
-        let embed: serenity::all::Embed = serde_json::from_value(serde_json::json!({
-            "type": "image",
-            "thumbnail": { "url": "https://example.com/animation.gif" }
-        }))
-        .unwrap();
-
-        let gif = embedded_gif(&embed).expect("direct GIF thumbnails should be relayed");
-        assert_eq!(gif.url, "https://example.com/animation.gif");
-        assert_eq!(gif.content_type, "image/gif");
-    }
-
-    #[test]
-    fn sniffs_mp4_bytes_when_discord_reports_an_image() {
-        let bytes = b"\0\0\0\x18ftypisom\0\0\0\0isom";
-        assert_eq!(sniff_media_type(bytes, "image/gif"), "video/mp4");
-    }
-
-    #[test]
-    fn prepares_plain_tts_messages_with_an_optional_unicode_limit() {
-        assert_eq!(
-            prepare_tts_text("  Bonjour Relay  ", 0).as_deref(),
-            Some("Bonjour Relay")
-        );
-        assert_eq!(
-            prepare_tts_text("\u{e9}l\u{e9}phant", 3).as_deref(),
-            Some("\u{e9}l\u{e9}")
-        );
-        assert!(prepare_tts_text("   ", 0).is_none());
-    }
-
-    #[test]
-    fn prepares_bounded_media_text_without_standalone_links() {
-        assert_eq!(
-            prepare_media_text("Regardez mon setup https://example.com/image"),
-            Some("Regardez mon setup".into())
-        );
-        assert_eq!(prepare_media_text("https://example.com/image"), None);
-        assert_eq!(
-            prepare_media_text("Une ligne\navec\tdu texte"),
-            Some("Une ligne avec du texte".into())
-        );
-
-        let caption = prepare_media_text(&"é".repeat(MEDIA_TEXT_LIMIT + 1)).unwrap();
-        assert_eq!(caption.chars().count(), MEDIA_TEXT_LIMIT);
-        assert!(caption.ends_with('…'));
-    }
-
-    #[test]
-    fn automatic_privacy_filter_covers_sticker_and_attachment_names_without_scan() {
-        let config = AppConfig {
-            privacy_scan_enabled: false,
-            privacy_concepts: vec![privacy::ForbiddenConcept {
-                canonical: "hitler".into(),
-                aliases: Vec::new(),
-                regexes: Vec::new(),
-            }],
-            ..AppConfig::default()
-        };
-        let report = classify_privacy_values(
-            "ordinary message",
-            ["safe sticker"],
-            ["hitler.png"],
-            &config,
-        );
-        assert!(privacy_action_is_blocked(&report, &config));
-        assert!(report.reasons.contains(&"forbidden_concept"));
-    }
-
-    #[test]
-    fn auto_deletes_blocked_privacy_and_filter_word_messages() {
-        let mut config = AppConfig {
-            privacy_scan_enabled: true,
-            ..AppConfig::default()
-        };
-        let address = privacy::classify_text(Some("1 rue canot massy"), &config);
-        assert!(should_auto_delete_blocked_message(&address, &config));
-
-        config.privacy_scan_enabled = false;
-        config.privacy_concepts = vec![privacy::ForbiddenConcept {
-            canonical: "blockedterm".into(),
-            aliases: Vec::new(),
-            regexes: Vec::new(),
-        }];
-        let filter_word = privacy::classify_text(Some("blockedterm"), &config);
-        assert!(
-            filter_word
-                .categories
-                .contains(&privacy::PrivacyCategory::ContentFilter)
-        );
-        assert!(should_auto_delete_blocked_message(&filter_word, &config));
-        assert!(!should_auto_delete_blocked_message(
-            &privacy::PrivacyReport::sensitive("image_limits"),
-            &config,
-        ));
-
-        config.privacy_auto_delete_blocked_messages = false;
-        assert!(!should_auto_delete_blocked_message(&address, &config));
-        assert!(!should_auto_delete_blocked_message(&filter_word, &config));
-    }
-
-    #[test]
-    fn converts_unicode_and_custom_emojis_to_visual_segments() {
-        let segments = parse_visual_segments(
-            "Hello 👋 <:relay:123456789012345678> <a:dance:223456789012345678>",
-        )
-        .expect("message contains emojis");
-        assert_eq!(
-            segments
-                .iter()
-                .filter(|segment| segment.kind == "emoji")
-                .count(),
-            3
-        );
-        assert!(segments.iter().any(|segment| segment.value == "👋"));
-        assert!(segments.iter().any(|segment| {
-            segment.value == ":dance:"
-                && segment.animated
-                && segment
-                    .url
-                    .as_deref()
-                    .is_some_and(|url| url.contains("223456789012345678"))
-        }));
-    }
-
-    #[test]
-    fn wraps_disabled_speech_messages_in_a_single_text_segment() {
-        let segments = plain_text_segments("test".into());
-        assert_eq!(segments.len(), 1);
-        assert_eq!(segments[0].kind, "text");
-        assert_eq!(segments[0].value, "test");
-        assert!(segments[0].url.is_none());
-        assert!(!segments[0].animated);
-    }
-
-    #[test]
-    fn leaves_plain_tts_messages_on_the_audio_path() {
-        assert!(parse_visual_segments("Relay reads this message").is_none());
-        assert!(parse_visual_segments("invalid <:emoji:not-an-id>").is_none());
-    }
-
-    #[test]
-    fn maps_configured_bot_presence() {
-        let config = AppConfig {
-            bot_online_status: "idle".into(),
-            bot_activity_type: "custom".into(),
-            bot_activity_text: "Send your memes".into(),
-            ..AppConfig::default()
-        };
-        let (activity, status) = presence_from_config(&config);
-        assert_eq!(status, OnlineStatus::Idle);
-        assert_eq!(activity.unwrap().state.as_deref(), Some("Send your memes"));
-
-        let hidden = AppConfig {
-            bot_online_status: "invisible".into(),
-            bot_activity_type: "none".into(),
-            ..AppConfig::default()
-        };
-        let (activity, status) = presence_from_config(&hidden);
-        assert_eq!(status, OnlineStatus::Invisible);
-        assert!(activity.is_none());
-    }
-
-    #[test]
-    fn maps_all_discord_sticker_formats() {
-        assert_eq!(sticker_format(StickerFormatType::Png), ("png", "image/png"));
-        assert_eq!(
-            sticker_format(StickerFormatType::Apng),
-            ("apng", "image/png")
-        );
-        assert_eq!(
-            sticker_format(StickerFormatType::Lottie),
-            ("lottie", "application/json")
-        );
-        assert_eq!(sticker_format(StickerFormatType::Gif), ("gif", "image/gif"));
-    }
-
-    #[test]
-    fn converts_renderable_stickers_to_visual_notification_segments() {
-        let gif = sticker_visual_segment(
-            "Relay dance".into(),
-            Some("https://media.discordapp.net/stickers/1.gif".into()),
-            StickerFormatType::Gif,
-        );
-        assert_eq!(
-            (gif.kind.as_str(), gif.value.as_str()),
-            ("sticker", "Relay dance")
-        );
-        assert!(gif.url.is_some() && gif.animated);
-
-        let lottie = sticker_visual_segment(
-            "Relay wave".into(),
-            Some("https://cdn.discordapp.com/stickers/2.json".into()),
-            StickerFormatType::Lottie,
-        );
-        assert!(lottie.url.is_none() && !lottie.animated);
-    }
-}
+mod tests;

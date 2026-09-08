@@ -8,21 +8,13 @@
   </head>
   <body>
     <!--
-      Composite OBS Browser Source: Discord file audio + TTS voice.
-      Transparent canvas; OBS captures audio from both layers.
+      OBS Browser Source for Discord file audio.
+      Transparent canvas; OBS captures the audio stream.
     -->
     <iframe
       class="obs-layer obs-layer--audios"
       src="/audios"
       title="Relay Discord audio"
-      allow="autoplay"
-      allowtransparency="true"
-      frameborder="0"
-    ></iframe>
-    <iframe
-      class="obs-layer obs-layer--tts"
-      src="/tts"
-      title="Relay TTS audio"
       allow="autoplay"
       allowtransparency="true"
       frameborder="0"

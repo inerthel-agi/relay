@@ -47,6 +47,12 @@ let isUnloading = false;
 let playbackGeneration = 0;
 let playbackWatchdog;
 let visualTimer;
+let pinnedNotification;
+let playbackFinished = false;
+let reportedNotificationId;
+// A reconnect waits for the server's pin snapshot before draining the local
+// queue, so an already pinned message cannot be replaced by a queued item.
+let messagePinStateReady = true;
 /** True while overlay media or YouTube holds the shared stage. */
 let mediaBusy = false;
 /** True while server reports an active YouTube track (may be deferred locally on overlay). */
@@ -83,6 +89,15 @@ function displayDuration() {
 }
 
 function applyOutputGeometry() {
+  const placement = target === "widget" ? config.notificationWidgetGeometry : config.notificationObsGeometry;
+  const stage = document.querySelector(".notification-stage");
+  if (stage) {
+    const anchor = placement?.anchor || "legacy";
+    stage.style.justifyContent = anchor === "legacy" ? "" : anchor.endsWith("Left") ? "flex-start" : anchor.endsWith("Right") ? "flex-end" : "center";
+    stage.style.alignItems = anchor === "legacy" ? "" : anchor.startsWith("bottom") ? "flex-end" : anchor === "center" ? "center" : "flex-start";
+    stage.style.padding = anchor === "legacy" ? "" : (placement.marginY || 0) + "px " + (placement.marginX || 0) + "px";
+    cardElement.style.alignSelf = anchor === "legacy" ? "" : "auto";
+  }
   const geometry = target === "widget"
     ? config.notificationWidgetGeometry
     : config.notificationObsGeometry;
@@ -129,6 +144,9 @@ function setGuildTag(guildTag) {
 }
 
 function setCardContent(notification) {
+  const segments = notification.visualOnly && Array.isArray(notification.segments) ? notification.segments : [];
+  cardElement.classList.toggle("is-sticker-only", segments.some((segment) => segment.kind === "sticker" && segment.url)
+    && segments.every((segment) => segment.kind === "sticker" || !String(segment.value || "").trim()));
   authorElement.textContent = notification.author?.username || "Discord";
   setGuildTag(notification.guildTag);
   messageElement.replaceChildren();
@@ -170,7 +188,9 @@ function normalizeInterfaceLanguage(value) {
 
 function showPreview() {
   const copy = previewCopy[interfaceLanguage] || previewCopy.en;
-  setCardContent({ author: { username: copy.author }, text: copy.message });
+  setCardContent(parameters.get("sample") === "sticker"
+    ? { author: { username: copy.author }, visualOnly: true, segments: [{ kind: "sticker", url: "/overlay-assets/relay-radar.png", value: "Relay" }] }
+    : { author: { username: copy.author }, text: copy.message });
   showCard();
 }
 
@@ -221,15 +241,96 @@ function stageBlocked() {
   return mediaBusy || musicActive;
 }
 
-function syncTtsStageBusy(busy) {
+function syncTtsStageBusy(busy, force = false) {
   if (isPreview || socket?.readyState !== 1) return;
-  if (busy === reportedTtsStageBusy) return;
+  if (!force && busy === reportedTtsStageBusy) return;
   reportedTtsStageBusy = busy;
   if (!busy) ttsBusy = false;
   socket.send(JSON.stringify({
     type: "stageClock",
     payload: { lane: "tts", busy },
   }));
+}
+
+function sameNotification(left, right) {
+  if (!left || !right) return false;
+  if (left.id && right.id) return left.id === right.id;
+  return left === right;
+}
+
+function syncNotificationVisibility(visible, notification = currentNotification) {
+  if (isPreview || socket?.readyState !== 1) return;
+  if (visible) {
+    const id = typeof notification?.id === "string" ? notification.id : "";
+    if (!id || reportedNotificationId === id) return;
+    reportedNotificationId = id;
+    socket.send(JSON.stringify({
+      type: "notificationState",
+      payload: { visible: true, notification },
+    }));
+    return;
+  }
+  if (!reportedNotificationId) return;
+  const id = reportedNotificationId;
+  reportedNotificationId = undefined;
+  socket.send(JSON.stringify({
+    type: "notificationState",
+    payload: { visible: false, id },
+  }));
+}
+
+function currentNotificationIsPinned() {
+  return sameNotification(currentNotification, pinnedNotification);
+}
+
+function holdCurrentNotification() {
+  if (!currentNotificationIsPinned()) return;
+  window.clearTimeout(visualTimer);
+  // A pinned card stays visible, but its optional audio must stop so the
+  // shared TTS stage is released immediately for media and music.
+  if (audioElement.src) resetAudio();
+  playbackFinished = true;
+  syncTtsStageBusy(false);
+}
+
+function applyMessagePin(payload = {}) {
+  messagePinStateReady = true;
+  const pinned = Boolean(payload.pinned) && payload.message;
+  if (!pinned) {
+    const wasPinned = Boolean(pinnedNotification);
+    pinnedNotification = undefined;
+    if (!wasPinned) {
+      if (!currentNotification) playNext();
+      return;
+    }
+    if (!currentNotification) {
+      playNext();
+      return;
+    }
+    finishCurrent(playbackGeneration);
+    return;
+  }
+
+  pinnedNotification = payload.message;
+  if (currentNotificationIsPinned()) {
+    holdCurrentNotification();
+    return;
+  }
+
+  if (currentNotification) {
+    syncNotificationVisibility(false);
+    resetAudio();
+    currentNotification = undefined;
+    hideCard();
+    syncTtsStageBusy(false);
+  }
+  if (!isEnabled(pinnedNotification)) return;
+  currentNotification = pinnedNotification;
+  playbackFinished = true;
+  setCardContent(currentNotification);
+  showCard();
+  syncNotificationVisibility(true, currentNotification);
+  syncTtsStageBusy(false);
 }
 
 function applyStageClock(payload = {}) {
@@ -273,30 +374,40 @@ function beginCurrentNotification() {
     return;
   }
   currentNotification = queue.shift();
+  playbackFinished = false;
   const generation = playbackGeneration;
   setCardContent(currentNotification);
   // Exclusive stage: never leave a music card visible under TTS.
 
   showCard();
   playNotificationPing();
-  syncTtsStageBusy(true);
+  syncNotificationVisibility(true, currentNotification);
+  // The claim that caused this begin was sent before the server grant. Echo
+  // the held state after the visibility report so clients observe both in a
+  // deterministic order; the server treats an existing claim as idempotent.
+  syncTtsStageBusy(true, true);
   if (currentNotification.visualOnly) {
-    visualTimer = window.setTimeout(() => finishCurrent(generation), displayDuration());
+    visualTimer = window.setTimeout(() => completeCurrentPlayback(generation), displayDuration());
     return;
   }
   const keepVisibleWithoutAudio = () => {
     if (!currentNotification || generation !== playbackGeneration) {
       return;
     }
+    if (currentNotificationIsPinned()) {
+      resetAudio();
+      holdCurrentNotification();
+      return;
+    }
     window.clearTimeout(playbackWatchdog);
     window.clearTimeout(visualTimer);
     visualTimer = window.setTimeout(() => finishCurrent(generation), displayDuration());
   };
-  audioElement.onended = () => finishCurrent(generation);
+  audioElement.onended = () => completeCurrentPlayback(generation);
   audioElement.onerror = keepVisibleWithoutAudio;
   const armWatchdog = (delay = 20000) => {
     window.clearTimeout(playbackWatchdog);
-    playbackWatchdog = window.setTimeout(() => finishCurrent(generation), delay);
+    playbackWatchdog = window.setTimeout(() => completeCurrentPlayback(generation), delay);
   };
   audioElement.onplaying = () => armWatchdog();
   audioElement.ontimeupdate = () => armWatchdog();
@@ -310,12 +421,26 @@ function beginCurrentNotification() {
   audioElement.play().catch(keepVisibleWithoutAudio);
 }
 
+function completeCurrentPlayback(expectedGeneration = playbackGeneration) {
+  if (!currentNotification || expectedGeneration !== playbackGeneration) {
+    return;
+  }
+  if (currentNotificationIsPinned()) {
+    resetAudio();
+    holdCurrentNotification();
+    return;
+  }
+  finishCurrent(expectedGeneration);
+}
+
 function finishCurrent(expectedGeneration = playbackGeneration) {
   if (!currentNotification || expectedGeneration !== playbackGeneration) {
     return;
   }
+  syncNotificationVisibility(false, currentNotification);
   resetAudio();
   currentNotification = undefined;
+  playbackFinished = false;
   hideCard();
   syncTtsStageBusy(false);
   playNext();
@@ -329,6 +454,7 @@ function playNext() {
     || !isEnabled(queue[0])
     || stageBlocked()
     || ttsStageClaimPending
+    || !messagePinStateReady
   ) {
     return;
   }
@@ -340,9 +466,14 @@ function enqueue(notification) {
   if (!isEnabled(notification)) {
     return;
   }
-  if (currentNotification?.visualOnly && !notification?.visualOnly) {
+  if (currentNotificationIsPinned() && sameNotification(notification, pinnedNotification)) {
+    return;
+  }
+  if (currentNotification?.visualOnly && !notification?.visualOnly && !currentNotificationIsPinned()) {
+    syncNotificationVisibility(false, currentNotification);
     resetAudio();
     currentNotification = undefined;
+    playbackFinished = false;
     syncTtsStageBusy(false);
     hideCard();
     queue.unshift(notification);
@@ -362,9 +493,12 @@ function enqueue(notification) {
 function clearNotifications() {
   queue.length = 0;
   if (currentNotification) {
+    syncNotificationVisibility(false, currentNotification);
     resetAudio();
     currentNotification = undefined;
   }
+  pinnedNotification = undefined;
+  playbackFinished = false;
   ttsStageClaimPending = false;
   syncTtsStageBusy(false);
 
@@ -400,6 +534,9 @@ function handleMessage(event) {
   } else if (message.type === "tts") {
     if (isPreview) return;
     if (message.payload) enqueue(message.payload);
+  } else if (message.type === "messagePin") {
+    if (isPreview) return;
+    applyMessagePin(message.payload);
   } else if (message.type === "musicPlay") {
     if (isPreview) return;
     // YouTube renders in the media overlay. Notifications only track the
@@ -422,7 +559,7 @@ function handleMessage(event) {
       enqueue({ ...outputTest.tts, relayTest: true });
     }
   } else if (message.type === "skip") {
-    if (isPreview) return;
+    if (isPreview || currentNotificationIsPinned()) return;
     finishCurrent();
   } else if (message.type === "clear") {
     if (isPreview) return;
@@ -501,6 +638,9 @@ function connect() {
       resetAudio();
       currentNotification = undefined;
     }
+    playbackFinished = false;
+    reportedNotificationId = undefined;
+    messagePinStateReady = false;
     reportedTtsStageBusy = false;
     ttsStageClaimPending = false;
     ttsBusy = false;

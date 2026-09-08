@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-save-reactions"
+description = "Enables the save_reactions command without any pre-configured scope."
+commands.allow = ["save_reactions"]
+
+[[permission]]
+identifier = "deny-save-reactions"
+description = "Denies the save_reactions command without any pre-configured scope."
+commands.deny = ["save_reactions"]

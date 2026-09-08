@@ -3,8 +3,8 @@ const fs = require("node:fs");
 const test = require("node:test");
 
 const panelHtml = fs.readFileSync(__dirname + "/panel.html", "utf8");
-const panelSource = fs.readFileSync(__dirname + "/panel.js", "utf8");
-const panelCss = fs.readFileSync(__dirname + "/panel.css", "utf8");
+const panelSource = require("./test-source.cjs").panelSource();
+const panelCss = require("./test-source.cjs").panelStyles();
 const traySource = fs.readFileSync(__dirname + "/tray.js", "utf8");
 const trayCss = fs.readFileSync(__dirname + "/tray.css", "utf8");
 const tauriConfig = JSON.parse(fs.readFileSync(__dirname + "/../src-tauri/tauri.conf.json", "utf8"));

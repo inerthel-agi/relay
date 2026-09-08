@@ -281,6 +281,7 @@ function createHarness(target = "obs", language = "en", preview = false, autoGra
     window,
   });
   const source = fs.readFileSync(__dirname + "/notifications.js", "utf8");
+  vm.runInContext(fs.readFileSync(__dirname + "/../outputs/layout.js", "utf8"), context);
   vm.runInContext(source, context);
 
   return {
@@ -288,6 +289,7 @@ function createHarness(target = "obs", language = "en", preview = false, autoGra
     cssProperties,
     elements,
     pings,
+    sockets,
     socket: sockets[0],
     timers,
     timerDelays,
@@ -375,14 +377,14 @@ test("notification output applies live crop and scale for OBS and widgets", () =
   const css = fs.readFileSync(__dirname + "/notifications.css", "utf8");
   assert.match(css, /clip-path: inset\(var\(--crop-top\)/);
   assert.match(css, /\.notification-card[\s\S]*var\(--notification-scale\)/);
-  assert.match(css, /grid-template-columns: calc\(58px \* var\(--notification-scale\)\)/);
+  assert.match(css, /grid-template-columns: calc\(32px \* var\(--notification-scale\)\)/);
   assert.doesNotMatch(css, /\.notification-card\.is-visible\s*\{[^}]*scale\(/);
   // Idle cards must not paint — opacity:0 + inset:4px left a large black WebView2 hole.
   assert.match(css, /\.notification-card\[aria-hidden="true"\]\s*\{[^}]*display:\s*none/s);
-  // Notifications fill their dedicated, user-configured widget window.
+  // Notifications fit the widget width and use only the height their content needs.
   assert.match(
     css,
-    /html\.notification-widget \.notification-card\s*\{[^}]*width:\s*calc\(100%\s*-\s*8px\)[^}]*max-width:\s*none[^}]*height:\s*calc\(100%\s*-\s*8px\)[^}]*max-height:\s*calc\(100%\s*-\s*8px\)[^}]*min-height:\s*0/s,
+    /html\.notification-widget \.notification-card\s*\{[^}]*width:\s*100%[^}]*max-width:\s*360px[^}]*height:\s*auto[^}]*max-height:\s*100%[^}]*min-height:\s*0/s,
   );
   // TTS toast geometry fits the native widget, including the rounded bottom.
   assert.match(
@@ -390,13 +392,9 @@ test("notification output applies live crop and scale for OBS and widgets", () =
     /html\.notification-widget \.notification-card\s*\{[^}]*--notification-scale:\s*calc\([\s\S]*1\.15/s,
   );
   assert.doesNotMatch(css, /100cqh\s*\/\s*84px/);
-  // Notification accents follow personalization --accent.
-  assert.match(css, /\.notification-card::before\s*\{[^}]*background:\s*var\(--accent\)/s);
-  assert.match(css, /\.notification-card__signal\s*\{[^}]*var\(--accent\)/s);
-  assert.match(
-    css,
-    /html\.notification-widget \.notification-card__signal\s*\{[^}]*width:\s*calc\(2px[^}]*height:\s*calc\(26px/s,
-  );
+  // The presence dot keeps the chosen accent; the redundant side signal is hidden.
+  assert.match(css, /\.notification-card__presence,[^}]*background:\s*var\(--accent\)/s);
+  assert.match(css, /\.notification-card__signal\s*\{[^}]*display:\s*none/s);
   assert.doesNotMatch(css, /#9fc9ff/);
   assert.doesNotMatch(css, /159 201 255/);
   const source = fs.readFileSync(__dirname + "/notifications.js", "utf8");
@@ -1057,4 +1055,88 @@ test("skip and clear release the TTS stage without leaving it stuck", () => {
     payload: { lane: "tts", busy: false },
   });
   assert.equal(elements["#notification"].classList.contains("is-visible"), false);
+});
+
+test("sticker-only notifications use a compact layout and plain text resets it", () => {
+  const { socket, elements } = createHarness("widget");
+  socket.emit("message", JSON.stringify({ type: "testOutput", payload: { target: "notification", tts: { visualOnly: true, segments: [{ kind: "sticker", url: "demo.png" }] } } }));
+  assert.equal(elements["#notification"].classList.contains("is-sticker-only"), true);
+  socket.emit("message", JSON.stringify({ type: "clear" }));
+  socket.emit("message", JSON.stringify({ type: "testOutput", payload: { target: "notification", tts: { visualOnly: true, text: "Next message" } } }));
+  assert.equal(elements["#notification"].classList.contains("is-sticker-only"), false);
+});
+
+test("presence indicator includes its border within a small proportional diameter", () => {
+  const css = fs.readFileSync(__dirname + "/notifications.css", "utf8");
+  const dot = css.slice(css.indexOf(".notification-card__presence {"), css.indexOf("\n}", css.indexOf(".notification-card__presence {")));
+  assert.match(dot, /box-sizing: border-box/);
+  assert.match(dot, /width: calc\(9px \* var\(--notification-scale\)\)/);
+  assert.match(dot, /height: calc\(9px \* var\(--notification-scale\)\)/);
+});
+
+function visualNotification(id, username = `User ${id}`) {
+  return {
+    ...notification(id, username),
+    visualOnly: true,
+    segments: [{ kind: "text", value: `Message ${id}` }],
+  };
+}
+
+test("a pinned visual notification stays visible while later messages queue", () => {
+  const { elements, socket, timers } = createHarness("widget");
+  const first = visualNotification("pinned");
+
+  socket.emit("message", JSON.stringify({ type: "tts", payload: first }));
+  socket.emit("message", JSON.stringify({
+    type: "messagePin",
+    payload: { pinned: true, message: first },
+  }));
+  assert.equal(elements["#notification-author"].textContent, "User pinned");
+  assert.equal(elements["#notification"].classList.contains("is-visible"), true);
+  assert.equal([...timers.values()].some(({ delay }) => delay === 8000), false);
+
+  socket.emit("message", JSON.stringify({ type: "tts", payload: visualNotification("queued") }));
+  assert.equal(elements["#notification-author"].textContent, "User pinned");
+
+  socket.emit("message", JSON.stringify({ type: "messagePin", payload: { pinned: false } }));
+  assert.equal(elements["#notification-author"].textContent, "User queued");
+  assert.equal(elements["#notification"].classList.contains("is-visible"), true);
+});
+
+test("a pinned spoken notification keeps its card after audio ends and resumes on removal", async () => {
+  const { elements, socket, timers } = createHarness("widget");
+  const first = notification("spoken-pin");
+  socket.emit("message", JSON.stringify({ type: "tts", payload: first }));
+  socket.emit("message", JSON.stringify({
+    type: "messagePin",
+    payload: { pinned: true, message: first },
+  }));
+  assert.equal(elements["#notification"].classList.contains("is-visible"), true);
+  assert.equal(elements["#notification-clock"].src, "");
+
+  socket.emit("message", JSON.stringify({ type: "tts", payload: notification("after-pin") }));
+  assert.equal(elements["#notification-author"].textContent, "User spoken-pin");
+  socket.emit("message", JSON.stringify({ type: "messagePin", payload: { pinned: false } }));
+  await nextMicrotask();
+  assert.equal(elements["#notification-author"].textContent, "User after-pin");
+});
+
+test("reconnected notifications wait for the pin snapshot before draining queued messages", () => {
+  const { elements, socket, sockets, runNextTimer } = createHarness("widget");
+  const first = visualNotification("reconnect-pin");
+  socket.emit("message", JSON.stringify({ type: "tts", payload: first }));
+  socket.emit("message", JSON.stringify({ type: "messagePin", payload: { pinned: true, message: first } }));
+  socket.emit("message", JSON.stringify({ type: "tts", payload: visualNotification("reconnect-queued") }));
+
+  socket.emit("close");
+  assert.equal(elements["#notification"].classList.contains("is-visible"), false);
+  runNextTimer();
+  const reconnected = sockets.at(-1);
+  reconnected.emit("open");
+  assert.equal(elements["#notification"].classList.contains("is-visible"), false);
+  reconnected.emit("message", JSON.stringify({
+    type: "messagePin",
+    payload: { pinned: true, message: first },
+  }));
+  assert.equal(elements["#notification-author"].textContent, "User reconnect-pin");
 });

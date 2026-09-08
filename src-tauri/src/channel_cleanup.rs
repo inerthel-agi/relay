@@ -24,6 +24,7 @@ enum ChannelKind {
 struct CleanupRule {
     channel: u64,
     welcome: Option<u64>,
+    reaction_protected: Option<u64>,
 }
 
 #[derive(Default)]
@@ -54,7 +55,16 @@ fn rule(config: &AppConfig, kind: ChannelKind) -> Option<CleanupRule> {
     } else {
         Some(welcome.parse::<u64>().ok().filter(|id| *id > 0)?)
     };
-    Some(CleanupRule { channel, welcome })
+    let reaction_protected = crate::reaction_protection::protected_message_for_channel(
+        &config.reactions.protected_channel_id,
+        &config.reactions.protected_message_id,
+        channel,
+    );
+    Some(CleanupRule {
+        channel,
+        welcome,
+        reaction_protected,
+    })
 }
 
 fn expired(message_id: u64, timestamp: u64, now: u64, welcome: Option<u64>) -> bool {
@@ -114,7 +124,9 @@ async fn sweep(
         let oldest = page.iter().map(|message| message.id).min();
         for message in &page {
             let timestamp = message.timestamp.unix_timestamp().max(0) as u64;
-            if !expired(message.id.get(), timestamp, now, current.welcome) {
+            if !expired(message.id.get(), timestamp, now, current.welcome)
+                || current.reaction_protected == Some(message.id.get())
+            {
                 continue;
             }
             if !unchanged(core, kind, &current).await {
@@ -200,51 +212,4 @@ pub async fn verify_welcome(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn retention_preserves_recent_future_and_welcome_messages() {
-        let now = 10_000_000;
-        assert!(!expired(1, now - RETENTION_SECONDS + 1, now, None));
-        assert!(expired(1, now - RETENTION_SECONDS, now, None));
-        assert!(expired(
-            1,
-            now - 30 * RETENTION_SECONDS,
-            now + 30 * RETENTION_SECONDS,
-            None
-        ));
-        assert!(!expired(1, 0, now, Some(1)));
-        assert!(!expired(1, now + 1, now, None));
-    }
-
-    #[test]
-    fn channels_are_independent_and_disabled_by_default() {
-        let mut config = AppConfig::default();
-        assert!(rule(&config, ChannelKind::Media).is_none());
-        assert!(rule(&config, ChannelKind::Tts).is_none());
-        config.watched_channel_id = "2".into();
-        config.media_cleanup_enabled = true;
-        config.media_welcome_message_id = "7".into();
-        assert_eq!(
-            rule(&config, ChannelKind::Media),
-            Some(CleanupRule {
-                channel: 2,
-                welcome: Some(7)
-            })
-        );
-        assert!(rule(&config, ChannelKind::Tts).is_none());
-        config.media_welcome_message_id = "invalid".into();
-        assert!(rule(&config, ChannelKind::Media).is_none());
-    }
-
-    #[test]
-    fn welcome_link_must_belong_to_selected_channel_and_can_be_omitted() {
-        assert_eq!(welcome_message_id("", "2"), Ok(String::new()));
-        assert_eq!(
-            welcome_message_id("https://discord.com/channels/1/2/7", "2"),
-            Ok("7".into())
-        );
-        assert!(welcome_message_id("https://discord.com/channels/1/3/7", "2").is_err());
-    }
-}
+mod tests;

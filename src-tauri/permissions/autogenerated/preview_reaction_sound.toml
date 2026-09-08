@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-preview-reaction-sound"
+description = "Enables the preview_reaction_sound command without any pre-configured scope."
+commands.allow = ["preview_reaction_sound"]
+
+[[permission]]
+identifier = "deny-preview-reaction-sound"
+description = "Denies the preview_reaction_sound command without any pre-configured scope."
+commands.deny = ["preview_reaction_sound"]

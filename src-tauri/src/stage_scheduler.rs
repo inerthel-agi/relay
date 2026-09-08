@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -7,6 +7,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+use serde::Serialize;
 use tokio::sync::{Mutex, broadcast};
 
 use crate::model::{RelayEvent, TtsEvent};
@@ -32,6 +33,16 @@ pub struct StageOrderKey {
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct StageTicket(u64);
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueItem {
+    pub id: String,
+    pub kind: String,
+    pub title: String,
+    pub author: String,
+    pub ready: bool,
+}
+
 #[derive(Clone)]
 pub struct StageScheduler {
     inner: Arc<Inner>,
@@ -48,6 +59,8 @@ struct Inner {
 
 #[derive(Default)]
 struct SchedulerState {
+    messages_pinned: bool,
+    message_queue_limit: usize,
     ordered: BTreeMap<StageOrderKey, StageTicket>,
     entries: HashMap<StageTicket, TicketEntry>,
     active: Option<ActiveTicket>,
@@ -71,6 +84,22 @@ struct ActiveTicket {
 }
 
 impl StageScheduler {
+    pub async fn set_messages_pinned(&self, pinned: bool, queue_limit: usize) {
+        {
+            let mut state = self.inner.state.lock().await;
+            state.messages_pinned = pinned;
+            state.message_queue_limit = queue_limit.max(1);
+            if pinned
+                && state
+                    .active
+                    .is_some_and(|active| active.lane == StageLane::Tts)
+            {
+                let active = state.active.take().expect("checked active message");
+                state.entries.remove(&active.ticket);
+            }
+        }
+        self.try_dispatch().await;
+    }
     pub fn new(relay_tx: broadcast::Sender<RelayEvent>) -> Self {
         Self::with_timeouts(relay_tx, READY_TIMEOUT, CLAIM_TIMEOUT)
     }
@@ -151,6 +180,22 @@ impl StageScheduler {
     pub async fn ready(&self, ticket: StageTicket, event: RelayEvent) {
         {
             let mut state = self.inner.state.lock().await;
+            if state.messages_pinned
+                && matches!(&event, RelayEvent::Tts(_))
+                && state
+                    .entries
+                    .values()
+                    .filter(|entry| entry.lane == StageLane::Tts && entry.event.is_some())
+                    .count()
+                    >= state.message_queue_limit
+            {
+                if let Some(entry) = state.entries.remove(&ticket)
+                    && let Some(key) = entry.key
+                {
+                    state.ordered.remove(&key);
+                }
+                return;
+            }
             let demoted = match state.entries.get_mut(&ticket) {
                 Some(entry) => {
                     entry.event = Some(event);
@@ -209,6 +254,153 @@ impl StageScheduler {
         }
     }
 
+    pub async fn queue_snapshot(&self) -> Vec<QueueItem> {
+        let state = self.inner.state.lock().await;
+        state
+            .ordered
+            .values()
+            .filter_map(|ticket| {
+                let entry = state.entries.get(ticket)?;
+                let (kind, title, author) = match &entry.event {
+                    Some(RelayEvent::Media(media)) => (
+                        format!("{:?}", media.kind).to_lowercase(),
+                        media
+                            .title
+                            .clone()
+                            .unwrap_or_else(|| media.filename.clone()),
+                        media.author.username.clone(),
+                    ),
+                    Some(RelayEvent::Tts(tts)) => (
+                        "notification".into(),
+                        "Message".into(),
+                        tts.author.username.clone(),
+                    ),
+                    Some(RelayEvent::Sticker(sticker)) => (
+                        "sticker".into(),
+                        sticker.name.clone(),
+                        sticker.author.username.clone(),
+                    ),
+                    Some(RelayEvent::MusicPlay(music)) => (
+                        "music".into(),
+                        music.title.clone(),
+                        music.requested_by.clone(),
+                    ),
+                    None if entry.lane == StageLane::Music => {
+                        return None;
+                    }
+                    _ => ("preparing".into(), String::new(), String::new()),
+                };
+                Some(QueueItem {
+                    id: format!("stage:{}", ticket.0),
+                    kind,
+                    title,
+                    author,
+                    ready: entry.event.is_some(),
+                })
+            })
+            .collect()
+    }
+
+    pub async fn remove_queued_music(&self, id: u64) -> Option<String> {
+        let ticket = StageTicket(id);
+        let playback_id = {
+            let mut state = self.inner.state.lock().await;
+            if state.active.is_some_and(|active| active.ticket == ticket) {
+                return None;
+            }
+            let entry = state.entries.get(&ticket)?;
+            let Some(RelayEvent::MusicPlay(music)) = &entry.event else {
+                return None;
+            };
+            let playback_id = music.playback_id.clone();
+            let entry = state.entries.remove(&ticket)?;
+            if let Some(key) = entry.key {
+                state.ordered.remove(&key);
+            }
+            self.reinsert_ready_group_for_key(&mut state, entry.original_key);
+            playback_id
+        };
+        self.try_dispatch().await;
+        Some(playback_id)
+    }
+
+    /// Reorder the requested non-active Music tickets while keeping every
+    /// non-Music ticket in its existing scheduler slot. A current Music ticket
+    /// can already be ready but waiting behind a busy lane, so it remains in
+    /// place when it is not included in `ticket_order`.
+    pub async fn reorder_music(&self, ticket_order: &[StageTicket]) -> bool {
+        let accepted = {
+            let mut state = self.inner.state.lock().await;
+            let active_ticket = state.active.map(|active| active.ticket);
+            let mut seen = HashSet::with_capacity(ticket_order.len());
+            if ticket_order.is_empty() || ticket_order.iter().any(|ticket| !seen.insert(*ticket)) {
+                false
+            } else {
+                let valid_tickets = ticket_order.iter().all(|ticket| {
+                    state.entries.get(ticket).is_some_and(|entry| {
+                        entry.lane == StageLane::Music
+                            && !active_ticket.is_some_and(|active| active == *ticket)
+                            && entry
+                                .key
+                                .is_some_and(|key| state.ordered.get(&key) == Some(ticket))
+                    })
+                });
+                if !valid_tickets {
+                    false
+                } else {
+                    let mut slot_keys = ticket_order
+                        .iter()
+                        .map(|ticket| {
+                            state
+                                .entries
+                                .get(ticket)
+                                .and_then(|entry| entry.key)
+                                .expect("validated Music ticket key")
+                        })
+                        .collect::<Vec<_>>();
+                    slot_keys.sort_unstable();
+                    for key in &slot_keys {
+                        state.ordered.remove(key);
+                    }
+                    for (key, ticket) in slot_keys.into_iter().zip(ticket_order.iter().copied()) {
+                        state.ordered.insert(key, ticket);
+                        if let Some(entry) = state.entries.get_mut(&ticket) {
+                            entry.key = Some(key);
+                        }
+                    }
+                    true
+                }
+            }
+        };
+        if accepted {
+            self.try_dispatch().await;
+        }
+        accepted
+    }
+
+    pub async fn remove_queued(&self, id: u64) -> bool {
+        let ticket = StageTicket(id);
+        {
+            let mut state = self.inner.state.lock().await;
+            if state.active.is_some_and(|active| active.ticket == ticket) {
+                return false;
+            }
+            let Some(entry) = state.entries.get(&ticket) else {
+                return false;
+            };
+            if entry.lane == StageLane::Music || entry.event.is_none() {
+                return false;
+            }
+            let entry = state.entries.remove(&ticket).expect("checked ticket");
+            if let Some(key) = entry.key {
+                state.ordered.remove(&key);
+            }
+            self.reinsert_ready_group_for_key(&mut state, entry.original_key);
+        }
+        self.try_dispatch().await;
+        true
+    }
+
     pub async fn clear(&self) {
         let mut state = self.inner.state.lock().await;
         state.ordered.clear();
@@ -233,10 +425,20 @@ impl StageScheduler {
     async fn try_dispatch(&self) {
         let dispatched = {
             let mut state = self.inner.state.lock().await;
-            if state.active.is_some() || state.media_busy || state.music_busy || state.tts_busy {
+            if state.active.is_some()
+                || state.media_busy
+                || state.music_busy
+                || (state.tts_busy && !state.messages_pinned)
+            {
                 return;
             }
-            let Some((&key, &ticket)) = state.ordered.first_key_value() else {
+            let Some((&key, &ticket)) = state.ordered.iter().find(|(_, ticket)| {
+                !state.messages_pinned
+                    || state
+                        .entries
+                        .get(ticket)
+                        .is_none_or(|entry| entry.lane != StageLane::Tts)
+            }) else {
                 return;
             };
             let Some(entry) = state.entries.get_mut(&ticket) else {
@@ -421,189 +623,4 @@ fn now_ms() -> u64 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::model::{AuthorIdentity, MediaEvent, MediaKind, StickerEvent};
-
-    fn media(timestamp: u64, message_id: &str) -> RelayEvent {
-        RelayEvent::Media(MediaEvent {
-            kind: MediaKind::Image,
-            url: format!("https://cdn.discordapp.com/{message_id}.png"),
-            proxy_url: String::new(),
-            filename: format!("{message_id}.png"),
-            content_type: "image/png".into(),
-            artwork_id: None,
-            audio_id: None,
-            cached_media_id: None,
-            title: None,
-            artist: None,
-            text: None,
-            author: AuthorIdentity {
-                username: "user".into(),
-                display_avatar_url: String::new(),
-            },
-            timestamp,
-            message_id: message_id.into(),
-        })
-    }
-
-    #[tokio::test]
-    async fn older_pending_ticket_blocks_newer_ready_media() {
-        let (tx, mut rx) = broadcast::channel(16);
-        let scheduler = StageScheduler::new(tx);
-        let older = scheduler.reserve(22_000, "100", 0, StageLane::Tts).await;
-        scheduler
-            .ready(
-                scheduler
-                    .reserve(22_001, "101", 200, StageLane::Media)
-                    .await,
-                media(22_001, "101"),
-            )
-            .await;
-        assert!(rx.try_recv().is_err());
-        scheduler
-            .ready(
-                older,
-                RelayEvent::Tts(TtsEvent {
-                    id: "100".into(),
-                    text: "older".into(),
-                    author: AuthorIdentity {
-                        username: "user".into(),
-                        display_avatar_url: String::new(),
-                    },
-                    guild_tag: None,
-                    content_type: String::new(),
-                    timestamp: 22_000,
-                    visual_only: true,
-                    segments: Vec::new(),
-                }),
-            )
-            .await;
-        assert!(matches!(rx.recv().await.unwrap(), RelayEvent::Tts(_)));
-        scheduler.stage_state(false, false, true).await;
-        scheduler.stage_state(false, false, false).await;
-        assert!(matches!(rx.recv().await.unwrap(), RelayEvent::Media(_)));
-    }
-
-    #[tokio::test]
-    async fn active_event_is_never_preempted_by_an_older_late_arrival() {
-        let (tx, mut rx) = broadcast::channel(16);
-        let scheduler = StageScheduler::new(tx);
-        scheduler
-            .enqueue(media(22_001, "101"), StageLane::Media)
-            .await;
-        assert!(matches!(rx.recv().await.unwrap(), RelayEvent::Media(_)));
-        scheduler.stage_state(true, false, false).await;
-        scheduler
-            .enqueue(media(22_000, "100"), StageLane::Media)
-            .await;
-        assert!(rx.try_recv().is_err());
-        scheduler.stage_state(false, false, false).await;
-        assert!(matches!(rx.recv().await.unwrap(), RelayEvent::Media(_)));
-    }
-
-    #[tokio::test]
-    async fn slow_head_is_demoted_then_reinserted_without_being_lost() {
-        let (tx, mut rx) = broadcast::channel(16);
-        let scheduler =
-            StageScheduler::with_timeouts(tx, Duration::from_millis(20), Duration::from_millis(20));
-        let slow_text = scheduler.reserve(22_000, "100", 0, StageLane::Tts).await;
-        let image = scheduler
-            .reserve(22_001, "101", 200, StageLane::Media)
-            .await;
-        scheduler.ready(image, media(22_001, "101")).await;
-
-        assert!(
-            tokio::time::timeout(Duration::from_millis(10), rx.recv())
-                .await
-                .is_err()
-        );
-        assert!(matches!(rx.recv().await.unwrap(), RelayEvent::Media(_)));
-        scheduler.stage_state(true, false, false).await;
-        scheduler.stage_state(false, false, false).await;
-
-        scheduler
-            .ready(
-                slow_text,
-                RelayEvent::Tts(TtsEvent {
-                    id: "100".into(),
-                    text: "slow text".into(),
-                    author: AuthorIdentity {
-                        username: "user".into(),
-                        display_avatar_url: String::new(),
-                    },
-                    guild_tag: None,
-                    content_type: String::new(),
-                    timestamp: 22_000,
-                    visual_only: true,
-                    segments: Vec::new(),
-                }),
-            )
-            .await;
-        assert!(matches!(rx.recv().await.unwrap(), RelayEvent::Tts(_)));
-    }
-
-    #[tokio::test]
-    async fn reinserts_a_demoted_message_in_its_original_part_order() {
-        let (tx, mut rx) = broadcast::channel(16);
-        let scheduler =
-            StageScheduler::with_timeouts(tx, Duration::from_millis(20), Duration::from_millis(20));
-        let text = scheduler.reserve(22_000, "100", 0, StageLane::Tts).await;
-        let sticker = scheduler
-            .reserve(22_000, "100", 100, StageLane::Media)
-            .await;
-        let newer_image = scheduler
-            .reserve(22_001, "101", 200, StageLane::Media)
-            .await;
-        scheduler
-            .ready(
-                sticker,
-                RelayEvent::Sticker(StickerEvent {
-                    id: "sticker".into(),
-                    name: "sticker".into(),
-                    format: "png".into(),
-                    url: "https://cdn.discordapp.com/stickers/sticker.png".into(),
-                    cached_media_id: None,
-                    author: AuthorIdentity {
-                        username: "user".into(),
-                        display_avatar_url: String::new(),
-                    },
-                    timestamp: 22_000,
-                    message_id: "100".into(),
-                }),
-            )
-            .await;
-        scheduler.ready(newer_image, media(22_001, "101")).await;
-
-        assert!(
-            matches!(rx.recv().await.unwrap(), RelayEvent::Media(event) if event.message_id == "101")
-        );
-        scheduler.stage_state(true, false, false).await;
-        scheduler.stage_state(false, false, false).await;
-
-        scheduler
-            .ready(
-                text,
-                RelayEvent::Tts(TtsEvent {
-                    id: "100".into(),
-                    text: "slow text".into(),
-                    author: AuthorIdentity {
-                        username: "user".into(),
-                        display_avatar_url: String::new(),
-                    },
-                    guild_tag: None,
-                    content_type: String::new(),
-                    timestamp: 22_000,
-                    visual_only: true,
-                    segments: Vec::new(),
-                }),
-            )
-            .await;
-        assert!(matches!(rx.recv().await.unwrap(), RelayEvent::Tts(event) if event.id == "100"));
-        scheduler.stage_state(false, false, true).await;
-        scheduler.stage_state(false, false, false).await;
-        assert!(
-            matches!(rx.recv().await.unwrap(), RelayEvent::Sticker(event) if event.id == "sticker")
-        );
-    }
-}
+mod tests;

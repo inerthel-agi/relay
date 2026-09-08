@@ -4,7 +4,7 @@
 
 # Relay — User Guide
 
-This guide walks through a complete, concrete setup: from creating the Discord bot to seeing media and text-to-speech live in OBS. For a general overview, see the [README](README.md).
+This guide walks through a complete, concrete setup: from creating the Discord bot to seeing media and message notifications live in OBS. For a general overview, see the [README](README.md).
 
 ## Table of contents
 
@@ -14,7 +14,8 @@ This guide walks through a complete, concrete setup: from creating the Discord b
 4. [Choose the channels](#4-choose-the-channels)
 5. [Add the sources in OBS](#5-add-the-sources-in-obs)
 6. [Everyday use](#6-everyday-use)
-7. [Text-to-speech](#7-text-to-speech)
+   - [v1.3.6 modules](#v136-modules)
+7. [Message notifications](#7-message-notifications)
 8. [Moderation](#8-moderation)
 9. [On-screen widgets](#9-on-screen-widgets)
 10. [Tray & shortcuts](#10-tray--shortcuts)
@@ -94,32 +95,34 @@ Default free quota is usually enough for personal streaming. Create a **new** ke
 
 ## 4. Choose the channels
 
-In the **Configuration** section, pick:
+In **Media → Input routing**, pick the media channel. Configure message notifications in the **Messages** module:
 
 - **Media channel** — the channel viewers post images/GIFs/videos/audio into.
-- **TTS channel** *(optional)* — a *different* channel whose text messages are read aloud.
+- **Message channel** *(optional)* — a *different* channel whose messages appear as visual notifications. Set it under **Messages**.
 - **Music channel** *(optional)* — configured on the **Music** page with the YouTube API key ([§3](#3-youtube-data-api-key-music)).
 
 Changes apply immediately, no restart needed. Alternatively, a server administrator can run [`/relay channel`](#11-the-relay-command) in Discord.
 
 ## 5. Add the sources in OBS
 
-The panel shows **two** ready-to-copy **Browser Source URLs** (Overview → OBS Browser Sources). They replace the older separate medias / audios / stickers / TTS / notifications / YouTube sources.
+The panel shows ready-to-copy **Browser Source URLs** (Overview → OBS Browser Sources). They replace the older separate medias / audios / stickers / TTS / notifications / YouTube sources.
 
 | Source | URL | Suggested size | Purpose |
 |---|---|---|---|
-| **Relay Visual** | `http://localhost:4590/obs/visual` | 1920×1080 | Images, GIFs, videos, stickers, TTS notification cards, YouTube jukebox |
-| **Relay Audio** | `http://127.0.0.1:4590/obs/audio` | 1920×1080 | Discord audio files + TTS voice |
+| **Relay Visual** | `http://localhost:4590/obs/visual` | 1920×1080 | Images, GIFs, videos, stickers, message notification cards, YouTube jukebox |
+| **Relay Audio** | `http://127.0.0.1:4590/obs/audio` | 1920×1080 | Discord audio files |
+| **Relay Reactions** | `http://127.0.0.1:4590/reactions` | 1920×1080 | Reaction sounds with optional image or GIF |
 
 Use **`localhost`** for Visual (not `127.0.0.1`) so YouTube embeds accept the page Referer. Relay redirects `127.0.0.1/obs/visual` to `localhost` automatically.
 
-In OBS: **Sources → + → Browser**, paste each URL, set width/height, and enable **"Control audio via OBS"** on **both** sources so you can mix Visual (YouTube) and Audio (Discord/TTS) separately.
+In OBS: **Sources → + → Browser**, paste each URL, set width/height, and enable **"Control audio via OBS"** on **both** sources so you can mix Visual (YouTube) and Audio (Discord files) separately.
 
 ### Migration from older setups
 
-1. Add the two new sources above.
+1. Add the new sources above.
 2. Remove the old separate Browser Sources (`/medias`, `/audios`, `/stickers`, `/tts`, `/notifications`, `/youtube`) to avoid double video/audio.
-3. Legacy URLs still work if you need them temporarily.
+3. Add **Relay Reactions** when the module is enabled. Its page carries the local authorization needed for its sound and library assets.
+4. Legacy URLs still work if you need them temporarily.
 
 > **Windows widgets** (media floating widget + notification / Now Playing) stay separate from OBS and are unchanged.
 
@@ -134,16 +137,27 @@ The pages have a transparent background and reconnect automatically if Relay res
 - **Author badge**: the poster's avatar and name appear with the media (toggleable with *Show author*).
 - **Media message**: optionally show up to **180 characters** from the Discord message in OBS, the Windows widget, or both. Standalone links are omitted.
 - **History**: the panel lists the last **50** media with **Replay**, and global **Skip** / **Clear overlay** buttons.
-- **Skip anywhere**: press **`Ctrl+Alt+S`** even when Relay is not focused.
+- **Skip anywhere**: press **`Ctrl+Alt+S`** even when Relay is not focused. An active reaction is skipped first and its next queued reaction can start; media and music playback stays untouched. When no reaction is active, the shortcut skips the current media item as usual.
 
-## 7. Text-to-speech
+### v1.3.6 modules
 
-When a TTS channel is set, every human (non-bot) message in it is synthesized with Windows voices and played through the **Relay Audio** Browser Source (`/obs/audio`, which includes `/tts`).
+Relay keeps the three existing areas and adds controls that can be used from the panel.
 
-- **Automatic language detection**: Relay explicitly detects French and English. French messages prefer a French voice (Hortense when installed), English messages prefer an English voice, and other text falls back to the available Windows default voice. Interface language does not change TTS detection. Install voices via *Windows Settings → Time & language → Speech*.
-- **Character limit**: optionally truncate long messages.
-- **Queue limit**: 1–50 pending messages; extra messages are dropped.
-- **Notification card**: enable *Enable OBS overlay* to show a card (avatar, name, message text) inside **Relay Visual** while each message plays. The same card is available as an [on-screen widget](#9-on-screen-widgets).
+- **Messages**: select the visible notification and click **Pin** to keep it on screen. Click **Unpin** to remove it and resume queued notifications. Pinning does not stop media, music, or reactions. A pinned message is cleared when Relay restarts.
+- **Media library**: click **Import** to copy an image, GIF, or video into Relay's local library. You can also save an item from History. Search, rename, replay, and delete the managed copy from the library. Relay accepts images and GIFs up to **20 MB**, videos up to **50 MB**, and up to **1,000** items. Moving the original file does not affect the copy.
+- **Music requests**: the queue lists each waiting title, its requester, and its position. Use **Up**, **Down**, or **Remove** for pending titles; the title currently playing cannot be moved. The default limit is **3 waiting requests per Discord member**. Set it to `0` to disable the limit, or choose `1`–`10`. Duplicate YouTube video IDs already waiting are refused by default. Relay checks these rules together when a request arrives and reports the reason in Discord.
+- **Sounds and reactions**: enable the module, import a local sound, and optionally choose an image or GIF from the media library. A reaction can play for at most **30 seconds**. Longer files open the excerpt chooser. Defaults are a **10-second global cooldown**, a **30-second member cooldown**, and music at **25%** of its selected volume while the reaction plays. One reaction plays at a time; up to **25** additional reactions wait in FIFO order. The panel and Discord report whether a reaction starts or waits, including its queue position. A full queue refuses new requests. **Stop reaction and clear queue** stops the active sound and removes every waiting reaction. The local **Test** button plays in the panel and does not send an OBS or Discord event.
+- Select allowed channels and roles by name from the dropdown menus. Discord reactions require both an allowed channel and an allowed role. The `/relay reaction` command appears only when the module is enabled. If Discord is offline, saved choices remain available and the refresh button loads their names after reconnection.
+- **Protected instructions message (optional)**: paste an existing Discord message link or ID to exempt that message from Relay cleanup. Leave the field empty to protect nothing. Other bots and manual Discord deletions are unaffected.
+
+## 7. Message notifications
+
+In the **Messages** module, select a message channel to display human messages, emojis and stickers as visual notifications. Messages are not read aloud; Windows voices are no longer used.
+
+- **Character limit**: optionally truncate long text messages.
+- **Queue limit**: 1–50 pending messages.
+- **Notification card**: enable the OBS notification overlay to show the author and message in Relay Visual for the configured duration. The same card can appear in the Windows notification widget.
+- **Notification sound**: the optional custom notification sound remains available independently from message text.
 
 ## 8. Moderation
 
@@ -157,9 +171,9 @@ Recommended for public channels — nothing goes on stream without your click.
 
 ## 9. On-screen widgets
 
-Widgets are transparent, borderless, **always-on-top** windows that show the overlay or the TTS notifications directly on your desktop — no OBS required (handy for previews or single-PC setups where OBS captures the screen).
+Widgets are transparent, borderless, **always-on-top** windows that show the overlay or the message notifications directly on your desktop — no OBS required (handy for previews or single-PC setups where OBS captures the screen).
 
-- **Media widget** (640×360) and **Notification widget** (640×176), toggled from the panel or the tray.
+- **Media widget** (640×360) and **Notification widget** (640×176), toggled from the panel or the tray. Reactions play through both the OBS source and an invisible Windows audio receiver. The reaction volume controls both outputs.
 - **Drag** them anywhere; their position is remembered.
 - **Lock** makes a widget click-through (mouse events pass to the window below) — unlock from the panel or tray to move it again.
 - Widgets are muted; sound comes from the OBS sources.
@@ -182,6 +196,7 @@ Server **administrators** can manage Relay from Discord (replies are ephemeral):
 | `/relay show` | Show the current configuration |
 | `/relay status` | Show live OBS output, queue, and Windows widget status |
 | `/relay test <media\|audio\|tts\|notification\|sticker>` | Send an isolated local test to a connected output |
+| `/relay reaction <name>` | Trigger an enabled reaction when the channel and member role are allowed |
 | `/relay url` | Get the overlay URL (with secret) |
 | `/relay regenerate` | Regenerate the overlay secret (old URLs stop working) |
 
@@ -208,10 +223,10 @@ Appearance changes are broadcast live to connected overlays.
 - Confirm the watched channel is the one you post in, and the bot can see it (*View Channel* + *Read Message History*).
 - Messages from bots are ignored by design.
 
-**TTS is silent**
-- The TTS channel must be set and *different* from the media channel.
-- Check the `/tts` browser source exists and is unmuted in the OBS audio mixer.
-- Verify Windows voices are installed (*Settings → Speech*).
+**Message notifications do not appear**
+- Open the **Messages** module and set a message channel different from the media channel.
+- Enable the OBS notification overlay or Windows notification widget.
+- Check the bot can read the selected channel and that the output is connected.
 
 **Port already in use**
 - Change the port in the panel (≥ 1024). Connected overlays follow the move automatically; update your OBS URLs if they don't reconnect.
@@ -221,6 +236,17 @@ Appearance changes are broadcast live to connected overlays.
 
 **A media is stuck on screen**
 - Press **`Ctrl+Alt+S`** or click **Skip** / **Clear overlay** in the panel.
+
+**A pinned message does not disappear**
+- Open the **Messages** module and click **Unpin**. The pinned card is removed and queued notifications can continue. Pinning survives until it is explicitly removed or Relay restarts.
+
+**A music request is refused**
+- Check the Music module's per-member pending limit and whether the same YouTube video is already waiting. A limit of `0` disables only the per-member limit; duplicate protection has its own switch.
+
+**A reaction does not trigger**
+- Confirm the module is enabled, the reaction is enabled, and its sound file still exists.
+- Confirm the Discord command is used in an allowed channel by a member with an allowed role. Both lists must match.
+- Connect the **Relay Reactions** Browser Source. The local Test button does not check Discord access and does not send the reaction to OBS.
 
 **Music search fails in Discord**
 - Confirm a **YouTube API key** is saved under **Music** ([§3](#3-youtube-data-api-key-music)).

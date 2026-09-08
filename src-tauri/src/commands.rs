@@ -1,4 +1,8 @@
 use std::{path::Path, sync::Arc};
+pub mod media_library;
+pub mod message_pin;
+pub mod music_queue;
+pub mod reactions;
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
@@ -58,6 +62,7 @@ pub struct RuntimeStatus {
     widget: WidgetState,
     notification_widget: NotificationWidgetState,
     pending_media: Vec<PendingMedia>,
+    queue: Vec<crate::stage_scheduler::QueueItem>,
 }
 
 #[derive(Serialize)]
@@ -98,7 +103,6 @@ pub struct PanelConfig {
     media_volume: u8,
     tts_character_limit: u32,
     tts_queue_limit: u8,
-    tts_speech_enabled: bool,
     tts_notifications_obs_enabled: bool,
     bot_online_status: String,
     bot_activity_type: String,
@@ -181,7 +185,55 @@ pub async fn get_runtime_status(
         widget: widget::state(&app, &core).await,
         notification_widget: notification_widget::state(&app, &core).await,
         pending_media: core.pending_media.read().await.iter().cloned().collect(),
+        queue: queue_snapshot(&core).await,
     })
+}
+
+async fn queue_snapshot(core: &AppCore) -> Vec<crate::stage_scheduler::QueueItem> {
+    let mut items = core.stage_scheduler.queue_snapshot().await;
+    items.extend(
+        core.music
+            .lock()
+            .await
+            .pending_events()
+            .into_iter()
+            .map(|music| crate::stage_scheduler::QueueItem {
+                id: format!("music:{}", music.playback_id),
+                kind: "music".into(),
+                title: music.title,
+                author: music.requested_by,
+                ready: true,
+            }),
+    );
+    items
+}
+
+#[tauri::command]
+pub async fn remove_queued_media(core: State<'_, Arc<AppCore>>, id: String) -> Result<(), String> {
+    if let Some(ticket) = id
+        .strip_prefix("stage:")
+        .and_then(|value| value.parse::<u64>().ok())
+    {
+        if core.stage_scheduler.remove_queued(ticket).await {
+            return Ok(());
+        }
+        if let Some(playback_id) = core.stage_scheduler.remove_queued_music(ticket).await {
+            core.stop_music_if_current(&playback_id).await;
+            return Ok(());
+        }
+    } else if let Some(playback_id) = id.strip_prefix("music:")
+        && core
+            .music
+            .lock()
+            .await
+            .pending_events()
+            .iter()
+            .any(|item| item.playback_id == playback_id)
+    {
+        core.cancel_pending_music(playback_id).await;
+        return Ok(());
+    }
+    Err("This item is no longer waiting in the queue.".into())
 }
 
 #[tauri::command]
@@ -408,7 +460,12 @@ pub async fn apply_config(
         )
         .await?;
     }
-    if config.music_cleanup_enabled {
+    if crate::music_cleanup::requires_verification(
+        &previous,
+        config.music_cleanup_enabled,
+        &config.music_channel_id,
+        &config.music_welcome_message_id,
+    ) {
         let http = core
             .bot_runtime
             .lock()
@@ -423,14 +480,15 @@ pub async fn apply_config(
         if channel == 0 {
             return Err("Select a valid music channel.".into());
         }
-        let message = config
-            .music_welcome_message_id
-            .parse::<u64>()
-            .map_err(|_| "Set the welcome message.")?;
-        serenity::all::ChannelId::new(channel)
-            .message(&http, serenity::all::MessageId::new(message))
-            .await
-            .map_err(|_| "The welcome message was not found in the selected music channel.")?;
+        let protected =
+            crate::music_cleanup::optional_protected_message(&config.music_welcome_message_id)?;
+        crate::music_cleanup::verify_protected_message(
+            &http,
+            channel,
+            protected,
+            "The welcome message was not found in the selected music channel.",
+        )
+        .await?;
     }
     let next = core
         .update_config(|current| {
@@ -453,7 +511,7 @@ pub async fn apply_config(
             current.media_volume = config.media_volume;
             current.tts_character_limit = config.tts_character_limit;
             current.tts_queue_limit = config.tts_queue_limit;
-            current.tts_speech_enabled = config.tts_speech_enabled;
+            current.tts_speech_enabled = false;
             current.tts_notifications_obs_enabled = config.tts_notifications_obs_enabled;
             current.bot_online_status = config.bot_online_status;
             current.bot_activity_type = config.bot_activity_type;
@@ -493,6 +551,9 @@ pub async fn apply_config(
         }
         return Err(format!("Unable to use the requested local port: {error}"));
     }
+    if port_changed || server_down {
+        reactions::restore_audio(&app, &core).await?;
+    }
     if previous.bot_online_status != next.bot_online_status
         || previous.bot_activity_type != next.bot_activity_type
         || previous.bot_activity_text != next.bot_activity_text
@@ -524,6 +585,8 @@ pub async fn set_media_caption_visibility(
 pub async fn clear_overlay(core: State<'_, Arc<AppCore>>) -> Result<(), String> {
     core.clear_all_music().await;
     core.stage_scheduler.clear().await;
+    core.unpin_message().await;
+    crate::reactions::stop(&core, None).await;
     let _ = core.relay_tx.send(RelayEvent::Clear);
     Ok(())
 }
@@ -861,6 +924,70 @@ pub async fn test_output(
     emit_output_test(&core, target).await.map_err(display_error)
 }
 
+#[tauri::command]
+pub async fn preview_output_sample(
+    core: State<'_, Arc<AppCore>>,
+    sample: String,
+) -> Result<(), String> {
+    if sample == "notification" {
+        return emit_output_test(&core, OutputTestTarget::Notification)
+            .await
+            .map_err(display_error);
+    }
+    if sample == "sticker" {
+        return emit_output_test(&core, OutputTestTarget::Sticker)
+            .await
+            .map_err(display_error);
+    }
+    let kind = match sample.as_str() {
+        "portrait" | "landscape" => MediaKind::Image,
+        "gif" => MediaKind::Gif,
+        "video" => MediaKind::Video,
+        "audio" => MediaKind::Audio,
+        _ => return Err("Unknown output sample.".into()),
+    };
+    let mut media = test_media(kind, "Relay sample", None);
+    if sample == "audio" {
+        let id = "999999999999999997";
+        core.cache_audio(id.into(), "audio/wav".into(), test_tone_wav())
+            .await;
+        core.cache_artwork(
+            id.into(),
+            artwork::EmbeddedArtwork {
+                content_type: "image/png".into(),
+                bytes: include_bytes!("../../outputs/samples/landscape.png").to_vec(),
+            },
+        )
+        .await;
+        media.audio_id = Some(id.into());
+        media.artwork_id = Some(id.into());
+        media.title = Some("Relay audio test".into());
+        media.artist = Some("Relay".into());
+    } else {
+        media.url = format!("/output-samples/{sample}");
+        media.proxy_url = media.url.clone();
+        media.content_type = match sample.as_str() {
+            "gif" => "image/gif",
+            "video" => "video/webm",
+            _ => "image/png",
+        }
+        .into();
+    }
+    let _ = core
+        .relay_tx
+        .send(RelayEvent::TestOutput(Box::new(OutputTestEvent {
+            target: if sample == "audio" {
+                OutputTestTarget::Audio
+            } else {
+                OutputTestTarget::Visual
+            },
+            media: Some(media),
+            tts: None,
+            sticker: None,
+        })));
+    Ok(())
+}
+
 pub(crate) async fn emit_output_test(
     core: &AppCore,
     target: OutputTestTarget,
@@ -868,7 +995,6 @@ pub(crate) async fn emit_output_test(
     const TEST_AUTHOR: &str = "Relay test";
     const TEST_AVATAR: &str = "/overlay-assets/relay-radar.png";
     const TEST_AUDIO_ID: &str = "999999999999999998";
-    const TEST_TTS_ID: &str = "999999999999999999";
 
     let author = AuthorIdentity {
         username: TEST_AUTHOR.into(),
@@ -895,27 +1021,8 @@ pub(crate) async fn emit_output_test(
                 sticker: None,
             }
         }
-        OutputTestTarget::Tts => {
-            core.cache_tts_audio(TEST_TTS_ID.into(), "audio/wav".into(), test_tone_wav())
-                .await;
-            OutputTestEvent {
-                target,
-                media: None,
-                tts: Some(TtsEvent {
-                    id: TEST_TTS_ID.into(),
-                    text: "Relay TTS test".into(),
-                    author,
-                    guild_tag: None,
-                    content_type: "audio/wav".into(),
-                    timestamp: 0,
-                    visual_only: false,
-                    segments: Vec::new(),
-                }),
-                sticker: None,
-            }
-        }
-        OutputTestTarget::Notification => OutputTestEvent {
-            target,
+        OutputTestTarget::Notification | OutputTestTarget::Tts => OutputTestEvent {
+            target: OutputTestTarget::Notification,
             media: None,
             tts: Some(TtsEvent {
                 id: "relay-test-notification".into(),
@@ -953,6 +1060,9 @@ pub(crate) async fn emit_output_test(
             }),
         },
     };
+    if let Some(tts) = event.tts.as_ref() {
+        core.remember_authoritative_tts(tts).await;
+    }
     let _ = core.relay_tx.send(RelayEvent::TestOutput(Box::new(event)));
     Ok(())
 }
@@ -1103,6 +1213,7 @@ pub async fn regenerate_secret(
     start_server(core.inner().clone())
         .await
         .map_err(display_error)?;
+    reactions::restore_audio(&app, &core).await?;
     widget::refresh(&app, &core).await.map_err(display_error)?;
     notification_widget::refresh(&app, &core)
         .await
@@ -1298,115 +1409,4 @@ fn display_error(error: impl std::fmt::Display) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn youtube_obs_url_uses_localhost_referrer_host() {
-        assert_eq!(
-            youtube_overlay_url(4590),
-            format!("http://{}/youtube", "localhost:4590")
-        );
-        assert!(!youtube_overlay_url(4590).contains("127.0.0.1"));
-    }
-
-    #[test]
-    fn obs_visual_url_uses_localhost_and_composite_path() {
-        assert_eq!(obs_visual_url(4590), "http://localhost:4590/obs/visual");
-        assert!(!obs_visual_url(4590).contains("127.0.0.1"));
-    }
-
-    #[test]
-    fn creates_an_audible_test_tone_wav() {
-        let wav = test_tone_wav();
-        assert_eq!(&wav[..4], b"RIFF");
-        assert_eq!(&wav[8..12], b"WAVE");
-        assert_eq!(u32::from_le_bytes(wav[40..44].try_into().unwrap()), 19_200);
-        assert!(
-            wav[44..]
-                .as_chunks::<2>()
-                .0
-                .iter()
-                .any(|sample| { i16::from_le_bytes(*sample) != 0 })
-        );
-    }
-
-    #[tokio::test]
-    async fn output_tests_bypass_history_and_cache_their_audio() {
-        let directory = tempfile::tempdir().unwrap();
-        let core = AppCore::load(directory.path().join("config.json")).unwrap();
-        let mut events = core.relay_tx.subscribe();
-
-        emit_output_test(&core, OutputTestTarget::Visual)
-            .await
-            .unwrap();
-        let RelayEvent::TestOutput(visual) = events.recv().await.unwrap() else {
-            panic!("expected visual output test");
-        };
-        assert_eq!(visual.target, OutputTestTarget::Visual);
-        assert!(visual.media.is_some());
-        assert!(core.history.read().await.is_empty());
-
-        emit_output_test(&core, OutputTestTarget::Audio)
-            .await
-            .unwrap();
-        let RelayEvent::TestOutput(audio) = events.recv().await.unwrap() else {
-            panic!("expected audio output test");
-        };
-        assert_eq!(audio.target, OutputTestTarget::Audio);
-        assert_eq!(
-            audio.media.and_then(|media| media.audio_id).as_deref(),
-            Some("999999999999999998")
-        );
-        assert_eq!(core.media_audio.read().await.len(), 1);
-
-        emit_output_test(&core, OutputTestTarget::Tts)
-            .await
-            .unwrap();
-        let RelayEvent::TestOutput(tts) = events.recv().await.unwrap() else {
-            panic!("expected TTS output test");
-        };
-        assert_eq!(tts.target, OutputTestTarget::Tts);
-        assert_eq!(
-            tts.tts.as_ref().map(|event| event.id.as_str()),
-            Some("999999999999999999")
-        );
-        assert_eq!(core.tts_audio.read().await.len(), 1);
-        assert!(core.history.read().await.is_empty());
-    }
-
-    #[test]
-    fn download_filenames_are_safe_and_keep_media_extensions() {
-        assert_eq!(
-            safe_media_filename("C:\\private\\clip:01.mp4", MediaKind::Video, "video/mp4"),
-            "clip_01.mp4"
-        );
-        assert_eq!(
-            safe_media_filename("", MediaKind::Audio, "audio/flac"),
-            "relay-media.flac"
-        );
-        assert_eq!(
-            safe_media_filename("Discord GIF.jpg", MediaKind::Gif, "image/gif"),
-            "Discord GIF.gif"
-        );
-        assert_eq!(
-            safe_media_filename("Discord GIF.mp4", MediaKind::Gif, "video/mp4"),
-            "Discord GIF.mp4"
-        );
-        assert_eq!(
-            media_download_filter(MediaKind::Gif, "image/gif"),
-            ("GIF", &["gif"] as &[&str])
-        );
-        assert_eq!(
-            media_download_filter(MediaKind::Gif, "video/mp4"),
-            ("Video", &["mp4", "webm"] as &[&str])
-        );
-        assert_eq!(
-            media_download_filter(MediaKind::Image, "image/jpeg"),
-            (
-                "Image",
-                &["png", "jpg", "jpeg", "gif", "webp", "apng"] as &[&str]
-            )
-        );
-    }
-}
+mod tests;
