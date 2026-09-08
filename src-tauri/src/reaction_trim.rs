@@ -614,7 +614,9 @@ mod tests {
         let first_tenth = &data[..data.len().min(44_100 * 2 * 2 / 10)];
         assert!(
             first_tenth
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .any(|sample| i16::from_le_bytes([sample[0], sample[1]]) != 0)
         );
     }
