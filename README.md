@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/Relay.png" alt="Relay radar logo" width="112" />
+  <img src="gui/assets/relay-radar.png" alt="Relay radar logo" width="112" />
 </p>
 
 <h1 align="center">Relay</h1>
@@ -38,18 +38,17 @@ There is no hosted Relay account, cloud dashboard, telemetry service, or remote 
 </p>
 
 ```text
-Discord media channel
+Discord channels (media, messages, music)
         │
         ▼
-Relay bot ──► optional moderation ──► bounded FIFO queues
-                                            │
-                     ┌──────────────────────┼──────────────────────┐
-                     ▼                      ▼                      ▼
-                 /medias                /audios                 /tts
-                     │                      │                      │
-                     └──────────────► /notifications ◄────────────┘
-                                            │
-                                  OBS + Windows widgets
+Relay bot ──► optional moderation and privacy scan ──► bounded FIFO queues
+                                        │
+               ┌────────────────────────┴────────────────────────┐
+               ▼                                                 ▼
+          /obs/visual                                       /obs/audio
+ medias, stickers, notifications, YouTube                  Discord audio
+               │                                                 │
+               └──────────────► OBS + Windows widgets ◄──────────┘
 ```
 
 ## What Relay does
@@ -112,8 +111,12 @@ For the full setup, recommended OBS dimensions, message notification configurati
 
 Relay keeps different media classes independent so each source can be positioned and mixed separately.
 
+Add the two composite sources to OBS. The individual routes below remain available for custom layouts.
+
 | Source | Local route | Purpose |
 |---|---|---|
+| Relay Visual | `http://localhost:4590/obs/visual` | Visual media, stickers, notification cards, and YouTube music in one source |
+| Relay Audio | `http://127.0.0.1:4590/obs/audio` | Discord audio attachments on a separate mixer fader |
 | Visual media | `http://127.0.0.1:4590/medias` | Images, GIFs, and videos with author overlay |
 | Audio | `http://127.0.0.1:4590/audios` | Music, soundboard clips, and Discord audio attachments |
 | Notifications | `http://127.0.0.1:4590/notifications` | Author and message card shown for the configured duration |
@@ -235,7 +238,7 @@ cargo test
 cargo clippy --all-targets -- -D warnings
 
 # From the repository root: panel and browser-source tests
-node --test gui/translations.test.cjs gui/panel-history.test.cjs gui/panel-output-status.test.cjs overlay/overlay.test.cjs notifications/notifications.test.cjs stickers/stickers.test.cjs tts/tts.test.cjs
+node --test gui/*.test.cjs overlay/*.test.cjs notifications/*.test.cjs stickers/*.test.cjs reactions/*.test.cjs
 ```
 
 The test suite covers configuration migration, moderation, queue recovery, authenticated media ranges, GIF classification, separate timing, output readiness, notification ordering, translations, and local server behavior.
@@ -247,7 +250,7 @@ relay-bot/
 ├── src-tauri/src/       Rust application core, Discord bot, server, commands
 ├── gui/                 Main panel and system-tray interface
 ├── overlay/             Visual media Browser Source and widget client
-├── tts/                 Legacy silent Browser Source
+├── outputs/             Shared output placement and generated test samples
 ├── notifications/       Message notification Browser Source and widget
 ├── stickers/            Sticker Browser Source and widget client
 ├── reactions/           Sounds and reactions Browser Source

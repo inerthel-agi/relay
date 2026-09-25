@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/Relay.png" alt="Relay logo" width="120" />
+  <img src="gui/assets/relay-radar.png" alt="Relay logo" width="120" />
 </p>
 
 # Relay — User Guide
@@ -105,7 +105,7 @@ Changes apply immediately, no restart needed. Alternatively, a server administra
 
 ## 5. Add the sources in OBS
 
-The panel shows ready-to-copy **Browser Source URLs** (Overview → OBS Browser Sources). They replace the older separate medias / audios / stickers / TTS / notifications / YouTube sources.
+The panel shows ready-to-copy **Browser Source URLs** (Overlay → OBS Browser Sources). They replace the older separate medias / audios / stickers / TTS / notifications / YouTube sources.
 
 | Source | URL | Suggested size | Purpose |
 |---|---|---|---|
@@ -232,7 +232,7 @@ Appearance changes are broadcast live to connected overlays.
 - Change the port in the panel (≥ 1024). Connected overlays follow the move automatically; update your OBS URLs if they don't reconnect.
 
 **Overlay URL shows "401"**
-- The `/overlay` page requires the secret. Prefer the panel’s **Relay Visual** / **Relay Audio** URLs (`/obs/visual`, `/obs/audio`). Legacy short URLs (`/medias`, `/audios`, `/youtube`, `/tts`, `/notifications`, `/stickers`) still work.
+- The `/overlay` page requires the secret. Prefer the panel’s **Relay Visual** / **Relay Audio** URLs (`/obs/visual`, `/obs/audio`). Legacy short URLs (`/medias`, `/audios`, `/youtube`, `/notifications`, `/stickers`) still work. The former `/tts` page has been removed.
 
 **A media is stuck on screen**
 - Press **`Ctrl+Alt+S`** or click **Skip** / **Clear overlay** in the panel.

@@ -31,7 +31,7 @@ cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 cargo test --manifest-path src-tauri/Cargo.toml
 
 # Interface and Browser Sources, from the repository root
-node --test gui/*.test.cjs overlay/*.test.cjs notifications/*.test.cjs stickers/*.test.cjs tts/*.test.cjs
+node --test gui/*.test.cjs overlay/*.test.cjs notifications/*.test.cjs stickers/*.test.cjs reactions/*.test.cjs
 ```
 
 For a Windows, Discord, OBS, widget, OCR, FFmpeg, or updater change, follow the relevant rows in the [Windows smoke-test matrix](docs/windows-smoke-tests.md) and describe the observed result. Never attach private Browser Source URLs, tokens, personal media, or unredacted Discord messages.

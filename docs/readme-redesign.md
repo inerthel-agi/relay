@@ -15,7 +15,7 @@
 - Two generated raster assets are sufficient: one hero and one workflow illustration.
 - Generated assets live in `assets/readme/` and remain easy to replace.
 - The README remains plain Markdown with small centered HTML fragments where useful.
-- The existing `assets/Relay.png` remains the canonical logo.
+- The existing `gui/assets/relay-radar.png` remains the canonical logo.
 
 ## Decision log
 

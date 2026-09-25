@@ -11,7 +11,8 @@ Relay is a Windows desktop application that relays Discord media to authenticate
 | Application state | `src-tauri/src/state.rs` | Configuration updates, privacy gate, queues, history, replay, caches and relay events |
 | Privacy scanner | `src-tauri/src/privacy.rs` | Local text, EXIF, GPS and OCR analysis with risk classification and sanitized decisions |
 | Local server | `src-tauri/src/server.rs` | Authenticated localhost HTTP and WebSocket output routes |
-| Output clients | `overlay/`, `tts/`, `notifications/`, `stickers/` | OBS Browser Sources and widget-facing playback clients |
+| Output clients | `overlay/`, `notifications/`, `stickers/`, `reactions/`, `outputs/` | OBS Browser Sources and widget-facing playback clients; `outputs/layout.js` holds shared placement |
+| Sound reactions | `src-tauri/src/reactions.rs`, `src-tauri/src/reaction_*.rs` | Reaction library, trimming, access rules and playback leases |
 | Control panel | `gui/` | Tauri control interface, translations, personalization and local moderation controls |
 
 ## Media path
@@ -41,7 +42,7 @@ Relay is a Windows desktop application that relays Discord media to authenticate
 
 ## Local output routes
 
-The local server exposes authenticated routes for visual media, audio, TTS, notifications, stickers, cached media, and a WebSocket event stream. Relay displays the exact private Browser Source URLs in the application; contributors must not invent, publish, or log them.
+The local server exposes authenticated routes for the `/obs/visual` and `/obs/audio` composites, visual media, audio, notifications, stickers, reactions, cached media, and a WebSocket event stream. Message notifications are visual only; Relay has no speech synthesis. Relay displays the exact private Browser Source URLs in the application; contributors must not invent, publish, or log them.
 
 ## Source map for contributors
 
@@ -60,11 +61,21 @@ The local server exposes authenticated routes for visual media, audio, TTS, noti
 
 - Rust unit and integration tests: `cargo test` from `src-tauri`.
 - Rust style and static analysis: `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings` from `src-tauri`.
-- Interface and Browser Source tests: `node --test gui/*.test.cjs overlay/*.test.cjs notifications/*.test.cjs stickers/*.test.cjs tts/*.test.cjs` from the repository root.
+- Interface and Browser Source tests: `node --test gui/*.test.cjs overlay/*.test.cjs notifications/*.test.cjs stickers/*.test.cjs reactions/*.test.cjs` from the repository root.
 - Windows-dependent checks such as signed installer verification remain optional local smoke checks because they require configured Windows or release state.
 
 ## Refactored modules and output controls
 
-Panel translations and output presets use native JavaScript modules. Shared output placement lives in `outputs/layout.js`; generated local samples live in `outputs/samples/`. HTTP handlers live in `src-tauri/src/server/http_routes.rs`, Discord music handlers in `src-tauri/src/bot/music_handlers.rs`, and state music/cache operations in `src-tauri/src/state/`. Rust tests are stored in each module directory.
+Panel translations, output presets, privacy filter parsing (`gui/privacy-filters.mjs`) and changelog rendering (`gui/changelog-markdown.mjs`) use native JavaScript modules. `gui/panel.js` keeps startup, configuration forms, history and outputs; page features live in their own modules:
+
+| Module | Role |
+|---|---|
+| `gui/overview.mjs` | Setup checklist, dashboard, sidebar badges, channel links, trial mode |
+| `gui/custom-commands.mjs` | Custom command editor and its pure helpers |
+| `gui/settings-search.mjs` | Top bar search and the `reveal` helper used by internal links |
+| `gui/autosave.mjs` | Automatic saving of settings forms and the Start with Windows switch |
+| `gui/diagnostics.mjs` | Translated error categories and the sanitized diagnostic report |
+
+Each module exports an `initialize…` function that receives the panel helpers it needs (`$`, `t`, `invoke`, `setSaveState`, getters for shared state) and returns a small API. `panel.js` creates them after the `// Page modules` marker. `gui/test-source.cjs` lists the panel modules that tests read alongside `panel.js`. Shared output placement lives in `outputs/layout.js`; generated local samples live in `outputs/samples/`. HTTP handlers live in `src-tauri/src/server/http_routes.rs`, Discord music handlers in `src-tauri/src/bot/music_handlers.rs`, and state music/cache operations in `src-tauri/src/state/`. Rust tests are stored in each module directory.
 
 See [Output controls and refactoring](refactoring-and-output-controls.md) for feature locations, compatibility and validation boundaries.

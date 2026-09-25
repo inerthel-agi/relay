@@ -1,6 +1,6 @@
 # Custom Relay Commands Design
 
-Status: approved and implemented locally on 2026-08-14. Automated validation is complete; a live Discord guild smoke test remains intentionally pending.
+Status: implemented on 2026-08-14 and covered by automated tests.
 
 ## Understanding
 

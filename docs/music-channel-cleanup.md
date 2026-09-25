@@ -1,6 +1,6 @@
 # Music channel cleanup and Loop
 
-Available in Relay 1.3.4 on Windows.
+Available since Relay 1.3.3 on Windows.
 
 ## Optionally protect a welcome message
 
