@@ -179,6 +179,7 @@ function createHarness(search = "?secret=private", mode = "all", autoGrantStage 
   const youtubePlayers = [];
   const timers = [];
   const cssProperties = {};
+  let clockNow = 1_000_000;
 
   class MockWebSocket {
     constructor(url) {
@@ -224,6 +225,7 @@ function createHarness(search = "?secret=private", mode = "all", autoGrantStage 
       this.loaded = undefined;
       this.stopCalls = 0;
       this.destroyCalls = 0;
+      this.seekCalls = [];
       this.muteCalls = 0;
       this.unMuteCalls = 0;
       this.unloadModuleCalls = [];
@@ -242,6 +244,10 @@ function createHarness(search = "?secret=private", mode = "all", autoGrantStage 
 
     ready() { this.options.events.onReady({ target: this }); }
     loadVideoById(options) { this.loaded = options; }
+    seekTo(seconds, allowSeekAhead) {
+      this.seekCalls.push({ seconds, allowSeekAhead });
+      this.currentTime = seconds;
+    }
     playVideo() {}
     stopVideo() { this.stopCalls += 1; }
     destroy() { this.destroyCalls += 1; }
@@ -274,11 +280,12 @@ function createHarness(search = "?secret=private", mode = "all", autoGrantStage 
         },
       };
     },
-    YT: { Player: FakeYoutubePlayer, PlayerState: { ENDED: 0 } },
+    YT: { Player: FakeYoutubePlayer, PlayerState: { ENDED: 0, BUFFERING: 3 } },
   };
   const context = vm.createContext({
     URL,
     URLSearchParams,
+    Date: { now: () => clockNow },
     WebSocket: MockWebSocket,
     getComputedStyle: (...args) => window.getComputedStyle(...args),
     document: {
@@ -315,6 +322,7 @@ function createHarness(search = "?secret=private", mode = "all", autoGrantStage 
       return true;
     },
     timerDelays: () => timers.map((timer) => timer.delay),
+    setNow(value) { clockNow = value; },
     socket: sockets[0],
     sockets,
     youtubePlayers,
@@ -428,6 +436,58 @@ test("audio attribution is inside the card and respects the author toggle", () =
   assert.equal(elements["#audio-author-name"].textContent, "Listener");
   vm.runInContext('config.showAuthor = false; setAuthor({ kind: "audio", author: { username: "Listener" } })', context);
   assert.equal(elements["#audio-author"].hidden, true);
+  assert.equal(elements["#audio-author-name"].textContent, "");
+  assert.equal(elements["#audio-author-avatar"].src, "");
+});
+
+test("hiding authors removes YouTube requester credits live on OBS and Windows", async () => {
+  for (const [search, mode] of [["?secret=private", "youtube"], ["?secret=private&widget=1", "all"]]) {
+    const view = createHarness(search, mode);
+    const send = (type, payload) => view.socket.emit("message", JSON.stringify({ type, payload }));
+    send("config", { showAuthor: false });
+    send("musicPlay", {
+      playbackId: "private-credit", videoId: "dQw4w9WgXcQ", title: "Track title",
+      channelTitle: "Artist", durationSeconds: 180, requestedBy: "Private listener",
+    });
+    await Promise.resolve();
+    const player = view.youtubePlayers[0];
+    player.ready();
+    const credit = view.elements["#youtube-credit-added"];
+    assert.equal(credit.hidden, true);
+    assert.equal(credit.textContent, "");
+    assert.equal(view.elements["#youtube-credit-channel"].textContent, "Track title");
+    send("config", { showAuthor: true });
+    assert.equal(credit.hidden, false);
+    assert.equal(credit.textContent, "Added by Private listener");
+    send("config", { showAuthor: false });
+    send("appearance", { language: "fr" });
+    assert.equal(credit.hidden, true);
+    assert.equal(credit.textContent, "");
+    send("config", { showAuthor: true });
+    assert.equal(credit.textContent, "Ajouté par Private listener");
+    assert.equal(player.stopCalls, 0);
+    send("musicIdle");
+    send("config", { showAuthor: true });
+    assert.equal(credit.textContent, "");
+  }
+});
+
+test("hiding the current media author clears identity and restores it when enabled", () => {
+  const { elements, socket } = createHarness();
+  const send = (type, payload) => socket.emit("message", JSON.stringify({ type, payload }));
+  send("media", {
+    kind: "image", url: "https://cdn.discordapp.com/image.png",
+    author: { username: "Private author", displayAvatarUrl: "https://cdn.discordapp.com/avatar.png" },
+  });
+  elements["#image"].emit("load");
+  send("config", { showAuthor: false });
+  assert.equal(elements["#author"].hidden, true);
+  assert.equal(elements["#author-name"].textContent, "");
+  assert.equal(elements["#author-avatar"].src, "");
+  send("config", { showAuthor: true });
+  assert.equal(elements["#author-name"].textContent, "Private author");
+  assert.equal(elements["#author"].hidden, false);
+  assert.equal(elements["#author"].classList.contains("is-visible"), true);
 });
 
 test("media overlay reads the camelCase Discord avatar and falls back locally", () => {
@@ -684,12 +744,88 @@ test("YouTube music uses the official IFrame player and rejects stale stops", as
   assert.equal(audio.elements["#youtube-credit"].hidden, true);
 });
 
+test("YouTube outputs follow the server clock despite iframe readiness and buffering drift", async () => {
+  const obs = createHarness("?secret=private", "youtube");
+  const widget = createHarness("?secret=private&widget=1", "all");
+  const payload = {
+    playbackId: "clocked",
+    videoId: "dQw4w9WgXcQ",
+    startSeconds: 10,
+    endSeconds: 40,
+    serverStartedAtMs: 1_000_000,
+  };
+  obs.socket.emit("message", JSON.stringify({ type: "musicPlay", payload }));
+  widget.socket.emit("message", JSON.stringify({ type: "musicPlay", payload }));
+  await Promise.resolve();
+
+  const obsPlayer = obs.youtubePlayers[0];
+  const widgetPlayer = widget.youtubePlayers[0];
+  obs.setNow(1_004_000);
+  obsPlayer.ready();
+  widget.setNow(1_007_000);
+  widgetPlayer.ready();
+  assert.equal(obsPlayer.loaded.startSeconds, 14);
+  assert.equal(widgetPlayer.loaded.startSeconds, 17);
+
+  obs.setNow(1_008_000);
+  widget.setNow(1_008_000);
+  obsPlayer.currentTime = 14;
+  widgetPlayer.currentTime = 15;
+  assert.equal(obs.runTimerByDelay(500), true);
+  widgetPlayer.emitState(3);
+  assert.equal(widget.runTimerByDelay(500), true);
+  assert.equal(obsPlayer.seekCalls.at(-1).seconds, 18);
+  assert.equal(widgetPlayer.seekCalls.at(-1).seconds, 18);
+});
+
+test("late YouTube joins finish expired ranges and bound full playback", async () => {
+  const expired = createHarness("?secret=private", "youtube");
+  expired.setNow(1_040_000);
+  expired.socket.emit("message", JSON.stringify({
+    type: "musicPlay",
+    payload: {
+      playbackId: "expired",
+      videoId: "dQw4w9WgXcQ",
+      startSeconds: 10,
+      endSeconds: 40,
+      durationSeconds: 120,
+      serverStartedAtMs: 1_000_000,
+    },
+  }));
+  await Promise.resolve();
+  const expiredPlayer = expired.youtubePlayers[0];
+  expiredPlayer.ready();
+  assert.equal(expiredPlayer.loaded, undefined);
+  assert.ok(expired.socket.sent.some((message) => (
+    message.type === "musicEnded" && message.payload?.playbackId === "expired"
+  )));
+
+  const full = createHarness("?secret=private", "youtube");
+  full.setNow(1_010_000);
+  full.socket.emit("message", JSON.stringify({
+    type: "musicPlay",
+    payload: {
+      playbackId: "full-bounded",
+      videoId: "dQw4w9WgXcQ",
+      durationSeconds: 120,
+      serverStartedAtMs: 1_000_000,
+    },
+  }));
+  await Promise.resolve();
+  const fullPlayer = full.youtubePlayers[0];
+  fullPlayer.ready();
+  assert.equal(fullPlayer.loaded.startSeconds, 10);
+  assert.equal(fullPlayer.loaded.endSeconds, 120);
+});
+
 test("late callbacks from a destroyed YouTube player cannot finish its replacement", async () => {
   for (const callback of ["ended", "error"]) {
     const harness = createHarness("?secret=private&widget=1", "all");
     harness.socket.emit("message", JSON.stringify({
       type: "musicPlay",
-      payload: { playbackId: `${callback}-p1`, videoId: "dQw4w9WgXcQ" },
+      payload: {
+        playbackId: `${callback}-p1`, videoId: "dQw4w9WgXcQ", serverStartedAtMs: 1_000_000,
+      },
     }));
     await Promise.resolve();
     const firstPlayer = harness.youtubePlayers[0];
@@ -697,17 +833,21 @@ test("late callbacks from a destroyed YouTube player cannot finish its replaceme
 
     harness.socket.emit("message", JSON.stringify({
       type: "musicPlay",
-      payload: { playbackId: `${callback}-p2`, videoId: "9bZkp7q19f0" },
+      payload: {
+        playbackId: `${callback}-p2`, videoId: "9bZkp7q19f0", serverStartedAtMs: 1_000_000,
+      },
     }));
     await Promise.resolve();
     const secondPlayer = harness.youtubePlayers[1];
     secondPlayer.ready();
+    const firstSeekCalls = firstPlayer.seekCalls.length;
 
     if (callback === "ended") firstPlayer.emitState(0);
     else firstPlayer.emitError();
 
     assert.equal(vm.runInContext("youtubePlaybackId", harness.context), `${callback}-p2`);
     assert.equal(secondPlayer.destroyCalls, 0);
+    assert.equal(firstPlayer.seekCalls.length, firstSeekCalls);
     assert.equal(
       harness.socket.sent.some((message) => (
         message.type === "musicEnded" && message.payload?.playbackId === `${callback}-p2`

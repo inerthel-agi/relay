@@ -1,5 +1,6 @@
 "use strict";
-const secret = document.querySelector('meta[name="relay-secret"]')?.content || "";
+const secret = new URLSearchParams(location.search).get("secret")
+  || document.querySelector('meta[name="relay-secret"]')?.content || "";
 const widget = new URLSearchParams(location.search).get("client") === "widget";
 const audioOnly = widget && new URLSearchParams(location.search).get("audioOnly") === "1";
 const card = document.querySelector("#reaction");
@@ -14,7 +15,8 @@ if (widget && !audioOnly) {
     current?.startDragging?.().catch(() => {});
   });
 }
-let socket, active, deadline, pendingPort, config = {};
+let socket, active, deadline, pendingPort, reconnectTimer, config = {};
+let reconnectDelayMs = 1000;
 const MAX_REACTION_SECONDS = 30;
 function asset(path) { const url = new URL(path, location.origin); url.searchParams.set("secret", secret); return url.href; }
 function position() {
@@ -60,10 +62,28 @@ function play(payload) {
   deadline = setTimeout(() => finish(true), Math.max(0, payload.endsAt - Date.now()));
 }
 visual.addEventListener("load", position); window.addEventListener("resize", position);
+function socketUrl(host, client) {
+  const url = new URL(`ws://${host}/ws`);
+  url.searchParams.set("role", "reaction"); url.searchParams.set("secret", secret); url.searchParams.set("client", client);
+  return url.href;
+}
+function scheduleReconnect() {
+  if (reconnectTimer) return;
+  reconnectTimer = setTimeout(() => { reconnectTimer = undefined; connect(); }, reconnectDelayMs);
+  reconnectDelayMs = Math.min(reconnectDelayMs * 2, 10000);
+}
+// OBS never retries a failed page load, so probe the moved server before navigating.
+function moveToPendingPort() {
+  const next = new URL(location.href); next.port = String(pendingPort);
+  const probe = new WebSocket(socketUrl(`${location.hostname}:${pendingPort}`, "probe"));
+  let ready = false;
+  const watchdog = setTimeout(() => { if (!ready) probe.close(); }, 5000);
+  probe.addEventListener("open", () => { ready = true; clearTimeout(watchdog); probe.close(); location.replace(next.href); });
+  probe.addEventListener("close", () => { clearTimeout(watchdog); if (!ready) setTimeout(moveToPendingPort, 1000); });
+}
 function connect() {
-  const url = new URL("/ws", location.origin); url.protocol = "ws:";
-  url.searchParams.set("role", "reaction"); url.searchParams.set("secret", secret); url.searchParams.set("client", widget ? "widget" : "obs");
-  socket = new WebSocket(url);
+  socket = new WebSocket(socketUrl(location.host, widget ? "widget" : "obs"));
+  socket.addEventListener("open", () => { reconnectDelayMs = 1000; });
   socket.addEventListener("message", event => {
     let message; try { message = JSON.parse(event.data); } catch { return; }
     if (message.type === "reaction") play(message.payload);
@@ -71,6 +91,6 @@ function connect() {
     if (message.type === "serverMove" && Number.isInteger(message.payload?.port) && message.payload.port > 0 && message.payload.port <= 65535) pendingPort = message.payload.port;
     if (message.type === "clear") finish(true);
   });
-  socket.addEventListener("close", () => { finish(); if (pendingPort) { const next = new URL(location.href); next.port = String(pendingPort); location.replace(next.href); } else setTimeout(connect, 1500); });
+  socket.addEventListener("close", () => { finish(); if (pendingPort) moveToPendingPort(); else scheduleReconnect(); });
 }
 connect();

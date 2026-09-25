@@ -79,3 +79,39 @@ test("the OBS receiver remains audible alongside the Windows receiver", () => {
   assert.equal(h.elements["#sound"].muted, false);
   assert.equal(h.plays(), 1);
 });
+
+test("reconnects back off and a moved server is probed before navigating", () => {
+  const sockets = []; const timers = []; const replaced = [];
+  class FakeSocket {
+    constructor(url) { this.url = url; this.handlers = {}; sockets.push(this); }
+    addEventListener(type, fn) { this.handlers[type] = fn; }
+    close() { this.handlers.close?.(); }
+    emit(type, value) { this.handlers[type]?.(value); }
+  }
+  FakeSocket.OPEN = 1;
+  const element = { hidden: true, style: {}, offsetWidth: 1, offsetHeight: 1, addEventListener() {}, removeAttribute() {}, pause() {}, load() {} };
+  const context = vm.createContext({
+    document: { querySelector: selector => selector.startsWith("meta") ? { content: "meta-secret" } : element },
+    location: { origin: "http://localhost:4590", host: "localhost:4590", hostname: "localhost", port: "4590", search: "?secret=url-secret", href: "http://localhost:4590/reactions", replace: href => replaced.push(href) },
+    URL, URLSearchParams, window: { addEventListener() {} }, innerWidth: 800, innerHeight: 600,
+    RelayLayout: { position: () => null }, WebSocket: FakeSocket,
+    setTimeout(fn, delay) { timers.push({ fn, delay }); return timers.length; }, clearTimeout() {},
+  });
+  vm.runInContext(source + "\nglobalThis.api = { connect };", context);
+  context.api.connect();
+  assert.match(sockets[0].url, /secret=url-secret/);
+  sockets[0].emit("close");
+  sockets[0].emit("close");
+  assert.deepEqual(timers.map(timer => timer.delay), [1000]);
+  timers.shift().fn();
+  sockets[1].emit("close");
+  assert.equal(timers.at(-1).delay, 2000);
+
+  sockets[1].emit("message", { data: JSON.stringify({ type: "serverMove", payload: { port: 4600 } }) });
+  sockets[1].emit("close");
+  const probe = sockets.at(-1);
+  assert.match(probe.url, /^ws:\/\/localhost:4600\/ws\?.*client=probe/);
+  assert.deepEqual(replaced, []);
+  probe.emit("open");
+  assert.deepEqual(replaced, ["http://localhost:4600/reactions"]);
+});

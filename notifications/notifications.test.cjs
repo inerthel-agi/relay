@@ -644,6 +644,50 @@ function nextMicrotask() {
   return new Promise((resolve) => setImmediate(resolve));
 }
 
+test("author privacy anonymizes current, pinned and queued notifications on OBS and Windows", () => {
+  for (const target of ["obs", "widget"]) {
+    const { elements, socket } = createHarness(target, "fr");
+    const send = (type, payload) => socket.emit("message", JSON.stringify({ type, payload }));
+    const first = {
+      ...visualNotification("private"),
+      guildTag: { name: "TEAM", badgeUrl: "https://cdn.discordapp.com/badge.png" },
+    };
+    send("config", { ttsNotificationsObsEnabled: true });
+    send("tts", first);
+    send("messagePin", { pinned: true, message: first });
+    const body = elements["#notification-message"].children.map(node => node.textContent).join("");
+    const reports = socket.sent.length;
+    send("config", { showAuthor: false });
+    assert.equal(elements["#notification-author"].textContent, "Anonyme");
+    assert.equal(elements["#notification-avatar"].src, "/overlay-assets/relay-radar.png");
+    assert.equal(elements["#notification-guild-tag"].hidden, true);
+    assert.equal(elements["#notification-guild-tag-name"].textContent, "");
+    assert.equal(elements["#notification-guild-tag-badge"].src, "");
+    assert.equal(elements["#notification-message"].children.map(node => node.textContent).join(""), body);
+    assert.equal(socket.sent.length, reports);
+    send("appearance", { language: "de" });
+    assert.equal(elements["#notification-author"].textContent, "Anonym");
+    send("config", { showAuthor: true });
+    assert.equal(elements["#notification-author"].textContent, first.author.username);
+    assert.equal(elements["#notification-avatar"].src, first.author.displayAvatarUrl);
+    assert.equal(elements["#notification-guild-tag-name"].textContent, "TEAM");
+    assert.equal(elements["#notification-guild-tag"].hidden, false);
+    send("config", { showAuthor: false });
+    send("tts", visualNotification("queued"));
+    send("messagePin", { pinned: false });
+    assert.equal(elements["#notification-author"].textContent, "Anonym");
+    assert.equal(elements["#notification-avatar"].src, "/overlay-assets/relay-radar.png");
+    assert.equal(elements["#notification"].classList.contains("is-visible"), true);
+    const reconnect = createHarness(target, "fr");
+    reconnect.socket.emit("message", JSON.stringify({
+      type: "config", payload: { showAuthor: false, ttsNotificationsObsEnabled: true },
+    }));
+    reconnect.socket.emit("message", JSON.stringify({ type: "messagePin", payload: { pinned: true, message: first } }));
+    assert.equal(reconnect.elements["#notification-author"].textContent, "Anonyme");
+    assert.equal(reconnect.elements["#notification-guild-tag"].hidden, true);
+  }
+});
+
 test("OBS notifications follow TTS FIFO, skip, clear, and configured queue limit", async () => {
   const { elements, socket } = createHarness();
   const card = elements["#notification"];

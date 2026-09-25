@@ -136,6 +136,10 @@ let youtubePendingPlayback;
 let youtubePlaybackId;
 let youtubeGeneration = 0;
 let youtubeActiveGeneration = 0;
+let youtubeActivePlayback;
+let youtubeSyncTimer;
+const YOUTUBE_SYNC_INTERVAL_MS = 500;
+const YOUTUBE_SYNC_TOLERANCE_SECONDS = 0.75;
 /** YouTube payloads waiting because media or TTS is currently on screen. */
 let deferredYoutubeQueue = [];
 const DEFERRED_YOUTUBE_LIMIT = 20;
@@ -158,6 +162,7 @@ let lastStageClockPayload = {};
 let reconnectHydrationPending = false;
 let youtubeCreditTimer;
 let youtubeCreditRange;
+let youtubeCreditRequester = "";
 
 function outputSocketUrl(
   host,
@@ -236,8 +241,8 @@ function showYoutubeCredit(payload = {}) {
   const title = decodeBasicHtmlEntities(payload.title || "").trim();
   const channel = decodeBasicHtmlEntities(payload.channelTitle || "").trim();
   const primary = title;
-  const requester = decodeBasicHtmlEntities(payload.requestedBy || "").trim();
-  if (!primary && !requester) {
+  youtubeCreditRequester = decodeBasicHtmlEntities(payload.requestedBy || "").trim();
+  if (!primary && !(config.showAuthor && youtubeCreditRequester)) {
     hideYoutubeCredit();
     return;
   }
@@ -246,11 +251,7 @@ function showYoutubeCredit(payload = {}) {
     youtubeCreditChannelElement.textContent = primary;
     youtubeCreditChannelElement.hidden = !primary;
   }
-  if (youtubeCreditAddedElement) {
-    const label = youtubeAddedByLabels[interfaceLanguage] || youtubeAddedByLabels.en;
-    youtubeCreditAddedElement.textContent = requester ? `${label} ${requester}` : "";
-    youtubeCreditAddedElement.hidden = !requester;
-  }
+  updateYoutubeCreditAuthor();
   if (isWidgetWindow) {
     if (youtubeCreditLabelElement) youtubeCreditLabelElement.textContent = "Now playing";
     if (youtubeCreditSourceElement) {
@@ -269,6 +270,14 @@ function showYoutubeCredit(payload = {}) {
   youtubeCreditElement.hidden = false;
   youtubeCreditElement.setAttribute("aria-hidden", "false");
   youtubeCreditElement.classList.add("is-visible");
+}
+
+function updateYoutubeCreditAuthor() {
+  if (!youtubeCreditAddedElement) return;
+  const requester = config.showAuthor ? youtubeCreditRequester : "";
+  const label = youtubeAddedByLabels[interfaceLanguage] || youtubeAddedByLabels.en;
+  youtubeCreditAddedElement.textContent = requester ? `${label} ${requester}` : "";
+  youtubeCreditAddedElement.hidden = !requester;
 }
 
 function updateYoutubeCreditProgress() {
@@ -298,6 +307,7 @@ function hideYoutubeCredit() {
   window.clearTimeout(youtubeCreditTimer);
   youtubeCreditTimer = undefined;
   youtubeCreditRange = undefined;
+  youtubeCreditRequester = "";
   youtubeCreditElement.classList.remove("is-visible");
   youtubeCreditElement.classList.remove("youtube-credit--widget");
   youtubeCreditElement.hidden = true;
@@ -321,6 +331,62 @@ function hideYoutubeCredit() {
   if (youtubeCreditProgressFillElement) youtubeCreditProgressFillElement.style.width = "0%";
 }
 
+function youtubePlaybackEnd(playback) {
+  const start = Math.max(0, Number(playback?.startSeconds) || 0);
+  const configuredEnd = Number(playback?.endSeconds);
+  if (Number.isFinite(configuredEnd) && configuredEnd > start) return configuredEnd;
+  const duration = Number(playback?.durationSeconds);
+  return Number.isFinite(duration) && duration > start ? duration : undefined;
+}
+
+function youtubePlaybackPosition(playback, now = Date.now()) {
+  const start = Math.max(0, Number(playback?.startSeconds) || 0);
+  const startedAt = Number(playback?.serverStartedAtMs);
+  const elapsed = Number.isFinite(startedAt) && startedAt > 0
+    ? Math.max(0, (now - startedAt) / 1000)
+    : 0;
+  const position = start + elapsed;
+  const end = youtubePlaybackEnd(playback);
+  return Number.isFinite(end) ? Math.min(end, position) : position;
+}
+
+function clearYoutubePlaybackSync() {
+  window.clearTimeout(youtubeSyncTimer);
+  youtubeSyncTimer = undefined;
+}
+
+function syncYoutubePlayback() {
+  const playback = youtubeActivePlayback;
+  if (
+    !youtubePlayerReady
+    || !youtubePlayer
+    || !playback
+    || playback.generation !== youtubeGeneration
+    || playback.playbackId !== youtubePlaybackId
+    || !Number.isFinite(Number(playback.serverStartedAtMs))
+    || typeof youtubePlayer.getCurrentTime !== "function"
+    || typeof youtubePlayer.seekTo !== "function"
+  ) return;
+  const actual = Number(youtubePlayer.getCurrentTime());
+  if (!Number.isFinite(actual)) return;
+  const expected = youtubePlaybackPosition(playback);
+  if (Math.abs(expected - actual) <= YOUTUBE_SYNC_TOLERANCE_SECONDS) return;
+  youtubePlayer.seekTo(expected, true);
+}
+
+function scheduleYoutubePlaybackSync() {
+  clearYoutubePlaybackSync();
+  if (
+    !youtubeActivePlayback
+    || !Number.isFinite(Number(youtubeActivePlayback.serverStartedAtMs))
+  ) return;
+  youtubeSyncTimer = window.setTimeout(() => {
+    youtubeSyncTimer = undefined;
+    syncYoutubePlayback();
+    scheduleYoutubePlaybackSync();
+  }, YOUTUBE_SYNC_INTERVAL_MS);
+}
+
 function loadYoutubePendingPlayback() {
   if (
     !youtubePlayerReady
@@ -330,18 +396,24 @@ function loadYoutubePendingPlayback() {
     || typeof youtubePlayer.loadVideoById !== "function"
   ) return;
   const pending = youtubePendingPlayback;
+  const end = youtubePlaybackEnd(pending);
+  if (Number.isFinite(end) && youtubePlaybackPosition(pending) >= end) {
+    youtubePendingPlayback = undefined;
+    finishYoutubePlayback(pending.playbackId, pending.generation, true);
+    return;
+  }
   youtubePendingPlayback = undefined;
+  youtubeActivePlayback = pending;
   youtubeActiveGeneration = pending.generation;
   const options = {
     videoId: pending.videoId,
-    startSeconds: Math.max(0, Number(pending.startSeconds) || 0),
+    startSeconds: youtubePlaybackPosition(pending),
   };
-  if (Number.isFinite(Number(pending.endSeconds)) && Number(pending.endSeconds) > options.startSeconds) {
-    options.endSeconds = Number(pending.endSeconds);
-  }
+  if (Number.isFinite(end) && end > options.startSeconds) options.endSeconds = end;
   showYoutubeCredit(pending);
   youtubePlayer.loadVideoById(options);
   if (typeof youtubePlayer.playVideo === "function") youtubePlayer.playVideo();
+  scheduleYoutubePlaybackSync();
 }
 
 function applyYoutubeAudioSettings() {
@@ -377,6 +449,7 @@ function disableYoutubeCaptions() {
 }
 
 function unloadYoutubePlayer() {
+  clearYoutubePlaybackSync();
   hideYoutubeCredit();
   if (youtubePlayer) {
     try {
@@ -473,6 +546,7 @@ function createYoutubePlayer() {
         youtubePlayer.mute?.();
         loadYoutubePendingPlayback();
         applyYoutubeAudioSettings();
+        syncYoutubePlayback();
       },
       onStateChange: (event) => {
         if (!isCurrentPlayer()) return;
@@ -480,6 +554,13 @@ function createYoutubePlayer() {
           allowYoutubeAutoplay();
           disableYoutubeCaptions();
           applyYoutubeAudioSettings();
+          syncYoutubePlayback();
+          scheduleYoutubePlaybackSync();
+          return;
+        }
+        if (event.data === (window.YT?.PlayerState?.BUFFERING ?? 3)) {
+          syncYoutubePlayback();
+          scheduleYoutubePlaybackSync();
           return;
         }
         if (event.data === window.YT?.PlayerState?.ENDED) {
@@ -509,6 +590,7 @@ function finishYoutubePlayback(playbackId, generation, notifyServer = true) {
     socket.send(JSON.stringify({ type: "musicEnded", payload: { playbackId, completed: true } }));
   }
   youtubePendingPlayback = undefined;
+  youtubeActivePlayback = undefined;
   youtubePlaybackId = undefined;
   youtubeActiveGeneration = 0;
   unloadYoutubePlayer();
@@ -538,6 +620,7 @@ function stopYoutubePlayback(playbackId) {
   }
   youtubeGeneration += 1;
   youtubePendingPlayback = undefined;
+  youtubeActivePlayback = undefined;
   youtubePlaybackId = undefined;
   youtubeActiveGeneration = 0;
   unloadYoutubePlayer();
@@ -798,6 +881,10 @@ function setAuthor(media) {
         audioAuthorAvatarElement.src = FALLBACK_AVATAR;
       };
       audioAuthorAvatarElement.src = media.author.displayAvatarUrl || FALLBACK_AVATAR;
+    } else {
+      audioAuthorNameElement.textContent = "";
+      audioAuthorAvatarElement.onerror = null;
+      audioAuthorAvatarElement.removeAttribute("src");
     }
   }
   if (!audio && config.showAuthor && media?.author) {
@@ -810,7 +897,12 @@ function setAuthor(media) {
     authorElement.hidden = false;
   } else {
     authorElement.hidden = true;
+    authorNameElement.textContent = "";
+    authorAvatarElement.onerror = null;
+    authorAvatarElement.removeAttribute("src");
   }
+  if (authorElement.hidden) authorElement.classList.remove("is-visible");
+  else if (activeVisual?.classList.contains("is-visible")) authorElement.classList.add("is-visible");
 }
 
 function setMediaText(media) {
@@ -1404,6 +1496,7 @@ function handleMessage(event) {
     videoElement.volume = videoElement.muted ? 0 : volume;
     audioElement.volume = audioElement.muted ? 0 : volume * reactionMusicFactor;
     applyYoutubeAudioSettings();
+    updateYoutubeCreditAuthor();
     if (!config.showAuthor) {
       authorElement.classList.remove("is-visible");
       authorElement.hidden = true;
@@ -1495,6 +1588,7 @@ function applyAppearance(preferences = {}) {
   document.documentElement.style.setProperty("--accent", `rgb(${rgb.join(" ")})`);
   document.documentElement.style.setProperty("--font-scale", String((preferences.fontScale || 100) / 100));
   if (moveLabelElement) moveLabelElement.textContent = moveLabels[interfaceLanguage] || moveLabels.en;
+  updateYoutubeCreditAuthor();
   if (isPreview) showPreview();
 }
 

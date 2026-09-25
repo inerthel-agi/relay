@@ -25,9 +25,14 @@ const previewCopy = {
   de: { author: "Live-Vorschau", message: "Deine Benachrichtigung erscheint hier." },
 };
 const fallbackAvatar = "/overlay-assets/relay-radar.png";
+const anonymousNames = {
+  en: "Anonymous", fr: "Anonyme", es: "Anónimo", de: "Anonym", ru: "Аноним",
+  zh: "匿名", ko: "익명", ja: "匿名", id: "Anonim",
+};
 const queue = [];
 
 let config = {
+  showAuthor: true,
   ttsNotificationsObsEnabled: false,
   ttsQueueLimit: 50,
   notificationDurationMs: 8000,
@@ -143,12 +148,25 @@ function setGuildTag(guildTag) {
   guildTagElement.hidden = false;
 }
 
+function setCardIdentity(notification) {
+  authorElement.textContent = config.showAuthor
+    ? notification.author?.username || "Discord"
+    : anonymousNames[interfaceLanguage] || anonymousNames.en;
+  setGuildTag(config.showAuthor ? notification.guildTag : undefined);
+  avatarElement.onerror = () => {
+    avatarElement.onerror = null;
+    avatarElement.src = fallbackAvatar;
+  };
+  avatarElement.src = config.showAuthor
+    ? notification.author?.displayAvatarUrl || fallbackAvatar
+    : fallbackAvatar;
+}
+
 function setCardContent(notification) {
   const segments = notification.visualOnly && Array.isArray(notification.segments) ? notification.segments : [];
   cardElement.classList.toggle("is-sticker-only", segments.some((segment) => segment.kind === "sticker" && segment.url)
     && segments.every((segment) => segment.kind === "sticker" || !String(segment.value || "").trim()));
-  authorElement.textContent = notification.author?.username || "Discord";
-  setGuildTag(notification.guildTag);
+  setCardIdentity(notification);
   messageElement.replaceChildren();
   if (notification.visualOnly && Array.isArray(notification.segments)) {
     for (const segment of notification.segments) {
@@ -168,11 +186,6 @@ function setCardContent(notification) {
   } else {
     messageElement.textContent = notification.text || "";
   }
-  avatarElement.onerror = () => {
-    avatarElement.onerror = null;
-    avatarElement.src = fallbackAvatar;
-  };
-  avatarElement.src = notification.author?.displayAvatarUrl || fallbackAvatar;
 }
 
 function showCard() {
@@ -531,6 +544,8 @@ function handleMessage(event) {
     if (!isEnabled()) {
       clearNotifications();
     }
+    if (isPreview) showPreview();
+    else if (currentNotification) setCardIdentity(currentNotification);
   } else if (message.type === "tts") {
     if (isPreview) return;
     if (message.payload) enqueue(message.payload);
@@ -583,6 +598,7 @@ function applyAppearance(preferences = {}) {
   document.documentElement.style.setProperty("--font-scale", String((preferences.fontScale || 100) / 100));
   if (moveLabelElement) moveLabelElement.textContent = moveLabels[interfaceLanguage] || moveLabels.en;
   if (isPreview) showPreview();
+  else if (currentNotification) setCardIdentity(currentNotification);
 }
 
 applyAppearance({ language: interfaceLanguage, fontScale: 100, accentRgb: [88, 185, 137] });
