@@ -39,8 +39,6 @@ fn saved_position(config: &crate::config::AppConfig) -> Option<(i32, i32)> {
 fn write_position(config: &mut crate::config::AppConfig, position: PhysicalPosition<i32>) {
     config.notification_widget_x = Some(position.x);
     config.notification_widget_y = Some(position.y);
-    config.music_widget_x = Some(position.x);
-    config.music_widget_y = Some(position.y);
 }
 
 pub async fn state(app: &AppHandle, core: &Arc<AppCore>) -> NotificationWidgetState {
@@ -104,12 +102,7 @@ pub async fn set_locked(
     Ok(state(app, &core).await)
 }
 
-pub fn clamp_requested_size(
-    app: &AppHandle,
-    width: f64,
-    height: f64,
-    _content_scale: u16,
-) -> Result<(f64, f64)> {
+pub fn clamp_requested_size(app: &AppHandle, width: f64, height: f64) -> Result<(f64, f64)> {
     let monitor = app
         .get_webview_window(WINDOW_LABEL)
         .and_then(|window| window.current_monitor().ok().flatten())
@@ -132,7 +125,6 @@ pub fn apply_configured_size(
     core: &Arc<AppCore>,
     width: f64,
     height: f64,
-    _content_scale: u16,
     preserve_right_edge: bool,
 ) -> Result<()> {
     if let Some(window) = app.get_webview_window(WINDOW_LABEL) {
@@ -482,8 +474,6 @@ fn persist_size(core: Arc<AppCore>, window: &WebviewWindow, size: PhysicalSize<u
             .update_config(|config| {
                 config.notification_widget_width = logical.width;
                 config.notification_widget_height = logical.height;
-                config.music_widget_width = logical.width;
-                config.music_widget_height = logical.height;
             })
             .await;
     });

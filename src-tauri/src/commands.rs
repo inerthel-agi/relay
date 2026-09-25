@@ -16,7 +16,7 @@ use crate::{
     config::{AppConfig, DEFAULT_SKIP_SHORTCUT, HoneypotAction, OutputGeometry},
     credentials::{
         CredentialStatus, DiscordCredentials, credential_status, load_discord_credentials,
-        load_or_create_relay_secret, save_discord_credentials, save_youtube_api_key,
+        save_discord_credentials, save_youtube_api_key,
     },
     custom_commands::CustomCommandDefinition,
     model::{
@@ -39,14 +39,10 @@ pub struct Bootstrap {
     server: ServerStatus,
     credentials: CredentialStatus,
     channels: Vec<ChannelSummary>,
-    history: Vec<MediaEvent>,
+    history: Vec<crate::model::HistoryEntry>,
     pending_media: Vec<PendingMedia>,
     overlay_url: String,
     audio_url: String,
-    youtube_url: String,
-    tts_url: String,
-    notification_url: String,
-    sticker_url: String,
     ws_url: String,
     invite_url: Option<String>,
     widget: WidgetState,
@@ -63,13 +59,6 @@ pub struct RuntimeStatus {
     notification_widget: NotificationWidgetState,
     pending_media: Vec<PendingMedia>,
     queue: Vec<crate::stage_scheduler::QueueItem>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WidgetBootstrap {
-    overlay_url: String,
-    locked: bool,
 }
 
 #[derive(Deserialize)]
@@ -159,18 +148,6 @@ pub async fn get_bootstrap(
     core: State<'_, Arc<AppCore>>,
 ) -> Result<Bootstrap, String> {
     build_bootstrap(&app, &core).await.map_err(display_error)
-}
-
-#[tauri::command]
-pub async fn get_widget_bootstrap(
-    core: State<'_, Arc<AppCore>>,
-) -> Result<WidgetBootstrap, String> {
-    let config = core.config.read().await.clone();
-    let secret = load_or_create_relay_secret().map_err(display_error)?;
-    Ok(WidgetBootstrap {
-        overlay_url: overlay_url(config.port, &secret),
-        locked: config.widget_locked,
-    })
 }
 
 #[tauri::command]
@@ -312,7 +289,6 @@ pub async fn set_output_geometry(
                 &app,
                 width.unwrap_or(current.notification_widget_width),
                 height.unwrap_or(current.notification_widget_height),
-                geometry.content_scale,
             )
             .map_err(display_error)?,
         )
@@ -345,37 +321,9 @@ pub async fn set_output_geometry(
         widget::apply_configured_size(&app, width, height).map_err(display_error)?;
     }
     if let Some((width, height)) = notification_size {
-        notification_widget::apply_configured_size(
-            &app,
-            &core,
-            width,
-            height,
-            geometry.content_scale,
-            true,
-        )
-        .map_err(display_error)?;
+        notification_widget::apply_configured_size(&app, &core, width, height, true)
+            .map_err(display_error)?;
     }
-    Ok(next)
-}
-
-#[tauri::command]
-pub async fn set_music_widget_size(
-    app: AppHandle,
-    core: State<'_, Arc<AppCore>>,
-    width: f64,
-    height: f64,
-) -> Result<AppConfig, String> {
-    let keep_ratio = core.config.read().await.widget_keep_aspect_ratio;
-    let (width, height) =
-        widget::clamp_requested_size(&app, width, height, keep_ratio).map_err(display_error)?;
-    let next = core
-        .update_config(|config| {
-            config.widget_width = width;
-            config.widget_height = height;
-        })
-        .await
-        .map_err(display_error)?;
-    widget::apply_configured_size(&app, width, height).map_err(display_error)?;
     Ok(next)
 }
 
@@ -511,7 +459,6 @@ pub async fn apply_config(
             current.media_volume = config.media_volume;
             current.tts_character_limit = config.tts_character_limit;
             current.tts_queue_limit = config.tts_queue_limit;
-            current.tts_speech_enabled = false;
             current.tts_notifications_obs_enabled = config.tts_notifications_obs_enabled;
             current.bot_online_status = config.bot_online_status;
             current.bot_activity_type = config.bot_activity_type;
@@ -649,6 +596,12 @@ pub async fn save_custom_commands(
 
 #[tauri::command]
 pub async fn replay_media(core: State<'_, Arc<AppCore>>, message_id: String) -> Result<(), String> {
+    if let Some(playback_id) = message_id.strip_prefix("youtube-") {
+        return core
+            .replay_music_history(playback_id)
+            .await
+            .map_err(|error| error.to_string());
+    }
     if message_id.is_empty()
         || message_id.len() > 64
         || !message_id
@@ -662,6 +615,7 @@ pub async fn replay_media(core: State<'_, Arc<AppCore>>, message_id: String) -> 
         .read()
         .await
         .iter()
+        .filter_map(crate::model::HistoryEntry::media)
         .filter(|event| event.message_id == message_id)
         .cloned()
         .collect::<Vec<_>>();
@@ -678,10 +632,30 @@ pub async fn replay_media(core: State<'_, Arc<AppCore>>, message_id: String) -> 
 
 #[tauri::command]
 pub async fn download_history_media(
+    app: AppHandle,
     core: State<'_, Arc<AppCore>>,
     message_id: String,
     media_url: String,
+    format: Option<String>,
 ) -> Result<bool, String> {
+    if let Some(playback_id) = message_id.strip_prefix("youtube-") {
+        use tauri::Manager;
+        let entry = core
+            .music_history_entry(playback_id)
+            .await
+            .ok_or_else(|| "The music is no longer in history.".to_string())?;
+        let tool_dir = app
+            .path()
+            .app_cache_dir()
+            .map_err(|_| "The download tool folder is unavailable.".to_string())?;
+        return crate::youtube_download::download(
+            &entry.music.video_id,
+            &entry.music.title,
+            format.as_deref().unwrap_or_default(),
+            &tool_dir,
+        )
+        .await;
+    }
     validate_message_id(&message_id)?;
     if media_url.is_empty() || media_url.len() > 2_048 {
         return Err("Invalid media URL.".into());
@@ -691,6 +665,7 @@ pub async fn download_history_media(
         .read()
         .await
         .iter()
+        .filter_map(crate::model::HistoryEntry::media)
         .find(|event| {
             event.message_id == message_id
                 && (event.url == media_url || event.proxy_url == media_url)
@@ -1140,6 +1115,7 @@ pub async fn control_audio(
             let history = core.history.read().await;
             let audio = history
                 .iter()
+                .filter_map(crate::model::HistoryEntry::media)
                 .filter(|event| matches!(event.kind, crate::model::MediaKind::Audio))
                 .collect::<Vec<_>>();
             let current_index = current_url
@@ -1277,16 +1253,6 @@ pub async fn set_notification_sound_obs_enabled(
 }
 
 #[tauri::command]
-pub async fn set_tts_notifications_obs_enabled(
-    core: State<'_, Arc<AppCore>>,
-    enabled: bool,
-) -> Result<AppConfig, String> {
-    core.update_config(|config| config.tts_notifications_obs_enabled = enabled)
-        .await
-        .map_err(display_error)
-}
-
-#[tauri::command]
 pub async fn pick_notification_sound(
     core: State<'_, Arc<AppCore>>,
 ) -> Result<Option<AppConfig>, String> {
@@ -1360,12 +1326,8 @@ async fn build_bootstrap(app: &AppHandle, core: &Arc<AppCore>) -> anyhow::Result
         .as_deref()
         .map(|client_id| invite_url(client_id, &config));
     Ok(Bootstrap {
-        overlay_url: obs_visual_url(config.port),
+        overlay_url: widget::obs_visual_url(config.port),
         audio_url: short_overlay_url(config.port, "obs/audio"),
-        youtube_url: obs_visual_url(config.port),
-        tts_url: short_overlay_url(config.port, "tts"),
-        notification_url: obs_visual_url(config.port),
-        sticker_url: short_overlay_url(config.port, "stickers"),
         ws_url: format!(
             "ws://127.0.0.1:{}/ws?role=panel&token={}",
             config.port, core.panel_token
@@ -1383,22 +1345,12 @@ async fn build_bootstrap(app: &AppHandle, core: &Arc<AppCore>) -> anyhow::Result
     })
 }
 
-fn overlay_url(port: u16, secret: &str) -> String {
-    format!("http://127.0.0.1:{port}/overlay?secret={secret}")
-}
-
 fn short_overlay_url(port: u16, path: &str) -> String {
     format!("http://127.0.0.1:{port}/{path}")
 }
 
-/// Recommended OBS Visual Browser Source (medias + stickers + notifications + YouTube).
-/// Must use `localhost` so the embedded `/youtube` layer accepts the Referer.
-fn obs_visual_url(port: u16) -> String {
-    format!("http://{}:{port}/obs/visual", widget::youtube_embed_host())
-}
-
 /// Legacy dedicated YouTube URL (still served). Kept for tests and migration docs;
-/// the panel recommends [`obs_visual_url`] instead.
+/// the panel recommends [`widget::obs_visual_url`] instead.
 #[cfg(test)]
 fn youtube_overlay_url(port: u16) -> String {
     format!("http://{}:{port}/youtube", widget::youtube_embed_host())

@@ -1,6 +1,7 @@
+use crate::clock::now_ms;
 use std::{
     sync::Arc,
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant},
 };
 
 use anyhow::{Context as _, Result, bail};
@@ -600,7 +601,7 @@ impl EventHandler for Handler {
                 timestamp: event
                     .timestamp
                     .map(|timestamp| timestamp.unix_timestamp().max(0) as u64 * 1_000)
-                    .unwrap_or_else(current_timestamp_ms),
+                    .unwrap_or_else(now_ms),
                 content: event.content.unwrap_or_default(),
                 embeds,
                 role_ids: Vec::new(),
@@ -1538,8 +1539,9 @@ async fn handle_relay(
     }
 }
 
-const CHANGELOG_URL: &str = "https://raw.githubusercontent.com/stealthsrc/relay/main/CHANGELOG.md";
-const CHANGELOG_PAGE_URL: &str = "https://github.com/stealthsrc/relay/blob/main/CHANGELOG.md";
+const CHANGELOG_URL: &str =
+    "https://raw.githubusercontent.com/inerthel-agi/relay/main/CHANGELOG.md";
+const CHANGELOG_PAGE_URL: &str = "https://github.com/inerthel-agi/relay/blob/main/CHANGELOG.md";
 const CHANGELOG_MAX_BYTES: usize = 256 * 1024;
 const CHANGELOG_EMBED_DESCRIPTION_LIMIT: usize = 3_900;
 const CHANGELOG_MAX_EMBEDS: usize = 10;
@@ -1596,7 +1598,7 @@ async fn fetch_changelog_markdown() -> Result<String> {
     let url = reqwest::Url::parse(CHANGELOG_URL).context("invalid changelog URL")?;
     if url.scheme() != "https"
         || url.host_str() != Some("raw.githubusercontent.com")
-        || url.path() != "/stealthsrc/relay/main/CHANGELOG.md"
+        || url.path() != "/inerthel-agi/relay/main/CHANGELOG.md"
     {
         bail!("changelog URL is not the expected GitHub raw path");
     }
@@ -1941,7 +1943,7 @@ async fn clear_channel_messages(
             break;
         }
         before = messages.last().map(|message| message.id);
-        let now = current_timestamp_ms() / 1_000;
+        let now = now_ms() / 1_000;
         let (recent, old): (Vec<MessageId>, Vec<MessageId>) = messages
             .iter()
             .take(limit - deleted)
@@ -2276,11 +2278,7 @@ fn connection_details(config: &AppConfig) -> String {
 }
 
 fn overlay_url(config: &AppConfig) -> String {
-    format!(
-        "http://{}:{}/obs/visual",
-        crate::widget::youtube_embed_host(),
-        config.port
-    )
+    crate::widget::obs_visual_url(config.port)
 }
 
 fn audio_overlay_url(config: &AppConfig) -> String {
@@ -2346,7 +2344,10 @@ async fn submit_deferred_embeds(core: &Arc<AppCore>, http: &Http, message: Defer
         return;
     }
     let media_text = prepare_media_text(&message.content);
-    for (index, embed) in message.embeds.iter().filter_map(embedded_gif).enumerate() {
+    for (index, embed) in message_gifs(&message.content, &message.embeds)
+        .into_iter()
+        .enumerate()
+    {
         let event_id = format!("{}-embed-{index}", message.message_id);
         if !core.claim_embed(event_id.clone()).await {
             continue;
@@ -2464,6 +2465,28 @@ async fn delete_deferred_message_if_needed(
     }
 }
 
+fn message_gifs(content: &str, embeds: &[serenity::all::Embed]) -> Vec<EmbeddedGif> {
+    direct_gif_link(content)
+        .map(|gif| vec![gif])
+        .unwrap_or_else(|| embeds.iter().filter_map(embedded_gif).collect())
+}
+
+fn direct_gif_link(content: &str) -> Option<EmbeddedGif> {
+    let url = content
+        .split(|character: char| {
+            character.is_whitespace() || matches!(character, '(' | ')' | '<' | '>')
+        })
+        .filter_map(|part| reqwest::Url::parse(part).ok())
+        .find(|url| artwork::url_allowed(url) && url_has_extension(url.as_str(), "gif"))?
+        .to_string();
+    Some(EmbeddedGif {
+        proxy_url: url.clone(),
+        url,
+        title: None,
+        content_type: "image/gif",
+    })
+}
+
 fn embedded_gif(embed: &serenity::all::Embed) -> Option<EmbeddedGif> {
     let is_gifv = embed.kind.as_deref() == Some("gifv");
     let image_is_gif = [
@@ -2546,8 +2569,7 @@ fn embedded_gif(embed: &serenity::all::Embed) -> Option<EmbeddedGif> {
             image.url.clone(),
             image.proxy_url.clone().unwrap_or_else(|| image.url.clone()),
         )
-    } else {
-        let thumbnail = embed.thumbnail.as_ref()?;
+    } else if let Some(thumbnail) = embed.thumbnail.as_ref() {
         (
             thumbnail.url.clone(),
             thumbnail
@@ -2555,6 +2577,12 @@ fn embedded_gif(embed: &serenity::all::Embed) -> Option<EmbeddedGif> {
                 .clone()
                 .unwrap_or_else(|| thumbnail.url.clone()),
         )
+    } else {
+        let url = embed
+            .url
+            .as_deref()
+            .filter(|url| url_has_extension(url, "gif"))?;
+        (url.to_owned(), url.to_owned())
     };
     Some(EmbeddedGif {
         url: url.clone(),
@@ -2688,13 +2716,6 @@ async fn set_bot_error(core: &Arc<AppCore>, error: String) {
     let mut status = core.bot_status.write().await;
     status.connected = false;
     status.error = Some(error);
-}
-
-fn current_timestamp_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
 }
 
 #[cfg(test)]

@@ -19,8 +19,9 @@ use tauri::AppHandle;
 #[cfg(target_os = "windows")]
 use std::os::windows::fs::OpenOptionsExt;
 
+// Cargo and Tauri keep the numeric SemVer; release tags and assets use the public suffix.
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
-const LATEST_RELEASE_API: &str = "https://api.github.com/repos/stealthsrc/relay/releases/latest";
+const LATEST_RELEASE_API: &str = "https://api.github.com/repos/inerthel-agi/relay/releases/latest";
 const MAX_RELEASE_METADATA_BYTES: usize = 1024 * 1024;
 const MAX_INSTALLER_BYTES: u64 = 100 * 1024 * 1024;
 const MAX_SIGNATURE_BYTES: usize = 16 * 1024;
@@ -317,7 +318,7 @@ fn validated_asset_url(
     expected_name: &str,
 ) -> anyhow::Result<reqwest::Url> {
     let expected_path = format!(
-        "/stealthsrc/relay/releases/download/{}/{}",
+        "/inerthel-agi/relay/releases/download/{}/{}",
         release.tag_name, expected_name
     );
     let url = reqwest::Url::parse(&asset.browser_download_url)
@@ -424,16 +425,21 @@ fn release_version(tag: &str) -> anyhow::Result<&str> {
     Ok(version)
 }
 
-fn parse_version(version: &str) -> anyhow::Result<[u64; 3]> {
-    let parts = version
-        .split('.')
-        .map(str::parse::<u64>)
-        .collect::<Result<Vec<_>, _>>()
-        .context("the release version is invalid")?;
+fn parse_version(version: &str) -> anyhow::Result<[u64; 4]> {
+    let parts = version.split('.').collect::<Vec<_>>();
     let [major, minor, patch] = parts.as_slice() else {
         bail!("the release version must contain three numeric parts");
     };
-    Ok([*major, *minor, *patch])
+    let (patch, suffix) = match patch.as_bytes().last() {
+        Some(letter @ b'a'..=b'z') => (&patch[..patch.len() - 1], u64::from(letter - b'a' + 1)),
+        _ => (*patch, 0),
+    };
+    Ok([
+        major.parse().context("the release version is invalid")?,
+        minor.parse().context("the release version is invalid")?,
+        patch.parse().context("the release version is invalid")?,
+        suffix,
+    ])
 }
 
 fn is_newer_version(latest: &str, current: &str) -> anyhow::Result<bool> {

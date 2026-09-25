@@ -77,6 +77,7 @@ pub async fn save_history_to_library(
         .read()
         .await
         .iter()
+        .filter_map(crate::model::HistoryEntry::media)
         .find(|event| {
             event.message_id == message_id
                 && (event.url == media_url || event.proxy_url == media_url)

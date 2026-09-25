@@ -397,7 +397,7 @@ fn snapshots_missing_permission_overwrites_for_exact_restoration() {
 
 #[test]
 fn bulk_deletes_only_messages_safely_inside_discords_two_week_limit() {
-    let now = current_timestamp_ms() / 1_000;
+    let now = now_ms() / 1_000;
     let recent = MessageId::new(((now - 60) * 1_000 - 1_420_070_400_000) << 22);
     let old = MessageId::new(((now - 14 * 24 * 60 * 60) * 1_000 - 1_420_070_400_000) << 22);
     assert!(is_bulk_deletable(recent, now));
@@ -521,6 +521,39 @@ fn accepts_thumbnail_only_direct_gifs_without_a_known_provider() {
     let gif = embedded_gif(&embed).expect("direct GIF thumbnails should be relayed");
     assert_eq!(gif.url, "https://example.com/animation.gif");
     assert_eq!(gif.content_type, "image/gif");
+}
+
+#[test]
+fn accepts_url_only_tenor_gif_embeds() {
+    let embed: serenity::all::Embed = serde_json::from_value(serde_json::json!({
+        "type": "image",
+        "url": "https://media.tenor.com/kPLwmExuKxAAAAAi/halloing-hello.gif"
+    }))
+    .unwrap();
+    let gif = embedded_gif(&embed).expect("URL-only GIF embed should be relayed");
+    assert_eq!(
+        gif.url,
+        "https://media.tenor.com/kPLwmExuKxAAAAAi/halloing-hello.gif"
+    );
+}
+
+#[test]
+fn accepts_masked_direct_tenor_gif_links_without_embeds() {
+    let url = "https://media.tenor.com/kPLwmExuKxAAAAAi/halloing-hello.gif";
+    let content = format!("[https/media.tenor.com/halloing-hello.gif\u{a0}]({url})");
+    assert_eq!(direct_gif_link(&content).unwrap().url, url);
+    assert_eq!(message_gifs(&content, &[])[0].url, url);
+    let preview: serenity::all::Embed = serde_json::from_value(serde_json::json!({
+        "type": "image",
+        "url": url,
+        "image": { "url": "https://media.tenor.com/static-preview.jpg" }
+    }))
+    .unwrap();
+    let gifs = message_gifs(&content, &[preview]);
+    assert_eq!(gifs.len(), 1);
+    assert_eq!(gifs[0].url, url);
+    assert_eq!(gifs[0].content_type, "image/gif");
+    assert!(direct_gif_link("https://evil.example/halloing-hello.gif").is_none());
 }
 
 #[test]

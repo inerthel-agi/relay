@@ -1,20 +1,8 @@
 use super::{BUNDLED_CHANGELOG, changelog_body_for_language};
 
-const CURRENT_HEADINGS: [&str; 9] = [
-    "### English",
-    "### Français",
-    "### Español",
-    "### Deutsch",
-    "### Русский",
-    "### 简体中文",
-    "### 한국어",
-    "### 日本語",
-    "### Bahasa Indonesia",
-];
-
 #[test]
 fn bundled_changelog_includes_the_current_release_section() {
-    let heading = format!("## [{}]", env!("CARGO_PKG_VERSION"));
+    let heading = format!("## [{}]", crate::updater::get_app_version());
     assert!(
         BUNDLED_CHANGELOG.contains(&heading)
             || BUNDLED_CHANGELOG
@@ -24,32 +12,30 @@ fn bundled_changelog_includes_the_current_release_section() {
                 .split("\n## [")
                 .next()
                 .unwrap_or("")
-                .contains(&format!("Target version: {}.", env!("CARGO_PKG_VERSION"))),
+                .contains(&format!(
+                    "Target version: {}.",
+                    crate::updater::get_app_version()
+                )),
         "bundled CHANGELOG.md must include {heading}"
     );
-    for heading in CURRENT_HEADINGS {
-        assert!(
-            BUNDLED_CHANGELOG.contains(heading),
-            "bundled CHANGELOG.md must include {heading}"
-        );
-    }
+    assert!(BUNDLED_CHANGELOG.contains("### English"));
+    assert!(
+        BUNDLED_CHANGELOG
+            .lines()
+            .filter(|line| line.starts_with("### "))
+            .all(|line| line == "### English")
+    );
 }
 
 #[test]
-fn bundled_changelog_skips_unreleased_before_the_latest_version() {
+fn bundled_changelog_latest_release_matches_public_version() {
     let latest = BUNDLED_CHANGELOG
         .lines()
         .find(|line| line.starts_with("## [") && !line.starts_with("## [Unreleased]"))
         .expect("published changelog section");
     assert!(!latest.contains("Unreleased"));
     let published = latest.split(['[', ']']).nth(1).unwrap();
-    let parse = |value: &str| {
-        value
-            .split('.')
-            .map(|part| part.parse::<u32>().unwrap())
-            .collect::<Vec<_>>()
-    };
-    assert!(parse(published) <= parse(env!("CARGO_PKG_VERSION")));
+    assert_eq!(published, crate::updater::get_app_version());
 }
 
 #[test]

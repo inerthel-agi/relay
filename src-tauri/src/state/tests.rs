@@ -1,5 +1,124 @@
 use super::*;
 
+fn history_music_selection() -> MusicSelection {
+    MusicSelection {
+        owner_id: 42,
+        owner_name: "Requester".into(),
+        channel_id: 123,
+        track: crate::youtube::YouTubeTrack {
+            video_id: "dQw4w9WgXcQ".into(),
+            title: "History track".into(),
+            channel_title: "Artist".into(),
+            thumbnail: String::new(),
+            duration_seconds: 216,
+        },
+    }
+}
+
+#[tokio::test]
+async fn youtube_history_replays_each_mode_without_duplicate_rows() {
+    for mode in [
+        MusicPlaybackMode::Preview,
+        MusicPlaybackMode::Full,
+        MusicPlaybackMode::Custom,
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let core = AppCore::load(directory.path().join("config.json")).unwrap();
+        let mut events = core.relay_tx.subscribe();
+        let result = if mode == MusicPlaybackMode::Custom {
+            core.start_music_custom(history_music_selection(), 50, 95, 1, "1")
+                .await
+                .unwrap()
+        } else {
+            core.start_music(history_music_selection(), mode, 1, "1")
+                .await
+        };
+        let crate::music::MusicStartResult::Started(original) = result else {
+            panic!("not started")
+        };
+        let RelayEvent::MusicHistory(entry) = events.recv().await.unwrap() else {
+            panic!("missing history update")
+        };
+        assert_eq!(entry.music, original);
+        let serialized = serde_json::to_value(core.history.read().await.clone()).unwrap();
+        assert_eq!(serialized[0]["music"]["videoId"], original.video_id);
+        assert!(serialized[0].get("selection").is_none());
+        core.stop_current_music().await;
+        core.replay_music_history(&original.playback_id)
+            .await
+            .unwrap();
+        let replay = core.current_music().await.unwrap();
+        assert_ne!(replay.playback_id, original.playback_id);
+        assert_eq!(replay.video_id, original.video_id);
+        assert_eq!(replay.mode, mode);
+        assert_eq!(replay.start_seconds, original.start_seconds);
+        assert_eq!(replay.end_seconds, original.end_seconds);
+        assert_eq!(replay.requested_by, original.requested_by);
+        assert_eq!(core.history.read().await.len(), 1);
+        // One replay can wait; a second must respect duplicate protection.
+        core.replay_music_history(&original.playback_id)
+            .await
+            .unwrap();
+        assert!(
+            core.replay_music_history(&original.playback_id)
+                .await
+                .is_err()
+        );
+        assert_eq!(core.music.lock().await.pending_events().len(), 1);
+        assert_eq!(core.history.read().await.len(), 1);
+    }
+}
+
+#[tokio::test]
+async fn youtube_history_records_queued_tracks_but_not_rejected_requests() {
+    let directory = tempfile::tempdir().unwrap();
+    let core = AppCore::load(directory.path().join("config.json")).unwrap();
+    let mut selection = history_music_selection();
+    core.start_music(selection.clone(), MusicPlaybackMode::Full, 1, "1")
+        .await;
+    selection.track.video_id = "abcdefghijk".into();
+    assert!(matches!(
+        core.start_music(selection.clone(), MusicPlaybackMode::Preview, 2, "2")
+            .await,
+        crate::music::MusicStartResult::Queued { .. }
+    ));
+    assert!(matches!(
+        core.start_music(selection, MusicPlaybackMode::Full, 3, "3")
+            .await,
+        crate::music::MusicStartResult::DuplicatePending { .. }
+    ));
+    assert_eq!(core.history.read().await.len(), 2);
+}
+
+#[tokio::test]
+async fn youtube_and_media_share_the_history_limit() {
+    let directory = tempfile::tempdir().unwrap();
+    let core = AppCore::load(directory.path().join("config.json")).unwrap();
+    let crate::music::MusicStartResult::Started(original) = core
+        .start_music(history_music_selection(), MusicPlaybackMode::Full, 1, "1")
+        .await
+    else {
+        panic!("not started")
+    };
+    for index in 0..HISTORY_LIMIT {
+        core.publish_media(media(MediaKind::Image, &format!("image-{index}")))
+            .await;
+    }
+    assert_eq!(core.history.read().await.len(), HISTORY_LIMIT);
+    assert!(
+        core.replay_music_history(&original.playback_id)
+            .await
+            .is_err()
+    );
+    assert!(
+        core.history
+            .read()
+            .await
+            .iter()
+            .all(|entry| entry.media().is_some())
+    );
+}
+
 #[tokio::test]
 async fn app_core_restores_persisted_interface_preferences() {
     let directory = tempfile::tempdir().unwrap();

@@ -23,7 +23,7 @@ const ALLOWED_HOST_SUFFIXES: &[&str] = &[
     "klipy.com",
 ];
 
-fn url_allowed(url: &reqwest::Url) -> bool {
+pub(crate) fn url_allowed(url: &reqwest::Url) -> bool {
     if url.scheme() != "https" {
         return false;
     }

@@ -950,6 +950,10 @@ struct ExifSignals {
 }
 
 fn parse_exif(bytes: &[u8]) -> ExifSignals {
+    // This EXIF reader does not support GIF containers; their format error is not a failed scan.
+    if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        return ExifSignals::default();
+    }
     let mut cursor = Cursor::new(bytes);
     let exif = match Reader::new().read_from_container(&mut cursor) {
         Ok(exif) => exif,
@@ -1998,6 +2002,16 @@ pub fn action_for(report: &PrivacyReport, config: &AppConfig) -> PrivacyAction {
         || report.classification.rank() >= config.privacy_block_threshold.rank()
     {
         return PrivacyAction::Block;
+    }
+    if config.privacy_scan_enabled
+        && report.reasons.iter().any(|reason| {
+            matches!(
+                *reason,
+                "scan_incomplete" | "image_scan_unavailable" | "image_fetch_unavailable"
+            )
+        })
+    {
+        return PrivacyAction::Review;
     }
     match report.classification {
         PrivacyClassification::High => PrivacyAction::Review,

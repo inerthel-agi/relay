@@ -1,10 +1,11 @@
+use crate::clock::now_ms;
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
     },
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::Duration,
 };
 
 use serde::Serialize;
@@ -611,15 +612,6 @@ fn lane_busy(lane: StageLane, media_busy: bool, music_busy: bool, tts_busy: bool
         StageLane::Tts => tts_busy,
         StageLane::Music => music_busy,
     }
-}
-
-fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis()
-        .try_into()
-        .unwrap_or(u64::MAX)
 }
 
 #[cfg(test)]

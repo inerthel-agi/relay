@@ -666,4 +666,31 @@ fn malformed_exif_is_reviewable_incomplete() {
     let report = analyze_image_bytes(malformed, None, &config());
     assert_eq!(report.classification, PrivacyClassification::Low);
     assert!(report.reasons.contains(&"scan_incomplete"));
+    assert_eq!(action_for(&report, &config()), PrivacyAction::Review);
+    let mut no_intermediate_review = config();
+    no_intermediate_review.privacy_review_intermediate = false;
+    assert_eq!(
+        action_for(&report, &no_intermediate_review),
+        PrivacyAction::Review
+    );
+    assert_eq!(
+        action_for(
+            &PrivacyReport::suspicious("image_fetch_unavailable"),
+            &no_intermediate_review
+        ),
+        PrivacyAction::Review
+    );
+}
+
+#[test]
+fn gif_without_exif_does_not_claim_an_incomplete_scan() {
+    let gif = include_bytes!("../../../outputs/samples/motion.gif");
+    assert!(!parse_exif(gif).incomplete);
+    let mut config = config();
+    config
+        .privacy_enabled_categories
+        .retain(|category| *category != PrivacyCategory::Ocr);
+    let report = analyze_image_bytes(gif, None, &config);
+    assert!(!report.reasons.contains(&"scan_incomplete"));
+    assert_eq!(action_for(&report, &config), PrivacyAction::Allow);
 }

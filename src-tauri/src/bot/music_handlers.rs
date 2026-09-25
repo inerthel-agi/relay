@@ -353,12 +353,7 @@ pub(super) async fn handle_music_component(
             }
         };
         let result = core
-            .start_music(
-                selection.clone(),
-                mode,
-                current_timestamp_ms(),
-                &component.id.to_string(),
-            )
+            .start_music(selection.clone(), mode, now_ms(), &component.id.to_string())
             .await;
         match &result {
             MusicStartResult::QueueFull
@@ -663,7 +658,7 @@ pub(super) async fn handle_music_custom_modal(
             selection.clone(),
             start_seconds,
             end_seconds,
-            current_timestamp_ms(),
+            now_ms(),
             &modal.id.to_string(),
         )
         .await

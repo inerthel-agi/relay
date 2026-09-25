@@ -52,7 +52,7 @@ impl MusicQueuePolicy {
     }
 
     /// Explicitly disable both optional admission guards.
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub const fn unlimited() -> Self {
         Self {
             max_pending_per_user: 0,

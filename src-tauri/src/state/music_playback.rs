@@ -33,6 +33,7 @@ impl AppCore {
         // scheduler reservation can wait while this lock is held; a rejected
         // request is then cancelled without exposing a race to another
         // request for the same member or video.
+        let history_selection = selection.clone();
         let mut music = self.music.lock().await;
         let ticket = self
             .register_stage_output(order_timestamp, order_id, 300, StageLane::Music)
@@ -49,6 +50,8 @@ impl AppCore {
                 .insert(playback.playback_id.clone(), ticket);
         }
         drop(music);
+        self.remember_music(&result, history_selection, order_timestamp)
+            .await;
         self.emit_music_start(result, ticket).await
     }
 
@@ -87,6 +90,7 @@ impl AppCore {
         order_timestamp: u64,
         order_id: &str,
     ) -> Result<crate::music::MusicStartResult, crate::music::CustomRangeError> {
+        let history_selection = selection.clone();
         let mut music = self.music.lock().await;
         let ticket = self
             .register_stage_output(order_timestamp, order_id, 300, StageLane::Music)
@@ -104,10 +108,99 @@ impl AppCore {
         }
         drop(music);
         match result {
-            Ok(result) => Ok(self.emit_music_start(result, ticket).await),
+            Ok(result) => {
+                self.remember_music(&result, history_selection, order_timestamp)
+                    .await;
+                Ok(self.emit_music_start(result, ticket).await)
+            }
             Err(error) => {
                 self.cancel_stage_output(ticket).await;
                 Err(error)
+            }
+        }
+    }
+
+    async fn remember_music(
+        &self,
+        result: &crate::music::MusicStartResult,
+        selection: MusicSelection,
+        timestamp: u64,
+    ) {
+        let (crate::music::MusicStartResult::Started(playback)
+        | crate::music::MusicStartResult::Queued { playback, .. }) = result
+        else {
+            return;
+        };
+        let mut history = self.history.write().await;
+        // Replays and repeat requests reuse the original row and selected range.
+        if history.iter().any(|entry| {
+            matches!(entry, HistoryEntry::Music(entry)
+            if entry.selection == selection && entry.music.mode == playback.mode
+                && entry.music.start_seconds == playback.start_seconds
+                && entry.music.end_seconds == playback.end_seconds)
+        }) {
+            return;
+        }
+        let entry = crate::model::MusicHistoryEntry {
+            music: playback.clone(),
+            timestamp,
+            selection,
+        };
+        history.push_front(HistoryEntry::Music(entry.clone()));
+        history.truncate(HISTORY_LIMIT);
+        let _ = self.relay_tx.send(RelayEvent::MusicHistory(entry));
+    }
+
+    pub async fn music_history_entry(
+        &self,
+        playback_id: &str,
+    ) -> Option<crate::model::MusicHistoryEntry> {
+        self.history
+            .read()
+            .await
+            .iter()
+            .find_map(|entry| match entry {
+                HistoryEntry::Music(entry) if entry.music.playback_id == playback_id => {
+                    Some(entry.clone())
+                }
+                _ => None,
+            })
+    }
+
+    pub async fn replay_music_history(&self, playback_id: &str) -> Result<()> {
+        let entry = self
+            .music_history_entry(playback_id)
+            .await
+            .ok_or_else(|| anyhow::anyhow!("The music is no longer in history."))?;
+        let timestamp = crate::clock::now_ms();
+        let result = match entry.music.mode {
+            MusicPlaybackMode::Custom => self
+                .start_music_custom(
+                    entry.selection,
+                    entry.music.start_seconds,
+                    entry
+                        .music
+                        .end_seconds
+                        .ok_or_else(|| anyhow::anyhow!("Missing music range."))?,
+                    timestamp,
+                    playback_id,
+                )
+                .await
+                .map_err(|_| anyhow::anyhow!("The music range is no longer valid."))?,
+            mode => {
+                self.start_music(entry.selection, mode, timestamp, playback_id)
+                    .await
+            }
+        };
+        match result {
+            crate::music::MusicStartResult::Started(_)
+            | crate::music::MusicStartResult::Queued { .. } => Ok(()),
+            crate::music::MusicStartResult::QueueFull => bail!("The music queue is full."),
+            crate::music::MusicStartResult::UserQueueFull { .. } => {
+                bail!("The requester's music queue is full.")
+            }
+            crate::music::MusicStartResult::DuplicatePending { .. } => {
+                bail!("This music is already queued.")
             }
         }
     }

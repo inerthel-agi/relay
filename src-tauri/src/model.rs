@@ -110,6 +110,31 @@ pub struct MusicPlaybackEvent {
     pub requested_by: String,
 }
 
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicHistoryEntry {
+    pub music: MusicPlaybackEvent,
+    pub timestamp: u64,
+    #[serde(skip)]
+    pub selection: crate::music::MusicSelection,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(untagged)]
+pub enum HistoryEntry {
+    Media(MediaEvent),
+    Music(MusicHistoryEntry),
+}
+
+impl HistoryEntry {
+    pub fn media(&self) -> Option<&MediaEvent> {
+        match self {
+            Self::Media(media) => Some(media),
+            Self::Music(_) => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MusicStopEvent {
@@ -276,6 +301,7 @@ impl Default for InterfacePreferences {
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "type", content = "payload", rename_all = "camelCase")]
 pub enum RelayEvent {
+    MusicHistory(MusicHistoryEntry),
     Reaction(Option<crate::reactions::ReactionPlayback>),
     MessagePin(MessagePinEvent),
     Media(MediaEvent),

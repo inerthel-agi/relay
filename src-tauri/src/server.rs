@@ -1,6 +1,8 @@
+use crate::clock::now_ms;
 use std::{
+    collections::VecDeque,
     sync::{Arc, Mutex},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::Duration,
 };
 
 use anyhow::{Context, Result};
@@ -8,10 +10,11 @@ use axum::{
     Router,
     body::Body,
     extract::{
-        Path, Query, State, WebSocketUpgrade,
+        Path, Query, Request, State, WebSocketUpgrade,
         ws::{Message, WebSocket},
     },
     http::{HeaderMap, HeaderValue, StatusCode, header},
+    middleware::{self, Next},
     response::{Html, IntoResponse, Response},
     routing::get,
 };
@@ -26,13 +29,13 @@ use crate::{
     config::{AppConfig, OutputGeometry},
     credentials::load_or_create_relay_secret,
     model::{
-        AudioPlaybackState, MediaKind, MusicEndedEvent, OutputConnectionStatus, OutputStatuses,
-        RelayEvent, ServerStatus, TtsEvent,
+        AudioPlaybackState, MediaKind, MusicEndedEvent, MusicPlaybackEvent, OutputConnectionStatus,
+        OutputStatuses, RelayEvent, ServerStatus, TtsEvent,
     },
     state::{AppCore, ServerRuntime},
 };
 
-/// Display-only settings sent to overlay/tts/notification/sticker clients.
+/// Display-only settings sent to overlay/notification/sticker clients.
 /// The full AppConfig (channel IDs, lock snapshots, widget positions) is
 /// reserved for the panel role.
 #[derive(serde::Serialize)]
@@ -46,7 +49,6 @@ struct OverlayConfig {
     notification_duration_ms: u64,
     media_volume: u8,
     tts_queue_limit: u8,
-    tts_speech_enabled: bool,
     tts_notifications_obs_enabled: bool,
     show_author: bool,
     show_media_text_obs: bool,
@@ -71,7 +73,6 @@ impl From<&AppConfig> for OverlayConfig {
             notification_duration_ms: config.notification_duration_ms,
             media_volume: config.media_volume,
             tts_queue_limit: config.tts_queue_limit,
-            tts_speech_enabled: config.tts_speech_enabled,
             tts_notifications_obs_enabled: config.tts_notifications_obs_enabled,
             show_author: config.show_author,
             show_media_text_obs: config.show_media_text_obs,
@@ -96,9 +97,6 @@ const OBS_VISUAL_CSS: &str = include_str!("../../overlay/obs-visual.css");
 const OBS_AUDIO_HTML: &str = include_str!("../../overlay/obs-audio.html");
 const OBS_AUDIO_CSS: &str = include_str!("../../overlay/obs-audio.css");
 const RADAR_PNG: &[u8] = include_bytes!("../../gui/assets/relay-radar.png");
-const TTS_HTML: &str = include_str!("../../tts/index.html");
-const TTS_CSS: &str = include_str!("../../tts/tts.css");
-const TTS_JS: &str = include_str!("../../tts/tts.js");
 const NOTIFICATIONS_HTML: &str = include_str!("../../notifications/index.html");
 const NOTIFICATIONS_CSS: &str = include_str!("../../notifications/notifications.css");
 const NOTIFICATIONS_JS: &str = include_str!("../../notifications/notifications.js");
@@ -109,12 +107,14 @@ const STICKERS_JS: &str = include_str!("../../stickers/stickers.js");
 #[derive(Clone)]
 struct RelayServerState {
     core: Arc<AppCore>,
+    port: u16,
     relay_secret: Arc<String>,
     client_shutdown: tokio::sync::broadcast::Sender<()>,
     media_clock_tx: tokio::sync::watch::Sender<MediaClockState>,
     media_clock_counts: Arc<Mutex<MediaClockCounts>>,
     stage_clock_tx: tokio::sync::watch::Sender<StageClockState>,
     stage_clock_counts: Arc<Mutex<StageClockCounts>>,
+    music_clock: Arc<Mutex<MusicClockState>>,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
@@ -147,6 +147,13 @@ struct StageClockCounts {
     media_busy: usize,
     tts_busy: usize,
     music_busy: bool,
+}
+
+const MUSIC_CLOCK_CACHE_LIMIT: usize = 64;
+
+#[derive(Default)]
+struct MusicClockState {
+    anchors: VecDeque<(String, u64)>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
@@ -255,12 +262,14 @@ pub async fn start_server(core: Arc<AppCore>) -> Result<()> {
     let (stage_clock_tx, _) = tokio::sync::watch::channel(StageClockState::default());
     let state = RelayServerState {
         core: core.clone(),
+        port,
         relay_secret: Arc::new(load_or_create_relay_secret()?),
         client_shutdown: client_shutdown.clone(),
         media_clock_tx,
         media_clock_counts: Arc::new(Mutex::new(MediaClockCounts::default())),
         stage_clock_tx,
         stage_clock_counts: Arc::new(Mutex::new(StageClockCounts::default())),
+        music_clock: Arc::new(Mutex::new(MusicClockState::default())),
     };
     // Keep musicBusy on the stage clock in sync with the server jukebox so
     // lagged overlay/TTS/notification sockets cannot strand musicActive=true.
@@ -269,7 +278,8 @@ pub async fn start_server(core: Arc<AppCore>) -> Result<()> {
     tokio::spawn(async move {
         loop {
             match music_events.recv().await {
-                Ok(RelayEvent::MusicPlay(_)) => {
+                Ok(RelayEvent::MusicPlay(playback)) => {
+                    mark_music_clock(&music_clock_state, &playback.playback_id);
                     set_stage_music_busy(&music_clock_state, true);
                     sync_stage_scheduler(&music_clock_state).await;
                 }
@@ -312,9 +322,6 @@ pub async fn start_server(core: Arc<AppCore>) -> Result<()> {
         .route("/output-layout.js", get(output_layout))
         .route("/output-samples/{sample}", get(output_sample))
         .route("/overlay-assets/relay-radar.png", get(radar_png))
-        .route("/tts", get(tts_page))
-        .route("/tts-assets/tts.css", get(tts_css))
-        .route("/tts-assets/tts.js", get(tts_js))
         .route("/tts-audio/{id}", get(tts_audio))
         .route("/media-artwork/{id}", get(media_artwork))
         .route("/media-audio/{id}", get(media_audio))
@@ -346,9 +353,15 @@ pub async fn start_server(core: Arc<AppCore>) -> Result<()> {
             header::CONTENT_SECURITY_POLICY,
             // frame-src 'self' allows /obs/* composites to embed legacy short pages.
             HeaderValue::from_static(
-                "default-src 'none'; script-src 'self' https://www.youtube.com https://www.youtube-nocookie.com; style-src 'self'; img-src 'self' https://cdn.discordapp.com https://media.discordapp.net https://*.discordapp.net https://*.klipy.com https://i.ytimg.com data:; media-src 'self' https://cdn.discordapp.com https://media.discordapp.net https://*.discordapp.net https://*.klipy.com; connect-src 'self' ws://127.0.0.1:* ws://localhost:* https://www.youtube.com https://www.youtube-nocookie.com https://*.googlevideo.com https://youtubei.googleapis.com; frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com; frame-ancestors 'self' tauri://localhost http://tauri.localhost",
+                "default-src 'none'; script-src 'self' https://www.youtube.com https://www.youtube-nocookie.com; style-src 'self'; img-src 'self' https://cdn.discordapp.com https://media.discordapp.net https://*.discordapp.net https://*.klipy.com https://media.tenor.com https://i.ytimg.com data:; media-src 'self' https://cdn.discordapp.com https://media.discordapp.net https://*.discordapp.net https://*.klipy.com https://media.tenor.com; connect-src 'self' ws://127.0.0.1:* ws://localhost:* https://www.youtube.com https://www.youtube-nocookie.com https://*.googlevideo.com https://youtubei.googleapis.com; frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com; frame-ancestors 'self' tauri://localhost http://tauri.localhost",
             ),
         ))
+        .layer(middleware::from_fn(move |request: Request, next: Next| async move {
+            if !host_allowed(request.headers(), port) {
+                return StatusCode::FORBIDDEN.into_response();
+            }
+            next.run(request).await
+        }))
         .with_state(state);
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
     let status_core = core.clone();
@@ -404,7 +417,7 @@ async fn websocket(
     Query(query): Query<AccessQuery>,
     headers: HeaderMap,
 ) -> Response {
-    if !origin_allowed(headers.get(header::ORIGIN)) {
+    if !origin_allowed(headers.get(header::ORIGIN), state.port) {
         return StatusCode::FORBIDDEN.into_response();
     }
     let role = query.role.as_deref().unwrap_or("overlay");
@@ -530,9 +543,8 @@ async fn handle_socket(
 
     if receives_music
         && let Some(playback) = state.core.current_music().await
-        && send_json(&mut sender, &json!(RelayEvent::MusicPlay(playback)))
-            .await
-            .is_err()
+        && let Some(message) = music_play_message(&state, playback, false)
+        && send_json(&mut sender, &message).await.is_err()
     {
         if let Some(output) = output {
             update_output_connection(&state, output, -1).await;
@@ -569,6 +581,24 @@ async fn handle_socket(
             }
             event = relay_rx.recv() => {
                 match event {
+                    Ok(RelayEvent::MusicHistory(_)) if is_output => {}
+                    Ok(RelayEvent::MusicPlay(playback)) if receives_music => {
+                        let message = music_play_message(&state, playback, true)
+                            .expect("music clock must be established for dispatched playback");
+                        if send_json(&mut sender, &message).await.is_err() {
+                            break;
+                        }
+                    }
+                    Ok(RelayEvent::MusicIdle) => {
+                        if send_json(&mut sender, &RelayEvent::MusicIdle).await.is_err() {
+                            break;
+                        }
+                    }
+                    Ok(RelayEvent::Clear) => {
+                        if send_json(&mut sender, &RelayEvent::Clear).await.is_err() {
+                            break;
+                        }
+                    }
                     Ok(RelayEvent::Config(config)) if is_output => {
                         let payload = json!({ "type": "config", "payload": OverlayConfig::from(config.as_ref()) });
                         if send_json(&mut sender, &payload).await.is_err() { break; }
@@ -837,7 +867,7 @@ async fn update_output_connection(
         };
         adjust_count(count, delta);
         if delta > 0 {
-            output.last_connected_at = Some(current_timestamp_ms());
+            output.last_connected_at = Some(now_ms());
         }
     }
     drop(status);
@@ -941,6 +971,73 @@ fn broadcast_stage_clock(state: &RelayServerState) {
     // Every ownership change must wake claimants. The public booleans can stay
     // identical when OBS and the Windows widget overlap on the same media lane.
     state.stage_clock_tx.send_replace(next);
+}
+
+fn mark_music_clock(state: &RelayServerState, playback_id: &str) -> u64 {
+    let mut clock = state
+        .music_clock
+        .lock()
+        .expect("music clock mutex poisoned");
+    mark_music_anchor(&mut clock, playback_id)
+}
+
+fn mark_music_anchor(clock: &mut MusicClockState, playback_id: &str) -> u64 {
+    if let Some((_, started_at_ms)) = clock
+        .anchors
+        .iter()
+        .find(|(known_id, _)| known_id == playback_id)
+    {
+        return *started_at_ms;
+    }
+    let started_at_ms = now_ms();
+    if clock.anchors.len() >= MUSIC_CLOCK_CACHE_LIMIT {
+        clock.anchors.pop_front();
+    }
+    clock
+        .anchors
+        .push_back((playback_id.to_owned(), started_at_ms));
+    started_at_ms
+}
+
+fn music_play_message(
+    state: &RelayServerState,
+    playback: MusicPlaybackEvent,
+    establish_clock: bool,
+) -> Option<serde_json::Value> {
+    let started_at_ms = if establish_clock {
+        Some(mark_music_clock(state, &playback.playback_id))
+    } else {
+        current_music_clock(state, &playback.playback_id)
+    }?;
+    music_play_payload(playback, Some(started_at_ms))
+}
+
+fn music_play_payload(
+    playback: MusicPlaybackEvent,
+    started_at_ms: Option<u64>,
+) -> Option<serde_json::Value> {
+    let started_at_ms = started_at_ms?;
+    let mut payload = serde_json::to_value(playback).expect("serializable music event");
+    if let serde_json::Value::Object(object) = &mut payload {
+        object.insert("serverStartedAtMs".into(), json!(started_at_ms));
+    }
+    Some(json!({ "type": "musicPlay", "payload": payload }))
+}
+
+fn current_music_clock(state: &RelayServerState, playback_id: &str) -> Option<u64> {
+    let clock = state
+        .music_clock
+        .lock()
+        .expect("music clock mutex poisoned");
+    current_music_anchor(&clock, playback_id)
+}
+
+fn current_music_anchor(clock: &MusicClockState, playback_id: &str) -> Option<u64> {
+    clock
+        .anchors
+        .iter()
+        .find(|(known_id, _)| known_id == playback_id)
+        .map(|(_, started_at_ms)| *started_at_ms)
 }
 
 fn set_stage_music_busy(state: &RelayServerState, busy: bool) {
@@ -1047,13 +1144,6 @@ fn adjust_count(count: &mut usize, delta: isize) {
     }
 }
 
-fn current_timestamp_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
-}
-
 fn secret_matches(candidate: Option<&str>, expected: &str) -> bool {
     candidate.is_some_and(|candidate| {
         candidate.len() == expected.len()
@@ -1076,14 +1166,35 @@ fn cookie_value<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
         .find_map(|(key, value)| (key == name).then_some(value))
 }
 
-fn origin_allowed(origin: Option<&HeaderValue>) -> bool {
+fn host_allowed(headers: &HeaderMap, port: u16) -> bool {
+    let Some(host) = headers
+        .get(header::HOST)
+        .and_then(|value| value.to_str().ok())
+    else {
+        return false;
+    };
+    host.eq_ignore_ascii_case(&format!("127.0.0.1:{port}"))
+        || host.eq_ignore_ascii_case(&format!("localhost:{port}"))
+}
+
+fn origin_allowed(origin: Option<&HeaderValue>, port: u16) -> bool {
     let Some(origin) = origin.and_then(|value| value.to_str().ok()) else {
         return true;
     };
-    origin.starts_with("http://127.0.0.1:")
-        || origin.starts_with("http://localhost:")
-        || origin == "tauri://localhost"
-        || origin == "http://tauri.localhost"
+    if origin == "tauri://localhost" || origin == "http://tauri.localhost" {
+        return true;
+    }
+    let Ok(url) = reqwest::Url::parse(origin) else {
+        return false;
+    };
+    url.scheme() == "http"
+        && matches!(url.host_str(), Some("127.0.0.1" | "localhost"))
+        && url.port() == Some(port)
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.path() == "/"
+        && url.query().is_none()
+        && url.fragment().is_none()
 }
 
 #[cfg(test)]

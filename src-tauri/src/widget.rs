@@ -56,6 +56,12 @@ pub(crate) fn youtube_embed_host() -> &'static str {
     YOUTUBE_EMBED_HOST
 }
 
+/// Recommended OBS Visual Browser Source (medias + stickers + notifications + YouTube).
+/// Must use `localhost` so the embedded `/youtube` layer accepts the Referer.
+pub(crate) fn obs_visual_url(port: u16) -> String {
+    format!("http://{}:{port}/obs/visual", youtube_embed_host())
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WidgetState {

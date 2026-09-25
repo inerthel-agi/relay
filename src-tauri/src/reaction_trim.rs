@@ -333,7 +333,7 @@ fn probe_duration(path: &Path) -> Result<f64> {
     }
 }
 
-fn ffmpeg_executable() -> Option<PathBuf> {
+pub(crate) fn ffmpeg_executable() -> Option<PathBuf> {
     let search_path = std::env::var_os("PATH");
     let local_app_data = std::env::var_os("LOCALAPPDATA").map(PathBuf::from);
     find_ffmpeg(search_path.as_deref(), local_app_data.as_deref())

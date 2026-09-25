@@ -5,7 +5,9 @@ use std::io::{Read, Write};
 use crate::{
     config::AppConfig,
     credentials::load_or_create_relay_secret,
-    model::{AuthorIdentity, MediaEvent, MediaKind, RelayEvent},
+    model::{
+        AuthorIdentity, MediaEvent, MediaKind, MusicPlaybackEvent, MusicPlaybackMode, RelayEvent,
+    },
     state::{CachedMedia, MediaArtwork, MediaAudio, TtsAudio},
 };
 
@@ -37,19 +39,33 @@ fn compares_secrets_without_prefix_matches() {
 
 #[test]
 fn accepts_only_local_overlay_and_tauri_origins() {
-    assert!(origin_allowed(None));
-    assert!(origin_allowed(Some(&HeaderValue::from_static(
-        "http://127.0.0.1:4590"
-    ))));
-    assert!(origin_allowed(Some(&HeaderValue::from_static(
-        "http://localhost:4590"
-    ))));
-    assert!(origin_allowed(Some(&HeaderValue::from_static(
-        "http://tauri.localhost"
-    ))));
-    assert!(!origin_allowed(Some(&HeaderValue::from_static(
-        "https://example.com"
-    ))));
+    assert!(origin_allowed(None, 4590));
+    assert!(origin_allowed(
+        Some(&HeaderValue::from_static("http://127.0.0.1:4590")),
+        4590
+    ));
+    assert!(origin_allowed(
+        Some(&HeaderValue::from_static("http://localhost:4590")),
+        4590
+    ));
+    assert!(origin_allowed(
+        Some(&HeaderValue::from_static("http://tauri.localhost")),
+        4590
+    ));
+    assert!(!origin_allowed(
+        Some(&HeaderValue::from_static("https://example.com")),
+        4590
+    ));
+    assert!(!origin_allowed(
+        Some(&HeaderValue::from_static(
+            "http://localhost:4590.attacker.test"
+        )),
+        4590
+    ));
+    assert!(!origin_allowed(
+        Some(&HeaderValue::from_static("http://localhost:4591")),
+        4590
+    ));
 }
 
 #[test]
@@ -74,6 +90,37 @@ fn youtube_loopback_ip_redirects_to_localhost() {
     let mut localhost = HeaderMap::new();
     localhost.insert(header::HOST, HeaderValue::from_static("localhost:4590"));
     assert!(redirect_path_off_loopback_ip(&localhost, "/youtube").is_none());
+}
+
+#[test]
+fn music_clock_anchor_waits_for_dispatch_and_survives_idle() {
+    let playback = MusicPlaybackEvent {
+        playback_id: "queued-track".into(),
+        video_id: "dQw4w9WgXcQ".into(),
+        title: "Queued track".into(),
+        channel_title: "Relay".into(),
+        thumbnail: String::new(),
+        duration_seconds: 120,
+        mode: MusicPlaybackMode::Full,
+        start_seconds: 0,
+        end_seconds: None,
+        requested_by: "tester".into(),
+    };
+    let mut clock = MusicClockState::default();
+    assert_eq!(current_music_anchor(&clock, "queued-track"), None);
+    assert!(music_play_payload(playback.clone(), None).is_none());
+
+    let started_at_ms = mark_music_anchor(&mut clock, "queued-track");
+    assert_eq!(
+        current_music_anchor(&clock, "queued-track"),
+        Some(started_at_ms)
+    );
+    assert_eq!(mark_music_anchor(&mut clock, "queued-track"), started_at_ms);
+
+    // MusicIdle is a transport transition; a late bootstrap still uses the
+    // authoritative dispatch anchor instead of resetting it per socket.
+    let payload = music_play_payload(playback, Some(started_at_ms)).unwrap();
+    assert_eq!(payload["payload"]["serverStartedAtMs"], started_at_ms);
 }
 
 #[test]
@@ -143,7 +190,15 @@ async fn serves_authenticated_overlay_and_broadcasts_under_load() {
     assert!(visual_response.contains(&format!(
         "<meta name=\"relay-secret\" content=\"{secret}\">"
     )));
+    let rebound = http_response_with_host(port, "/medias", "attacker.test");
+    assert!(rebound.starts_with("HTTP/1.1 403"));
+    assert!(!rebound.contains(&secret));
     assert!(!visual_response.contains(&format!("relay_secret={secret}")));
+    assert!(
+        visual_response
+            .to_ascii_lowercase()
+            .contains("cache-control: private, no-store")
+    );
     assert!(
         visual_response
             .to_ascii_lowercase()
@@ -152,6 +207,7 @@ async fn serves_authenticated_overlay_and_broadcasts_under_load() {
     assert!(visual_response.contains("content=\"visual\""));
     assert!(visual_response.contains("https://*.discordapp.net"));
     assert!(visual_response.contains("https://*.klipy.com"));
+    assert!(visual_response.contains("https://media.tenor.com"));
     assert!(visual_response.contains("https://i.ytimg.com"));
     let visual_headers = visual_response.to_ascii_lowercase();
     assert!(visual_headers.contains("referrer-policy: strict-origin-when-cross-origin"));
@@ -181,9 +237,7 @@ async fn serves_authenticated_overlay_and_broadcasts_under_load() {
     assert!(obs_audio.starts_with("HTTP/1.1 200"));
     assert!(obs_audio.contains("src=\"/audios\""));
     assert!(!obs_audio.contains("src=\"/tts\""));
-    assert!(http_status(port, "/tts").starts_with("HTTP/1.1 200"));
-    assert!(http_status(port, "/tts?secret=wrong").starts_with("HTTP/1.1 401"));
-    assert!(http_status(port, &format!("/tts?secret={secret}")).starts_with("HTTP/1.1 200"));
+    assert!(http_status(port, "/tts").starts_with("HTTP/1.1 404"));
     assert!(http_status(port, "/notifications").starts_with("HTTP/1.1 200"));
     assert!(http_status(port, "/notifications?secret=wrong").starts_with("HTTP/1.1 401"));
     assert!(
@@ -392,7 +446,7 @@ async fn serves_authenticated_overlay_and_broadcasts_under_load() {
         };
         {
             let mut history = core.history.write().await;
-            history.push_front(event.clone());
+            history.push_front(crate::model::HistoryEntry::Media(event.clone()));
             history.truncate(crate::state::HISTORY_LIMIT);
         }
         let _ = core.relay_tx.send(RelayEvent::Media(event));

@@ -39,8 +39,6 @@ fn configured_size_uses_notification_dimensions() {
     let config = AppConfig {
         notification_widget_width: 540.0,
         notification_widget_height: 112.0,
-        music_widget_width: 980.0,
-        music_widget_height: 360.0,
         ..AppConfig::default()
     };
     assert_eq!(configured_size(&config), (540.0, 112.0));
@@ -136,16 +134,12 @@ fn write_position_synchronizes_the_shared_widget_dock() {
     let mut config = AppConfig {
         notification_widget_x: Some(100),
         notification_widget_y: Some(20),
-        music_widget_x: Some(880),
-        music_widget_y: Some(40),
         ..AppConfig::default()
     };
 
     write_position(&mut config, PhysicalPosition::new(2100, 12));
     assert_eq!(config.notification_widget_x, Some(2100));
     assert_eq!(config.notification_widget_y, Some(12));
-    assert_eq!(config.music_widget_x, Some(2100));
-    assert_eq!(config.music_widget_y, Some(12));
 }
 
 #[test]
@@ -153,8 +147,6 @@ fn saved_position_uses_the_shared_widget_dock() {
     let config = AppConfig {
         notification_widget_x: Some(100),
         notification_widget_y: Some(20),
-        music_widget_x: Some(880),
-        music_widget_y: Some(40),
         ..AppConfig::default()
     };
     assert_eq!(saved_position(&config), Some((100, 20)));
@@ -170,8 +162,6 @@ fn persist_position_keys_round_trip_through_config_store() {
     let config = AppConfig {
         notification_widget_x: Some(2020),
         notification_widget_y: Some(48),
-        music_widget_x: Some(1880),
-        music_widget_y: Some(64),
         ..AppConfig::default()
     };
     store.save(&config).unwrap();
@@ -179,13 +169,10 @@ fn persist_position_keys_round_trip_through_config_store() {
     let loaded = ConfigStore::new(path.clone()).load().unwrap();
     assert_eq!(loaded.notification_widget_x, Some(2020));
     assert_eq!(loaded.notification_widget_y, Some(48));
-    assert_eq!(loaded.music_widget_x, Some(1880));
-    assert_eq!(loaded.music_widget_y, Some(64));
 
     let persisted: serde_json::Value =
         serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     assert_eq!(persisted["notificationWidgetX"], 2020);
     assert_eq!(persisted["notificationWidgetY"], 48);
-    assert_eq!(persisted["musicWidgetX"], 1880);
-    assert_eq!(persisted["musicWidgetY"], 64);
+    assert!(persisted.get("musicWidgetX").is_none());
 }

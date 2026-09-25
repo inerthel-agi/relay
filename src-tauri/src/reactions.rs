@@ -1,3 +1,4 @@
+use crate::clock::now_ms;
 use crate::{config::OutputGeometry, model::RelayEvent, state::AppCore};
 use anyhow::{Context, Result, bail};
 use rand::RngCore;
@@ -6,7 +7,7 @@ use std::{
     collections::{HashMap, VecDeque},
     path::Path,
     sync::Arc,
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant},
 };
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -108,13 +109,6 @@ pub fn new_id() -> String {
     rand::rng().fill_bytes(&mut bytes);
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
-pub fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
-}
-
 /// Maximum duration of a reaction sound and its playback lease.
 ///
 /// Keep this value as the single source of truth for both direct imports and

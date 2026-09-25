@@ -138,7 +138,7 @@ pub struct MediaLibrary {
 
 impl MediaLibrary {
     /// Opens a library rooted in the application's data directory.
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn open(root: impl Into<PathBuf>) -> Result<Self, MediaLibraryError> {
         let library = Self::open_or_unavailable(root);
         let error = library

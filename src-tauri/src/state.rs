@@ -31,9 +31,9 @@ use crate::{
     custom_commands::CustomCommandConfirmations,
     media_compat::{self, VideoCompatibility},
     model::{
-        BotStatus, ChannelSummary, InterfacePreferences, MediaEvent, MediaKind, MusicPlaybackEvent,
-        MusicPlaybackMode, MusicStopEvent, PendingMedia, RelayEvent, ServerStatus, StickerEvent,
-        TtsEvent, VisualSegment,
+        BotStatus, ChannelSummary, HistoryEntry, InterfacePreferences, MediaEvent, MediaKind,
+        MusicPlaybackEvent, MusicPlaybackMode, MusicStopEvent, PendingMedia, RelayEvent,
+        ServerStatus, StickerEvent, TtsEvent, VisualSegment,
     },
     music::{MusicSelection, MusicState},
     privacy::{self, PrivacyAction, PrivacyReport},
@@ -110,7 +110,7 @@ pub struct AppCore {
     pub bot_status: RwLock<BotStatus>,
     pub server_status: RwLock<ServerStatus>,
     pub channels: RwLock<Vec<ChannelSummary>>,
-    pub history: RwLock<VecDeque<MediaEvent>>,
+    pub history: RwLock<VecDeque<HistoryEntry>>,
     pub pending_media: RwLock<VecDeque<PendingMedia>>,
     pub tts_audio: RwLock<VecDeque<TtsAudio>>,
     pub media_artwork: RwLock<VecDeque<MediaArtwork>>,
@@ -849,7 +849,7 @@ impl AppCore {
         self.prepare_media_delivery(media.kind).await;
         {
             let mut history = self.history.write().await;
-            history.push_front(media.clone());
+            history.push_front(HistoryEntry::Media(media.clone()));
             history.truncate(HISTORY_LIMIT);
         }
         self.complete_media(ticket, media).await;

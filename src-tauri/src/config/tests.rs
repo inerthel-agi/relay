@@ -32,7 +32,6 @@ fn creates_and_round_trips_default_config() {
         skip_shortcut: "control+shift+KeyK".into(),
         tts_character_limit: 280,
         tts_queue_limit: 24,
-        tts_speech_enabled: false,
         tts_notifications_obs_enabled: true,
         bot_online_status: "idle".into(),
         bot_activity_type: "watching".into(),
@@ -93,10 +92,6 @@ fn creates_and_round_trips_default_config() {
         notification_widget_y: Some(40),
         notification_widget_width: 620.0,
         notification_widget_height: 180.0,
-        music_widget_x: Some(880),
-        music_widget_y: Some(20),
-        music_widget_width: 540.0,
-        music_widget_height: 360.0,
         notification_widget_visible: true,
         notification_widget_locked: true,
         media_obs_geometry: OutputGeometry {
@@ -313,8 +308,6 @@ fn preserves_custom_notification_widget_size_and_output_geometry() {
     let updated = AppConfig {
         notification_widget_width: 540.0,
         notification_widget_height: 144.0,
-        music_widget_width: 720.0,
-        music_widget_height: 280.0,
         media_obs_geometry: OutputGeometry {
             content_scale: 140,
             crop_left: 8,
@@ -340,54 +333,6 @@ fn preserves_custom_notification_widget_size_and_output_geometry() {
     };
     store.save(&updated).unwrap();
     assert_eq!(store.load().unwrap(), updated);
-}
-
-#[test]
-fn migrates_missing_music_widget_size_to_compact_default() {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("config.json");
-    let mut legacy = serde_json::to_value(AppConfig::default()).unwrap();
-    let object = legacy.as_object_mut().unwrap();
-    object.insert("notificationWidgetWidth".into(), serde_json::json!(540.0));
-    object.insert("notificationWidgetHeight".into(), serde_json::json!(160.0));
-    object.remove("musicWidgetWidth");
-    object.remove("musicWidgetHeight");
-    fs::write(&path, serde_json::to_vec_pretty(&legacy).unwrap()).unwrap();
-
-    let migrated = ConfigStore::new(path.clone()).load().unwrap();
-    assert_eq!(migrated.notification_widget_width, 540.0);
-    assert_eq!(migrated.notification_widget_height, 160.0);
-    assert_eq!(migrated.music_widget_width, DEFAULT_MUSIC_WIDGET_WIDTH);
-    assert_eq!(migrated.music_widget_height, DEFAULT_MUSIC_WIDGET_HEIGHT);
-    let persisted: serde_json::Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
-    assert_eq!(persisted["musicWidgetWidth"], DEFAULT_MUSIC_WIDGET_WIDTH);
-    assert_eq!(persisted["musicWidgetHeight"], DEFAULT_MUSIC_WIDGET_HEIGHT);
-    assert_eq!(persisted["notificationWidgetWidth"], 540.0);
-    assert_eq!(persisted["notificationWidgetHeight"], 160.0);
-}
-
-#[test]
-fn migrates_video_first_music_default_to_compact_toast() {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("config.json");
-    let mut legacy = serde_json::to_value(AppConfig::default()).unwrap();
-    let object = legacy.as_object_mut().unwrap();
-    object.insert(
-        "musicWidgetWidth".into(),
-        serde_json::json!(LEGACY_MUSIC_WIDGET_WIDTH),
-    );
-    object.insert(
-        "musicWidgetHeight".into(),
-        serde_json::json!(LEGACY_MUSIC_WIDGET_HEIGHT),
-    );
-    fs::write(&path, serde_json::to_vec_pretty(&legacy).unwrap()).unwrap();
-
-    let migrated = ConfigStore::new(path.clone()).load().unwrap();
-    assert_eq!(migrated.music_widget_width, DEFAULT_MUSIC_WIDGET_WIDTH);
-    assert_eq!(migrated.music_widget_height, DEFAULT_MUSIC_WIDGET_HEIGHT);
-    let persisted: serde_json::Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
-    assert_eq!(persisted["musicWidgetWidth"], DEFAULT_MUSIC_WIDGET_WIDTH);
-    assert_eq!(persisted["musicWidgetHeight"], DEFAULT_MUSIC_WIDGET_HEIGHT);
 }
 
 #[test]
@@ -478,64 +423,6 @@ fn keeps_custom_notification_widget_size() {
 }
 
 #[test]
-fn keeps_custom_music_widget_size() {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("config.json");
-    let mut config = serde_json::to_value(AppConfig::default()).unwrap();
-    let object = config.as_object_mut().unwrap();
-    object.insert("musicWidgetWidth".into(), serde_json::json!(720.0));
-    object.insert("musicWidgetHeight".into(), serde_json::json!(280.0));
-    fs::write(&path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
-
-    let loaded = ConfigStore::new(path).load().unwrap();
-    assert_eq!(loaded.music_widget_width, 720.0);
-    assert_eq!(loaded.music_widget_height, 280.0);
-}
-
-#[test]
-fn migrates_missing_music_widget_position_from_notification_position() {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("config.json");
-    let mut legacy = serde_json::to_value(AppConfig::default()).unwrap();
-    let object = legacy.as_object_mut().unwrap();
-    object.insert("notificationWidgetX".into(), serde_json::json!(2020));
-    object.insert("notificationWidgetY".into(), serde_json::json!(48));
-    object.remove("musicWidgetX");
-    object.remove("musicWidgetY");
-    fs::write(&path, serde_json::to_vec_pretty(&legacy).unwrap()).unwrap();
-
-    let migrated = ConfigStore::new(path.clone()).load().unwrap();
-    assert_eq!(migrated.notification_widget_x, Some(2020));
-    assert_eq!(migrated.notification_widget_y, Some(48));
-    assert_eq!(migrated.music_widget_x, Some(2020));
-    assert_eq!(migrated.music_widget_y, Some(48));
-    let persisted: serde_json::Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
-    assert_eq!(persisted["musicWidgetX"], 2020);
-    assert_eq!(persisted["musicWidgetY"], 48);
-    assert_eq!(persisted["notificationWidgetX"], 2020);
-    assert_eq!(persisted["notificationWidgetY"], 48);
-}
-
-#[test]
-fn keeps_existing_music_widget_position_during_load() {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("config.json");
-    let mut config = serde_json::to_value(AppConfig::default()).unwrap();
-    let object = config.as_object_mut().unwrap();
-    object.insert("notificationWidgetX".into(), serde_json::json!(100));
-    object.insert("notificationWidgetY".into(), serde_json::json!(20));
-    object.insert("musicWidgetX".into(), serde_json::json!(880));
-    object.insert("musicWidgetY".into(), serde_json::json!(40));
-    fs::write(&path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
-
-    let loaded = ConfigStore::new(path).load().unwrap();
-    assert_eq!(loaded.notification_widget_x, Some(100));
-    assert_eq!(loaded.notification_widget_y, Some(20));
-    assert_eq!(loaded.music_widget_x, Some(880));
-    assert_eq!(loaded.music_widget_y, Some(40));
-}
-
-#[test]
 fn migrates_legacy_config_without_overwriting_relay_config() {
     let root = tempfile::tempdir().unwrap();
     let legacy_directory = root.path().join(LEGACY_CONFIG_DIRECTORIES[0]);
@@ -609,16 +496,21 @@ fn music_cleanup_accepts_an_optional_welcome_message() {
 }
 
 #[test]
-fn speech_enabled_installations_migrate_to_visual_messages() {
+fn legacy_speech_setting_is_ignored_on_load() {
     let config = AppConfig {
-        tts_speech_enabled: true,
         tts_channel_id: "123456789012345678".into(),
         tts_cleanup_enabled: true,
         ..Default::default()
     };
-    let (loaded, migrated) = deserialize_config(&serde_json::to_vec(&config).unwrap()).unwrap();
-    assert!(migrated);
-    assert!(!loaded.tts_speech_enabled);
+    let mut value = serde_json::to_value(&config).unwrap();
+    value["ttsSpeechEnabled"] = serde_json::json!(true);
+    let (loaded, _) = deserialize_config(&serde_json::to_vec(&value).unwrap()).unwrap();
+    assert!(
+        serde_json::to_value(&loaded)
+            .unwrap()
+            .get("ttsSpeechEnabled")
+            .is_none()
+    );
     assert_eq!(loaded.tts_channel_id, config.tts_channel_id);
     assert!(loaded.tts_cleanup_enabled);
 }

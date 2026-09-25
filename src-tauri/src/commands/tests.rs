@@ -11,8 +11,11 @@ fn youtube_obs_url_uses_localhost_referrer_host() {
 
 #[test]
 fn obs_visual_url_uses_localhost_and_composite_path() {
-    assert_eq!(obs_visual_url(4590), "http://localhost:4590/obs/visual");
-    assert!(!obs_visual_url(4590).contains("127.0.0.1"));
+    assert_eq!(
+        widget::obs_visual_url(4590),
+        "http://localhost:4590/obs/visual"
+    );
+    assert!(!widget::obs_visual_url(4590).contains("127.0.0.1"));
 }
 
 #[test]

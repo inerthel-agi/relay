@@ -2,6 +2,7 @@ mod artwork;
 mod bot;
 mod changelog;
 mod channel_cleanup;
+mod clock;
 mod commands;
 mod config;
 mod credentials;
@@ -24,6 +25,7 @@ mod state;
 mod updater;
 mod widget;
 mod youtube;
+mod youtube_download;
 
 use std::{
     env,
@@ -34,7 +36,8 @@ use std::{
 };
 
 use tauri::{
-    AppHandle, Manager, PhysicalPosition, Theme, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+    AppHandle, Emitter, Manager, PhysicalPosition, Theme, WebviewUrl, WebviewWindow,
+    WebviewWindowBuilder,
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
 
@@ -44,14 +47,13 @@ use crate::{
     commands::{
         apply_config, approve_pending_media, clear_notification_sound, clear_overlay,
         clear_pending_media, control_audio, download_history_media, get_bootstrap,
-        get_media_artwork, get_runtime_status, get_widget_bootstrap, pick_notification_sound,
-        preview_output_sample, refresh_channels, regenerate_secret, reject_pending_media,
-        remove_queued_media, replay_media, save_command_settings, save_credentials,
-        save_custom_commands, set_interface_preferences, set_media_caption_visibility,
-        set_music_widget_size, set_notification_sound_enabled, set_notification_sound_obs_enabled,
-        set_notification_widget_locked, set_notification_widget_visible, set_output_geometry,
-        set_skip_shortcut, set_tts_notifications_obs_enabled, set_widget_locked, skip_media,
-        store_youtube_api_key, test_output, toggle_widget,
+        get_media_artwork, get_runtime_status, pick_notification_sound, preview_output_sample,
+        refresh_channels, regenerate_secret, reject_pending_media, remove_queued_media,
+        replay_media, save_command_settings, save_credentials, save_custom_commands,
+        set_interface_preferences, set_media_caption_visibility, set_notification_sound_enabled,
+        set_notification_sound_obs_enabled, set_notification_widget_locked,
+        set_notification_widget_visible, set_output_geometry, set_skip_shortcut, set_widget_locked,
+        skip_media, store_youtube_api_key, test_output, toggle_widget,
     },
     config::{DEFAULT_SKIP_SHORTCUT, migrate_legacy_config},
     model::{MediaKind, RelayEvent, ServerStatus},
@@ -65,7 +67,7 @@ use crate::{
 
 const TRAY_PANEL_LABEL: &str = "tray-panel";
 const TRAY_PANEL_WIDTH: f64 = 336.0;
-const TRAY_PANEL_HEIGHT: f64 = 430.0;
+const TRAY_PANEL_HEIGHT: f64 = 486.0;
 const TRAY_PANEL_MARGIN: i32 = 10;
 const MAIN_WINDOW_TITLE: &str = "Relay";
 const STARTUP_ARGUMENT: &str = "--startup";
@@ -189,14 +191,12 @@ pub fn run() {
             preview_music_cleanup,
             confirm_music_cleanup,
             get_bootstrap,
-            get_widget_bootstrap,
             get_runtime_status,
             remove_queued_media,
             preview_output_sample,
             refresh_channels,
             set_interface_preferences,
             set_output_geometry,
-            set_music_widget_size,
             save_credentials,
             store_youtube_api_key,
             apply_config,
@@ -221,7 +221,6 @@ pub fn run() {
             set_notification_widget_locked,
             set_notification_sound_enabled,
             set_notification_sound_obs_enabled,
-            set_tts_notifications_obs_enabled,
             pick_notification_sound,
             clear_notification_sound,
             tray_open_control_panel,
@@ -566,9 +565,9 @@ fn resolve_external_link(link: &str) -> Result<String, String> {
     let url = match link {
         "discord" => "https://discord.com/developers/applications",
         "obs" => "https://obsproject.com/kb/browser-source",
-        "github" => "https://github.com/stealthsrc",
-        "relay-releases" => "https://github.com/stealthsrc/relay/releases/latest",
-        "relay-changelog" => "https://github.com/stealthsrc/relay/blob/main/CHANGELOG.md",
+        "github" => "https://github.com/inerthel-agi",
+        "relay-releases" => "https://github.com/inerthel-agi/relay/releases/latest",
+        "relay-changelog" => "https://github.com/inerthel-agi/relay/blob/main/CHANGELOG.md",
         "google-cloud" => "https://console.cloud.google.com/",
         "youtube-api-library" => {
             "https://console.cloud.google.com/apis/library/youtube.googleapis.com"
@@ -618,6 +617,19 @@ fn is_discord_invite_url(link: &str) -> bool {
 }
 
 #[cfg(test)]
+mod tray_page_tests {
+    use super::tray_panel_page;
+
+    #[test]
+    fn tray_opens_only_known_panel_pages() {
+        assert_eq!(tray_panel_page("moderation"), Some("moderation"));
+        assert_eq!(tray_panel_page("discord"), Some("discord"));
+        assert_eq!(tray_panel_page("about"), None);
+        assert_eq!(tray_panel_page("../moderation"), None);
+    }
+}
+
+#[cfg(test)]
 mod media_widget_wake_tests {
     use super::{should_show_media_widget, should_wake_music_widget};
 
@@ -660,7 +672,7 @@ mod external_link_tests {
     fn opens_releases_on_the_current_github_account() {
         assert_eq!(
             resolve_external_link("relay-releases"),
-            Ok("https://github.com/stealthsrc/relay/releases/latest".to_owned())
+            Ok("https://github.com/inerthel-agi/relay/releases/latest".to_owned())
         );
     }
 
@@ -668,7 +680,7 @@ mod external_link_tests {
     fn opens_the_bundled_changelog_on_github() {
         assert_eq!(
             resolve_external_link("relay-changelog"),
-            Ok("https://github.com/stealthsrc/relay/blob/main/CHANGELOG.md".to_owned())
+            Ok("https://github.com/inerthel-agi/relay/blob/main/CHANGELOG.md".to_owned())
         );
     }
 
@@ -676,7 +688,7 @@ mod external_link_tests {
     fn opens_the_creator_profile_on_github() {
         assert_eq!(
             resolve_external_link("github"),
-            Ok("https://github.com/stealthsrc".to_owned())
+            Ok("https://github.com/inerthel-agi".to_owned())
         );
     }
 
@@ -874,9 +886,19 @@ const fn colorref([red, green, blue]: [u8; 3]) -> u32 {
 }
 
 #[tauri::command]
-fn tray_open_control_panel(app: AppHandle, window: WebviewWindow) {
+fn tray_open_control_panel(app: AppHandle, window: WebviewWindow, page: Option<String>) {
     let _ = window.hide();
     show_main_window(&app);
+    if let Some(page) = page.as_deref().and_then(tray_panel_page) {
+        let _ = app.emit_to("main", "relay-open-page", page);
+    }
+}
+
+/// Panel pages the tray may open directly; anything else just shows the panel.
+fn tray_panel_page(page: &str) -> Option<&'static str> {
+    ["overview", "discord", "moderation", "overlay"]
+        .into_iter()
+        .find(|allowed| *allowed == page)
 }
 
 #[tauri::command]

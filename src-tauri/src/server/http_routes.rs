@@ -108,6 +108,7 @@ pub(super) fn short_overlay(state: &RelayServerState, mode: &str) -> Response {
 pub(super) fn short_page(state: &RelayServerState, html: impl AsRef<str>) -> Response {
     Response::builder()
         .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
+        .header(header::CACHE_CONTROL, "private, no-store")
         .header(
             header::SET_COOKIE,
             "relay_secret=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0",
@@ -232,27 +233,6 @@ pub(super) async fn overlay_js() -> impl IntoResponse {
 
 pub(super) async fn radar_png() -> impl IntoResponse {
     ([(header::CONTENT_TYPE, "image/png")], RADAR_PNG)
-}
-
-pub(super) async fn tts_page(
-    State(state): State<RelayServerState>,
-    Query(query): Query<AccessQuery>,
-) -> Response {
-    if query.secret.is_some() && !secret_matches(query.secret.as_deref(), &state.relay_secret) {
-        return (StatusCode::UNAUTHORIZED, "Invalid relay secret.").into_response();
-    }
-    short_page(&state, TTS_HTML)
-}
-
-pub(super) async fn tts_css() -> impl IntoResponse {
-    ([(header::CONTENT_TYPE, "text/css; charset=utf-8")], TTS_CSS)
-}
-
-pub(super) async fn tts_js() -> impl IntoResponse {
-    (
-        [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
-        TTS_JS,
-    )
 }
 
 pub(super) async fn notifications_page(

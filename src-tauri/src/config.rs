@@ -25,12 +25,6 @@ pub const DEFAULT_WIDGET_WIDTH: f64 = 640.0;
 pub const DEFAULT_WIDGET_HEIGHT: f64 = 360.0;
 pub const DEFAULT_NOTIFICATION_WIDGET_WIDTH: f64 = 400.0;
 pub const DEFAULT_NOTIFICATION_WIDGET_HEIGHT: f64 = 104.0;
-/// Now Playing card size for the shared Windows notification widget.
-/// Kept separate from TTS notification dimensions.
-pub const DEFAULT_MUSIC_WIDGET_WIDTH: f64 = 560.0;
-pub const DEFAULT_MUSIC_WIDGET_HEIGHT: f64 = 112.0;
-const LEGACY_MUSIC_WIDGET_WIDTH: f64 = 980.0;
-const LEGACY_MUSIC_WIDGET_HEIGHT: f64 = 360.0;
 const LEGACY_NOTIFICATION_WIDGET_WIDTH: f64 = 980.0;
 const LEGACY_NOTIFICATION_WIDGET_HEIGHT: f64 = 180.0;
 const PREVIOUS_NOTIFICATION_WIDGET_WIDTH: f64 = 480.0;
@@ -159,7 +153,6 @@ pub struct AppConfig {
     pub skip_shortcut: String,
     pub tts_character_limit: u32,
     pub tts_queue_limit: u8,
-    pub tts_speech_enabled: bool,
     pub tts_notifications_obs_enabled: bool,
     pub bot_online_status: String,
     pub bot_activity_type: String,
@@ -207,10 +200,6 @@ pub struct AppConfig {
     pub notification_widget_y: Option<i32>,
     pub notification_widget_width: f64,
     pub notification_widget_height: f64,
-    pub music_widget_x: Option<i32>,
-    pub music_widget_y: Option<i32>,
-    pub music_widget_width: f64,
-    pub music_widget_height: f64,
     pub notification_widget_visible: bool,
     pub notification_widget_locked: bool,
     pub media_obs_geometry: OutputGeometry,
@@ -248,7 +237,6 @@ impl Default for AppConfig {
             skip_shortcut: DEFAULT_SKIP_SHORTCUT.into(),
             tts_character_limit: 0,
             tts_queue_limit: 50,
-            tts_speech_enabled: false,
             tts_notifications_obs_enabled: true,
             bot_online_status: "online".into(),
             bot_activity_type: "custom".into(),
@@ -296,10 +284,6 @@ impl Default for AppConfig {
             notification_widget_y: None,
             notification_widget_width: DEFAULT_NOTIFICATION_WIDGET_WIDTH,
             notification_widget_height: DEFAULT_NOTIFICATION_WIDGET_HEIGHT,
-            music_widget_x: None,
-            music_widget_y: None,
-            music_widget_width: DEFAULT_MUSIC_WIDGET_WIDTH,
-            music_widget_height: DEFAULT_MUSIC_WIDGET_HEIGHT,
             notification_widget_visible: false,
             notification_widget_locked: false,
             media_obs_geometry: OutputGeometry::default(),
@@ -468,7 +452,6 @@ impl AppConfig {
             self.notification_widget_width,
             self.notification_widget_height,
         )?;
-        validate_widget_size(self.music_widget_width, self.music_widget_height)?;
         self.media_obs_geometry.validate()?;
         self.media_widget_geometry.validate()?;
         self.notification_obs_geometry.validate()?;
@@ -632,22 +615,7 @@ fn deserialize_config(bytes: &[u8]) -> Result<(AppConfig, bool)> {
     let mut value: serde_json::Value = serde_json::from_slice(bytes)?;
     let missing_gif_duration = value.get("gifDurationMs").is_none();
     let missing_sticker_duration = value.get("stickerDurationMs").is_none();
-    let missing_music_width = value.get("musicWidgetWidth").is_none();
-    let missing_music_height = value.get("musicWidgetHeight").is_none();
-    let missing_music_x = value.get("musicWidgetX").is_none();
-    let missing_music_y = value.get("musicWidgetY").is_none();
-    let mut migrated = missing_gif_duration
-        || missing_sticker_duration
-        || missing_music_width
-        || missing_music_height;
-    if value
-        .get("ttsSpeechEnabled")
-        .and_then(|value| value.as_bool())
-        == Some(true)
-    {
-        value["ttsSpeechEnabled"] = serde_json::json!(false);
-        migrated = true;
-    }
+    let mut migrated = missing_gif_duration || missing_sticker_duration;
     if missing_gif_duration {
         let duration = value
             .get("displayDurationMs")
@@ -662,64 +630,6 @@ fn deserialize_config(bytes: &[u8]) -> Result<(AppConfig, bool)> {
             "stickerDurationMs".into(),
             serde_json::json!(DEFAULT_STICKER_DURATION_MS),
         );
-    }
-    // Music now uses a compact 16:9 toast rather than the taller TTS card.
-    if (missing_music_width || missing_music_height)
-        && let Some(config) = value.as_object_mut()
-    {
-        if missing_music_width {
-            config.insert(
-                "musicWidgetWidth".into(),
-                serde_json::json!(DEFAULT_MUSIC_WIDGET_WIDTH),
-            );
-        }
-        if missing_music_height {
-            config.insert(
-                "musicWidgetHeight".into(),
-                serde_json::json!(DEFAULT_MUSIC_WIDGET_HEIGHT),
-            );
-        }
-    }
-    // TTS and music used to share one dock (notificationWidgetX/Y). Seed music
-    // placement once so existing cards keep their spot, then the two can diverge.
-    if (missing_music_x || missing_music_y)
-        && let Some(config) = value.as_object_mut()
-    {
-        let mut seeded = false;
-        if missing_music_x && let Some(x) = config.get("notificationWidgetX").cloned() {
-            config.insert("musicWidgetX".into(), x);
-            seeded = true;
-        }
-        if missing_music_y && let Some(y) = config.get("notificationWidgetY").cloned() {
-            config.insert("musicWidgetY".into(), y);
-            seeded = true;
-        }
-        if seeded {
-            migrated = true;
-        }
-    }
-    // 1.2.7 briefly shipped a 980×360 video-first default. Migrate only that
-    // exact generated size; explicitly customized dimensions remain untouched.
-    let legacy_video_preview_size = value
-        .get("musicWidgetWidth")
-        .and_then(|width| width.as_f64())
-        == Some(LEGACY_MUSIC_WIDGET_WIDTH)
-        && value
-            .get("musicWidgetHeight")
-            .and_then(|height| height.as_f64())
-            == Some(LEGACY_MUSIC_WIDGET_HEIGHT);
-    if legacy_video_preview_size {
-        if let Some(config) = value.as_object_mut() {
-            config.insert(
-                "musicWidgetWidth".into(),
-                serde_json::json!(DEFAULT_MUSIC_WIDGET_WIDTH),
-            );
-            config.insert(
-                "musicWidgetHeight".into(),
-                serde_json::json!(DEFAULT_MUSIC_WIDGET_HEIGHT),
-            );
-        }
-        migrated = true;
     }
     // Migrate the two generated notification sizes that preceded the denser
     // toast. Explicitly customized dimensions remain untouched.
