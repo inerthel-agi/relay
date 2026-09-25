@@ -8,6 +8,14 @@ export function initializeModules({ invoke, t, getBootstrap }) {
   const node = (tag, text) => { const element = document.createElement(tag); if (text !== undefined) element.textContent = text; return element; };
   const label = (tag, key) => { const element = node(tag, t(key)); element.dataset.i18n = key; return element; };
   const button = (key, action) => { const element = label("button", key); element.type = "button"; element.className = "button button--quiet"; element.addEventListener("click", () => run(element, action)); return element; };
+  // Module settings save themselves: toggles and menus at once, typed values when the field is left.
+  function autosave(root, save) {
+    let timer;
+    const schedule = (delay) => { clearTimeout(timer); timer = setTimeout(() => void save(), delay); };
+    root.addEventListener("change", (event) => { if (event.target.matches("input, select, textarea")) schedule(0); });
+    root.addEventListener("input", (event) => { if (event.target.matches('input[type="checkbox"], input[type="range"], select')) schedule(300); });
+    return () => schedule(0);
+  }
   const status = (root) => { const element = node("p"); element.setAttribute("role", "status"); root.append(element); return element; };
   function errorText(error) {
     const value = String(error);
@@ -58,7 +66,12 @@ export function initializeModules({ invoke, t, getBootstrap }) {
   const musicConfig = { maxPendingPerUser: getBootstrap()?.config.musicMaxPendingPerUser ?? 3, rejectDuplicatePending: getBootstrap()?.config.musicRejectDuplicatePending ?? true };
   field(musicRoot, "modRequestLimit", "number", musicConfig.maxPendingPerUser, value => musicConfig.maxPendingPerUser = value, 0, 10);
   field(musicRoot, "modRejectDuplicates", "checkbox", musicConfig.rejectDuplicatePending, value => musicConfig.rejectDuplicatePending = value);
-  musicRoot.append(button("modSave", async () => { const snapshot = { ...musicConfig }; await invoke("save_music_queue_settings", snapshot); musicState.textContent = t(JSON.stringify(snapshot) === JSON.stringify(musicConfig) ? "modSaved" : "unsaved"); }));
+  autosave(musicRoot, async () => {
+    const snapshot = { ...musicConfig };
+    musicState.textContent = t("saving");
+    try { await invoke("save_music_queue_settings", snapshot); musicState.textContent = t(JSON.stringify(snapshot) === JSON.stringify(musicConfig) ? "modSaved" : "unsaved"); }
+    catch (error) { musicState.textContent = errorText(error); }
+  });
   const musicList = node("ol"); musicList.className = "module-list"; musicRoot.append(musicList);
   function renderMusic(items) {
     const signature = JSON.stringify(items) + t("modQueueEmpty");
@@ -76,7 +89,7 @@ export function initializeModules({ invoke, t, getBootstrap }) {
     if (!items.length) musicList.append(node("li", t("modQueueEmpty")));
   }
 
-  const reactions = $("reaction-module"), reactionState = status(reactions), reactionEditor = node("div"); reactions.append(reactionEditor);
+  const reactions = $("reaction-module"), reactionState = status(reactions), reactionEditor = node("div"); reactionEditor.className = "reaction-editor"; reactions.append(reactionEditor);
   const reactionPreview = node("div"); reactionPreview.className = "reaction-local-preview"; reactionPreview.hidden = true; reactions.append(reactionPreview);
   function stopPreview() {
     previewGeneration++;
@@ -131,6 +144,16 @@ export function initializeModules({ invoke, t, getBootstrap }) {
     finally { accessLoading = false; }
     renderAccess();
   }
+  async function saveReactions() {
+    if (!reactionSettings) return;
+    const snapshot = structuredClone(reactionSettings);
+    reactionState.textContent = t("saving");
+    try {
+      const result = await invoke("save_reactions", { settings: snapshot });
+      reactionState.textContent = t(JSON.stringify(snapshot) !== JSON.stringify(reactionSettings) ? "unsaved" : result?.discordPending ? "modSavedOffline" : "modSaved");
+    } catch (error) { reactionState.textContent = errorText(error); }
+  }
+  const saveReactionsSoon = autosave(reactionEditor, saveReactions);
   const reactionSections = new Map();
   function reactionSection(key) {
     const details = node("details"); details.className = "panel-disclosure reaction-disclosure";
@@ -161,7 +184,7 @@ export function initializeModules({ invoke, t, getBootstrap }) {
     protectedMessage.dataset.i18nPlaceholder = "musicWelcomePlaceholder";
     access.append(label("p", "modProtectedHelp"));
     const display = reactionSection("modReactionDisplay");
-    const anchorLabel = label("label", "modAnchor"), anchor = node("select");
+    const anchorLabel = label("label", "modAnchor"), anchor = node("select"); anchorLabel.className = "module-field module-field--wide";
     for (const value of ["legacy", "topLeft", "topCenter", "topRight", "center", "bottomLeft", "bottomCenter", "bottomRight"]) { const option = node("option", t(`anchor${value[0].toUpperCase()}${value.slice(1)}`)); option.value = value; anchor.append(option); }
     anchor.value = settings.geometry.anchor; anchor.addEventListener("change", () => settings.geometry.anchor = anchor.value); anchorLabel.append(anchor); display.append(anchorLabel);
     field(display, "modMarginX", "number", settings.geometry.marginX, value => settings.geometry.marginX = value, 0, 200);
@@ -171,23 +194,22 @@ export function initializeModules({ invoke, t, getBootstrap }) {
       stopPreview();
       const imported = await invoke("import_reaction_sound");
       const soundId = await selectReactionSound(imported, { invoke, t }); if (!soundId) return;
-      settings.definitions.push({ id: crypto.randomUUID().replaceAll("-", ""), name: t("modNewReaction"), soundId, visualId: null, volume: 70, enabled: true }); renderReactions();
+      settings.definitions.push({ id: crypto.randomUUID().replaceAll("-", ""), name: t("modNewReaction"), soundId, visualId: null, volume: 70, enabled: true }); renderReactions(); saveReactionsSoon();
     }));
-    const list = node("ul"); list.className = "module-list";
+    const list = node("ul"); list.className = "module-list reaction-list";
     for (const item of settings.definitions) {
       const row = node("li");
       field(row, "modName", "text", item.name, value => item.name = value);
       field(row, "modEnabled", "checkbox", item.enabled, value => item.enabled = value);
       field(row, "modVolume", "number", item.volume, value => item.volume = value, 0, 100);
-      const visualLabel = label("label", "modVisual"), select = node("select"); const empty = node("option", t("modNoVisual")); empty.value = ""; select.append(empty);
+      const visualLabel = label("label", "modVisual"), select = node("select"); visualLabel.className = "module-field"; const empty = node("option", t("modNoVisual")); empty.value = ""; select.append(empty);
       for (const media of library.filter(media => (media.kind === "image" || media.kind === "gif") && media.contentType.startsWith("image/"))) { const option = node("option", media.name); option.value = media.id; select.append(option); }
       select.value = item.visualId || ""; select.addEventListener("change", () => item.visualId = select.value || null); visualLabel.append(select); row.append(visualLabel);
-      row.append(button("modTestLocal", () => testReaction(item)), button("modPlay", async () => { const result = await invoke("trigger_reaction", { id: item.id }); reactionState.textContent = reactionTriggerText(result); }), button("modDelete", async () => { if (await confirmDelete(row)) { settings.definitions = settings.definitions.filter(value => value.id !== item.id); renderReactions(); } })); list.append(row);
+      row.append(button("modTestLocal", () => testReaction(item)), button("modPlay", async () => { const result = await invoke("trigger_reaction", { id: item.id }); reactionState.textContent = reactionTriggerText(result); }), button("modDelete", async () => { if (await confirmDelete(row)) { settings.definitions = settings.definitions.filter(value => value.id !== item.id); renderReactions(); saveReactionsSoon(); } })); list.append(row);
     }
-    reactionEditor.append(list, button("modSave", async () => { const snapshot = structuredClone(settings); const result = await invoke("save_reactions", { settings: snapshot }); reactionState.textContent = t(JSON.stringify(snapshot) !== JSON.stringify(settings) ? "unsaved" : result?.discordPending ? "modSavedOffline" : "modSaved"); }), button("modStop", async () => { stopPreview(); await invoke("stop_reaction"); }));
-    const obs = reactionSection("modReactionSource");
-    const source = node("input"); source.readOnly = true; source.value = `http://127.0.0.1:${getBootstrap()?.config.port || 4590}/reactions`; source.setAttribute("aria-label", t("modReactionSource"));
-    obs.append(source, button("modCopy", async () => { await navigator.clipboard.writeText(source.value); reactionState.textContent = t("modCopied"); }));
+    reactionEditor.append(list, button("modStop", async () => { stopPreview(); await invoke("stop_reaction"); }));
+    // The OBS link lives with the other Browser Sources on the Overlay page.
+    reactionEditor.append(label("p", "reactionsSourceMoved"));
   }
   async function refresh() {
     if (refreshInFlight) return; refreshInFlight = true;

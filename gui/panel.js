@@ -1,24 +1,32 @@
 import { initializePresetControls } from "./output-presets.mjs";
 import { initializeModules } from "./modules.mjs";
+import { filterConceptsToLines, filterRoleIds, filterRoleIdsToInput, filterWordsAreSaveable, filterWordsToConcepts, privacyListFromInput, privacyListToInput } from "./privacy-filters.mjs";
+import { appendChangelogMarkdown, changelogBodyForLanguage, parseChangelogReleases } from "./changelog-markdown.mjs";
+import { buildDiagnosticReport, errorCategory } from "./diagnostics.mjs";
+import { initializeCustomCommands } from "./custom-commands.mjs";
+import { initializeOverview, readStorage } from "./overview.mjs";
+import { initializeSettingsSearch } from "./settings-search.mjs";
+import { initializeAutosave, initializeStartWithWindows } from "./autosave.mjs";
 const { invoke } = window.__TAURI__.core;
 let moduleControls;
 
 import { translations, regionalTranslations } from "./translations.mjs";
 
 const pageMetadata = {
-  messages: { title: "moduleMessages", kicker: "playback" },
-  reactions: { title: "moduleReactions", kicker: "playback" },
-  overview: { title: "navOverview", kicker: "system" },
-  media: { title: "navMedia", kicker: "playback" },
-  music: { title: "navMusic", kicker: "jukebox" },
-  overlay: { title: "navOverlay", kicker: "output" },
-  moderation: { title: "navModeration", kicker: "safety" },
-  commands: { title: "navCommands", kicker: "commandsKicker" },
-  history: { title: "navHistory", kicker: "archive" },
-  help: { title: "navHelp", kicker: "guide" },
-  personalization: { title: "navPersonalization", kicker: "personalizationKicker" },
-  changelog: { title: "navChangelog", kicker: "changelogKicker" },
-  about: { title: "navAbout", kicker: "about" },
+  overview: { title: "navOverview", kicker: "navGroupStart" },
+  discord: { title: "navDiscord", kicker: "navGroupStart" },
+  help: { title: "navHelp", kicker: "navGroupStart" },
+  messages: { title: "moduleMessages", kicker: "navGroupContent" },
+  media: { title: "navMedia", kicker: "navGroupContent" },
+  music: { title: "navMusic", kicker: "navGroupContent" },
+  reactions: { title: "moduleReactions", kicker: "navGroupContent" },
+  overlay: { title: "navOverlay", kicker: "navGroupBroadcast" },
+  history: { title: "navHistory", kicker: "navGroupBroadcast" },
+  moderation: { title: "navModeration", kicker: "navGroupSafety" },
+  commands: { title: "navCommands", kicker: "navGroupSafety" },
+  personalization: { title: "navPersonalization", kicker: "navGroupApp" },
+  changelog: { title: "navChangelog", kicker: "navGroupApp" },
+  about: { title: "navAbout", kicker: "navGroupApp" },
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -33,6 +41,7 @@ const clientCountElement = $("#client-count");
 const credentialForm = $("#credential-form");
 const botPresenceForm = $("#bot-presence-form");
 const routingForm = $("#routing-form");
+const systemForm = $("#system-form");
 const musicForm = $("#music-form");
 const mediaForm = $("#media-form");
 const messagesForm = $("#messages-form");
@@ -40,7 +49,7 @@ const moderationForm = $("#moderation-form");
 const commandsForm = $("#commands-form");
 const dirtyForms = new Set();
 const formRevisions = new WeakMap();
-for (const form of [botPresenceForm, routingForm, musicForm, mediaForm, messagesForm, moderationForm, commandsForm]) {
+for (const form of [botPresenceForm, routingForm, systemForm, musicForm, mediaForm, messagesForm, moderationForm, commandsForm]) {
   form.addEventListener("input", () => {
     dirtyForms.add(form);
     formRevisions.set(form, (formRevisions.get(form) || 0) + 1);
@@ -54,33 +63,6 @@ const commandInputs = {
   status: $("#command-status"), test: $("#command-test"), regenerate: $("#command-regenerate"), clear: $("#command-clear"), nuke: $("#command-nuke"), lock: $("#command-lock"),
   changelog: $("#command-changelog"),
 };
-const customCommandForm = $("#custom-command-form");
-const customCommandListElement = $("#custom-command-list");
-const customCommandsEmptyElement = $("#custom-commands-empty");
-const customCommandCountElement = $("#custom-command-count");
-const customCommandsSaveStateElement = $("#custom-commands-save-state");
-const customCommandEditorStateElement = $("#custom-command-editor-state");
-const customCommandPreviewElement = $("#custom-command-preview");
-const customCommandNameElement = $("#custom-command-name");
-const customCommandDescriptionElement = $("#custom-command-description");
-const customCommandActionElement = $("#custom-command-action");
-const customCommandEnabledElement = $("#custom-command-enabled");
-const customActionFieldsElement = $("#custom-action-fields");
-const customCommandAdminOnlyElement = $("#custom-command-admin-only");
-const customCommandUsersElement = $("#custom-command-users");
-const customCommandRolesElement = $("#custom-command-roles");
-const customCommandChannelsElement = $("#custom-command-channels");
-const customRequiredPermissionsElement = $("#custom-required-permissions");
-const customPermissionInputs = $$('input[name="custom-permission"]');
-const addCustomCommandButton = $("#add-custom-command");
-const cancelCustomCommandButton = $("#cancel-custom-command");
-const syncCustomCommandsButton = $("#sync-custom-commands");
-const defaultRelayCommandNames = new Set([
-  "channel", "url", "show", "status", "test", "regenerate", "clear", "nuke", "lock", "changelog",
-]);
-let customCommands = [];
-let customCommandsDirty = false;
-let editingCustomCommandIndex = null;
 const clientIdElement = $("#client-id");
 const tokenElement = $("#discord-token");
 const youtubeApiKeyElement = $("#youtube-api-key");
@@ -147,19 +129,6 @@ const overlayUrlElement = $("#overlay-url");
 const copyUrlButton = $("#copy-url");
 const audioUrlElement = $("#audio-url");
 const copyAudioUrlButton = $("#copy-audio-url");
-const youtubeUrlElement = $("#youtube-url");
-const copyYoutubeUrlButton = $("#copy-youtube-url");
-const musicWidgetWidthElement = $("#music-widget-width");
-const musicWidgetHeightElement = $("#music-widget-height");
-const saveMusicOverlayButton = $("#save-music-overlay");
-const musicOverlaySaveStateElement = $("#music-overlay-save-state");
-if (musicWidgetHeightElement) musicWidgetHeightElement.min = "90";
-const ttsUrlElement = $("#tts-url");
-const copyTtsUrlButton = $("#copy-tts-url");
-const notificationUrlElement = $("#notification-url");
-const copyNotificationUrlButton = $("#copy-notification-url");
-const stickerUrlElement = $("#sticker-url");
-const copyStickerUrlButton = $("#copy-sticker-url");
 const outputReadinessCards = new Map(
   $$('[data-output-card]').map((element) => [element.dataset.outputCard, element]),
 );
@@ -227,10 +196,6 @@ const pageTitleElement = $("#page-title");
 const pageKickerElement = $("#page-kicker");
 const navigationBackButton = $("#navigation-back");
 const navigationForwardButton = $("#navigation-forward");
-const settingsSearchControl = $("#settings-search-control");
-const settingsSearchElement = $("#settings-search");
-const settingsSearchClearButton = $("#settings-search-clear");
-const settingsSearchResultsElement = $("#settings-search-results");
 const nowPlayingElement = $("#now-playing");
 const nowPlayingArtworkElement = $("#now-playing-artwork");
 const nowPlayingTitleElement = $("#now-playing-title");
@@ -260,8 +225,6 @@ let shortcutCaptureActive = false;
 let currentPage = "overview";
 const navigationHistory = ["overview"];
 let navigationHistoryIndex = 0;
-let settingsSearchIndex = [];
-let settingsSearchHighlightTimer;
 const languageOptions = [
   { locale: "en-US", language: "en", label: "English (US)", short: "EN-US", flag: "us" },
   { locale: "en-GB", language: "en", label: "English (UK)", short: "EN-UK", flag: "gb" },
@@ -281,7 +244,9 @@ const defaultLocaleByLanguage = {
   en: "en-US", fr: "fr-FR", es: "es-ES", de: "de-DE", ru: "ru-RU",
   zh: "zh-CN", ko: "ko-KR", ja: "ja-JP", id: "id-ID",
 };
-const supportedDesigns = ["openai", "anthropic", "neo-brutalism", "gridline", "lumen"];
+const supportedDesigns = ["graphite", "paper", "neo-brutalism", "gridline", "lumen"];
+// Earlier releases stored brand-named design identifiers.
+const legacyDesignNames = { openai: "graphite", anthropic: "paper" };
 const supportedSidebarLayouts = ["fixed", "compact", "dynamic"];
 const supportedInterfaceFonts = [
   "design", "bricolage", "dm-sans", "figtree", "inter",
@@ -291,8 +256,9 @@ const storedLanguage = localStorage.getItem("relay-language") || "en";
 let locale = localStorage.getItem("relay-locale") || defaultLocaleByLanguage[storedLanguage] || "en-US";
 if (!languageOptionByLocale.has(locale)) locale = "en-US";
 let language = languageOptionByLocale.get(locale).language;
-let design = localStorage.getItem("relay-design") || "openai";
-if (!supportedDesigns.includes(design)) design = "openai";
+let design = localStorage.getItem("relay-design") || "graphite";
+design = legacyDesignNames[design] || design;
+if (!supportedDesigns.includes(design)) design = "graphite";
 let interfaceFont = localStorage.getItem("relay-interface-font") || "design";
 if (!supportedInterfaceFonts.includes(interfaceFont)) interfaceFont = "design";
 let sidebarLayout = localStorage.getItem("relay-sidebar-layout") || "fixed";
@@ -310,7 +276,7 @@ const audioPlaybackTargets = new Map();
 let currentAudioPlayback;
 let nowPlayingArtworkRequest = 0;
 const artworkCache = new Map();
-let currentAppVersion = "1.3.6";
+let currentAppVersion = "1.3.7";
 let bundledChangelogMarkdown = "";
 let latestUpdate;
 let updateUiState = { kind: "idle" };
@@ -326,6 +292,16 @@ function applyTranslations(root = document) {
   }
   for (const element of $$("[data-i18n-placeholder]", root)) {
     element.placeholder = t(element.dataset.i18nPlaceholder);
+  }
+  for (const element of $$("[data-i18n-aria-label]", root)) {
+    element.setAttribute("aria-label", t(element.dataset.i18nAriaLabel));
+  }
+  for (const element of $$("[data-i18n-title]", root)) {
+    element.title = t(element.dataset.i18nTitle);
+  }
+  // Compact sidebars show icons only; keep each page name available on hover.
+  for (const button of $$(".navigation__item", root)) {
+    button.title = button.querySelector(".navigation__label")?.textContent || "";
   }
 }
 
@@ -343,122 +319,6 @@ function setAppVersion(version) {
   for (const element of $$("[data-app-version]")) element.textContent = normalized;
   updateCheckButton.setAttribute("aria-label", `${t("checkUpdates")}. Relay v${normalized}`);
   renderChangelog();
-}
-
-function parseChangelogReleases(markdown) {
-  const releases = [];
-  let current;
-  const flush = () => {
-    if (!current) return;
-    const body = current.lines.join("\n").trim();
-    if (body) {
-      releases.push({ version: current.version, date: current.date, body });
-    }
-    current = undefined;
-  };
-  for (const line of String(markdown).split(/\r?\n/)) {
-    if (line.startsWith("## [")) {
-      flush();
-      const match = line.match(/^## \[([^\]]+)\](?:\s*-\s*(.+))?$/);
-      if (!match || match[1].trim().toLowerCase() === "unreleased") continue;
-      current = {
-        version: match[1].trim(),
-        date: match[2]?.trim() || null,
-        lines: [],
-      };
-      continue;
-    }
-    if (line.startsWith("[") && line.includes("]: http")) continue;
-    current?.lines.push(line);
-  }
-  flush();
-  return releases;
-}
-
-function changelogBodyForLanguage(body, languageCode) {
-  const buckets = { default: [] };
-  let current = "default";
-  for (const line of String(body).split(/\r?\n/)) {
-    const heading = line.match(/^###\s+(.+)$/);
-    if (heading) {
-      current = heading[1].trim().toLowerCase();
-      buckets[current] ??= [];
-      continue;
-    }
-    buckets[current].push(line);
-  }
-  const aliases = {
-    en: ["english"],
-    fr: ["français", "francais"],
-    es: ["español", "espanol", "spanish"],
-    de: ["deutsch", "german"],
-    ru: ["русский", "russian"],
-    zh: ["简体中文", "chinese"],
-    ko: ["한국어", "korean"],
-    ja: ["日本語", "japanese"],
-    id: ["bahasa indonesia", "indonesian"],
-  };
-  const preferred = [...(aliases[languageCode] || aliases.en)];
-  if (languageCode !== "en") preferred.push("english");
-  for (const key of preferred) {
-    const text = (buckets[key] || []).join("\n").trim();
-    if (text) return text;
-  }
-  return String(body).trim();
-}
-
-function appendInlineChangelogText(parent, text) {
-  const parts = String(text).split(/(\*\*[^*]+\*\*)/g);
-  for (const part of parts) {
-    if (part.startsWith("**") && part.endsWith("**") && part.length > 4) {
-      const strong = document.createElement("strong");
-      strong.textContent = part.slice(2, -2);
-      parent.append(strong);
-      continue;
-    }
-    parent.append(document.createTextNode(part));
-  }
-}
-
-function appendChangelogMarkdown(parent, markdown) {
-  let list;
-  const closeList = () => {
-    list = undefined;
-  };
-  for (const line of String(markdown).split(/\r?\n/)) {
-    if (line.startsWith("#### ")) {
-      closeList();
-      const heading = document.createElement("h4");
-      heading.textContent = line.slice(5).trim();
-      parent.append(heading);
-      continue;
-    }
-    if (line.startsWith("### ")) {
-      closeList();
-      const heading = document.createElement("h3");
-      heading.textContent = line.slice(4).trim();
-      parent.append(heading);
-      continue;
-    }
-    if (line.startsWith("- ")) {
-      if (!list) {
-        list = document.createElement("ul");
-        parent.append(list);
-      }
-      const item = document.createElement("li");
-      appendInlineChangelogText(item, line.slice(2));
-      list.append(item);
-      continue;
-    }
-    if (!line.trim()) {
-      closeList();
-      continue;
-    }
-    closeList();
-    const paragraph = document.createElement("p");
-    appendInlineChangelogText(paragraph, line);
-    parent.append(paragraph);
-  }
 }
 
 function renderChangelog() {
@@ -524,13 +384,39 @@ function activeLanguageOption() {
 function setLanguageMenuOpen(open) {
   interfaceLanguageOptionsElement.hidden = !open;
   interfaceLanguageButton.setAttribute("aria-expanded", String(open));
-  if (open) setSidebarLanguageMenuOpen(false);
+  if (open) {
+    setSidebarLanguageMenuOpen(false);
+    focusSelectedOption(interfaceLanguageOptionsElement);
+  }
 }
 
 function setSidebarLanguageMenuOpen(open) {
   sidebarLanguageOptionsElement.hidden = !open;
   languageToggleButton.setAttribute("aria-expanded", String(open));
-  if (open) setLanguageMenuOpen(false);
+  if (open) {
+    setLanguageMenuOpen(false);
+    focusSelectedOption(sidebarLanguageOptionsElement);
+  }
+}
+
+function focusSelectedOption(listbox) {
+  const options = $$('[role="option"]', listbox);
+  (options.find((option) => option.getAttribute("aria-selected") === "true") || options[0])?.focus();
+}
+
+// Arrow, Home and End keys move between options of an open listbox.
+function handleListboxKeys(listbox, event) {
+  const options = $$('[role="option"]', listbox);
+  const index = options.indexOf(document.activeElement);
+  const target = {
+    ArrowDown: Math.min(index + 1, options.length - 1),
+    ArrowUp: Math.max(index - 1, 0),
+    Home: 0,
+    End: options.length - 1,
+  }[event.key];
+  if (target === undefined || !options.length) return;
+  event.preventDefault();
+  options[target].focus();
 }
 
 function renderLanguagePicker() {
@@ -543,21 +429,24 @@ function renderLanguagePicker() {
   interfaceLanguageButton.setAttribute("aria-label", `${t("language")}: ${selected.label}`);
   languageToggleButton.setAttribute("aria-label", `${t("language")}: ${selected.label}`);
   languageToggleButton.title = selected.label;
-  for (const option of $$("[data-locale]", interfaceLanguageOptionsElement)) {
-    const isSelected = option.dataset.locale === selected.locale;
-    option.setAttribute("aria-selected", String(isSelected));
-  }
-  sidebarLanguageOptionsElement.replaceChildren(...languageOptions.map((option) => {
+  // Both pickers render the same option list from languageOptions.
+  interfaceLanguageOptionsElement.replaceChildren(...languageOptionButtons(selected, "language-picker__option"));
+  sidebarLanguageOptionsElement.replaceChildren(
+    ...languageOptionButtons(selected, "language-picker__option sidebar-language-picker__option"),
+  );
+}
+
+function languageOptionButtons(selected, className) {
+  return languageOptions.map((option) => {
     const button = document.createElement("button");
-    const isSelected = option.locale === selected.locale;
-    button.className = "language-picker__option sidebar-language-picker__option";
+    button.className = className;
     button.type = "button";
     button.dataset.locale = option.locale;
     button.setAttribute("role", "option");
-    button.setAttribute("aria-selected", String(isSelected));
+    button.setAttribute("aria-selected", String(option.locale === selected.locale));
     button.innerHTML = `<img class="flag-icon" src="./assets/flags/${option.flag}.svg" alt=""><span>${option.label}</span><i aria-hidden="true">✓</i>`;
     return button;
-  }));
+  });
 }
 
 function selectInterfaceLanguage(nextLocale, focusTarget) {
@@ -586,28 +475,12 @@ function applyLanguage() {
   navigationBackButton.setAttribute("aria-label", t("navigationBack"));
   navigationForwardButton.title = t("navigationForward");
   navigationForwardButton.setAttribute("aria-label", t("navigationForward"));
-  settingsSearchElement.setAttribute("aria-label", t("searchLabel"));
-  settingsSearchClearButton.title = t("clearSearch");
-  settingsSearchClearButton.setAttribute("aria-label", t("clearSearch"));
-  for (const input of [overlayUrlElement, audioUrlElement, youtubeUrlElement, notificationUrlElement, ttsUrlElement, stickerUrlElement]) {
-    if (input) input.setAttribute("aria-label", input.closest("label")?.querySelector("[data-i18n]")?.textContent || input.getAttribute("aria-label"));
-  }
-  buildSettingsSearchIndex();
-  renderSettingsSearchResults();
+  settingsSearch.applyLanguage();
   renderUpdateStatus();
   updatePageHeading();
   renderNowPlaying();
   renderChangelog();
-  renderCustomCommands();
-  if (!customCommandForm.hidden) {
-    let action;
-    try {
-      action = readCustomAction();
-    } catch {
-      action = defaultCustomAction(customCommandActionElement.value);
-    }
-    renderCustomActionFields(action);
-  }
+  customCommandsUi?.applyLanguage();
   if (bootstrap) {
     setBotStatus(bootstrap.bot);
     setServerStatus(bootstrap.server);
@@ -666,10 +539,6 @@ function applyDesign() {
     ?.closest(".design-choice")
     ?.querySelector(".design-choice__copy strong")
     ?.textContent || design;
-  for (const element of $$('[data-relay-base-font-size]')) {
-    element.style.removeProperty("font-size");
-    delete element.dataset.relayBaseFontSize;
-  }
   syncWindowTheme();
 }
 
@@ -751,7 +620,7 @@ function renderNowPlaying() {
     || currentAudioPlayback?.media.artworkId !== playback.media.artworkId;
   currentAudioPlayback = playback;
   nowPlayingElement.hidden = false;
-  nowPlayingTitleElement.textContent = playback.media.title || playback.media.filename || "Discord audio";
+  nowPlayingTitleElement.textContent = playback.media.title || playback.media.filename || t("nowPlayingFallbackTitle");
   nowPlayingArtistElement.textContent = playback.media.artist || playback.media.author?.username || "Discord";
   const paused = playback.status === "paused";
   pauseAudioIcon.hidden = paused;
@@ -786,7 +655,7 @@ async function controlCurrentAudio(action) {
   try {
     await invoke("control_audio", { action, currentUrl: currentAudioPlayback.media.url });
   } catch (error) {
-    setSaveState(mediaSaveStateElement, "error", String(error));
+    notify("error", String(error));
   } finally {
     renderNowPlaying();
   }
@@ -877,19 +746,6 @@ ${geometryControl("contentScale", "contentScale", 50, 200)}
   }
 }
 
-function applyMusicOverlaySize(config, force = false) {
-  if (!musicWidgetWidthElement || !musicWidgetHeightElement) return;
-  if (
-    !force
-    && (document.activeElement === musicWidgetWidthElement
-      || document.activeElement === musicWidgetHeightElement)
-  ) {
-    return;
-  }
-  musicWidgetWidthElement.value = String(Math.round(config.widgetWidth ?? 640));
-  musicWidgetHeightElement.value = String(Math.round(config.widgetHeight ?? 360));
-}
-
 function applyOutputGeometryTarget(config, target, force = false) {
   const card = outputGeometryGridElement.querySelector(`[data-geometry-target="${target}"]`);
   if (!card || (!force && card.contains(document.activeElement))) return;
@@ -915,7 +771,6 @@ function applyOutputGeometryTarget(config, target, force = false) {
     card.querySelector('[data-size-field="width"]').value = String(Math.round(config.notificationWidgetWidth ?? 400));
     card.querySelector('[data-size-field="height"]').value = String(Math.round(config.notificationWidgetHeight ?? 104));
   }
-  applyMusicOverlaySize(config, force);
 }
 
 function applyOutputGeometryConfig(config, force = false) {
@@ -1038,20 +893,10 @@ function hexToRgb(hex) {
   return [1, 3, 5].map((index) => Number.parseInt(hex.slice(index, index + 2), 16));
 }
 
+// Font sizes in panel.css are multiplied by --text-scale, so content rendered
+// later (history rows, module cards) follows the preference automatically.
 function scaleInterfaceText() {
-  const elements = $$('body *:not(svg):not(path)');
-  for (const element of elements) element.style.removeProperty("font-size");
-  for (const element of elements) {
-    if (!element.dataset.relayBaseFontSize) {
-      const size = Number.parseFloat(window.getComputedStyle(element).fontSize);
-      if (Number.isFinite(size) && size > 0) element.dataset.relayBaseFontSize = String(size);
-    }
-  }
-  for (const element of elements) {
-    if (element.dataset.relayBaseFontSize) {
-      element.style.fontSize = `${Number(element.dataset.relayBaseFontSize) * fontScale / 100}px`;
-    }
-  }
+  document.documentElement.style.setProperty("--text-scale", String(fontScale / 100));
 }
 
 function syncInterfacePreferences() {
@@ -1097,7 +942,7 @@ function updateNavigationControls() {
   navigationForwardButton.disabled = navigationHistoryIndex >= navigationHistory.length - 1;
 }
 
-function showPage(page, { recordHistory = true } = {}) {
+function showPage(page, { recordHistory = true, moveFocus = false } = {}) {
   if (!pageMetadata[page]) return;
   if (recordHistory && page !== currentPage) {
     navigationHistory.splice(navigationHistoryIndex + 1);
@@ -1111,13 +956,19 @@ function showPage(page, { recordHistory = true } = {}) {
     element.classList.toggle("is-active", active);
   }
   for (const button of $$("[data-page-target]")) {
-    button.classList.toggle("is-active", button.dataset.pageTarget === page);
+    const active = button.dataset.pageTarget === page;
+    button.classList.toggle("is-active", active);
+    if (active) button.setAttribute("aria-current", "page");
+    else button.removeAttribute("aria-current");
   }
   if (page === "history") {
     window.requestAnimationFrame(loadHistoryVideoThumbnails);
   }
   updatePageHeading();
   updateNavigationControls();
+  try { localStorage.setItem("relay-last-page", page); } catch { /* Storage is optional. */ }
+  // Announce the new page to keyboard and screen reader users.
+  if (moveFocus) pageTitleElement.focus({ preventScroll: true });
 }
 
 function navigateHistory(offset) {
@@ -1125,95 +976,6 @@ function navigateHistory(offset) {
   if (nextIndex < 0 || nextIndex >= navigationHistory.length) return;
   navigationHistoryIndex = nextIndex;
   showPage(navigationHistory[navigationHistoryIndex], { recordHistory: false });
-}
-
-function normalizeSettingsSearch(value) {
-  return String(value)
-    .normalize("NFKD")
-    .replace(/\p{Mark}/gu, "")
-    .toLocaleLowerCase(locale);
-}
-
-function buildSettingsSearchIndex() {
-  const seen = new Set();
-  settingsSearchIndex = $$('[data-page] [data-i18n]').flatMap((element) => {
-    const page = element.closest("[data-page]")?.dataset.page;
-    const key = element.dataset.i18n;
-    const identity = `${page}:${key}`;
-    if (!pageMetadata[page] || seen.has(identity)) return [];
-    seen.add(identity);
-    const label = t(key);
-    const pageLabel = t(pageMetadata[page].title);
-    const target = element.closest("label, .setting-row, details, fieldset, .panel-section, .help-step") || element;
-    return [{
-      label, page, pageLabel, target,
-      searchable: normalizeSettingsSearch(`${label} ${pageLabel}`),
-    }];
-  });
-}
-
-function closeSettingsSearch() {
-  settingsSearchResultsElement.hidden = true;
-}
-
-function openSettingsSearchResult(entry) {
-  settingsSearchElement.value = "";
-  settingsSearchClearButton.hidden = true;
-  closeSettingsSearch();
-  showPage(entry.page);
-  for (let parent = entry.target.closest("details"); parent; parent = parent.parentElement?.closest("details")) {
-    parent.open = true;
-  }
-  window.requestAnimationFrame(() => {
-    entry.target.scrollIntoView({ behavior: "smooth", block: "center" });
-    window.clearTimeout(settingsSearchHighlightTimer);
-    entry.target.classList.remove("settings-search-target");
-    window.requestAnimationFrame(() => entry.target.classList.add("settings-search-target"));
-    settingsSearchHighlightTimer = window.setTimeout(
-      () => entry.target.classList.remove("settings-search-target"),
-      1400,
-    );
-  });
-}
-
-function renderSettingsSearchResults() {
-  const query = normalizeSettingsSearch(settingsSearchElement.value.trim());
-  settingsSearchClearButton.hidden = !query;
-  settingsSearchResultsElement.replaceChildren();
-  if (!query) {
-    closeSettingsSearch();
-    return;
-  }
-  const terms = query.split(/\s+/).filter(Boolean);
-  const results = settingsSearchIndex
-    .filter((entry) => terms.every((term) => entry.searchable.includes(term)))
-    .sort((left, right) => {
-      const leftStarts = normalizeSettingsSearch(left.label).startsWith(query);
-      const rightStarts = normalizeSettingsSearch(right.label).startsWith(query);
-      return Number(rightStarts) - Number(leftStarts) || left.label.localeCompare(right.label, locale);
-    })
-    .slice(0, 8);
-  settingsSearchResultsElement.hidden = false;
-  if (!results.length) {
-    const empty = document.createElement("p");
-    empty.className = "settings-search__empty";
-    empty.textContent = t("searchNoResults");
-    settingsSearchResultsElement.append(empty);
-    return;
-  }
-  for (const entry of results) {
-    const button = document.createElement("button");
-    button.className = "settings-search__result";
-    button.type = "button";
-    button.setAttribute("role", "option");
-    const label = document.createElement("strong");
-    label.textContent = entry.label;
-    const page = document.createElement("small");
-    page.textContent = entry.pageLabel;
-    button.append(label, page);
-    button.addEventListener("click", () => openSettingsSearchResult(entry));
-    settingsSearchResultsElement.append(button);
-  }
 }
 
 function setBotStatus(status) {
@@ -1267,7 +1029,7 @@ function renderQueue(items = []) {
 
 function renderOutputReadiness(status = {}) {
   const outputs = status.outputs || {};
-  for (const target of ["visual", "audio", "notification", "sticker"]) {
+  for (const target of ["visual", "audio", "notification", "sticker", "reaction"]) {
     const output = outputs[target] || {};
     const obsClients = outputClientCount(output.obsClients);
     const previewClients = outputClientCount(output.previewClients);
@@ -1319,416 +1081,9 @@ function setServerStatus(status) {
   }
 }
 
-function filterWordKey(value) {
-  return String(value || "")
-    .normalize("NFKC")
-    .toLocaleLowerCase()
-    .trim()
-    .replace(/[\s._-]+/g, "");
-}
-
-function filterConceptsToLines(concepts) {
-  return (Array.isArray(concepts) ? concepts : [])
-    .map((concept) => typeof concept?.canonical === "string" ? concept.canonical.trim() : "")
-    .filter(Boolean)
-    .join(", ");
-}
-
-function filterRoleIdsToInput(roleIds) {
-  return (Array.isArray(roleIds) ? roleIds : [])
-    .filter((roleId) => typeof roleId === "string" && /^\d{17,20}$/.test(roleId))
-    .join(", ");
-}
-
-function filterRoleIds(value) {
-  const seen = new Set();
-  return String(value || "")
-    .split(/[\r\n,]+/)
-    .map((entry) => entry.trim())
-    .map((entry) => entry.match(/^<@&(\d{17,20})>$/)?.[1] || entry)
-    .reduce((roleIds, entry) => {
-      if (entry && !seen.has(entry)) {
-        seen.add(entry);
-        roleIds.push(entry);
-      }
-      return roleIds;
-    }, []);
-}
-
-function filterWordsToConcepts(value, existingConcepts) {
-  const existing = new Map(
-    (Array.isArray(existingConcepts) ? existingConcepts : [])
-      .filter((concept) => concept && typeof concept.canonical === "string")
-      .map((concept) => [filterWordKey(concept.canonical), concept]),
-  );
-  const seen = new Set();
-  const words = String(value || "")
-    .split(/[\r\n,]+/)
-    .map((word) => word.trim())
-    .filter(Boolean);
-  return words.reduce((concepts, word) => {
-    const key = filterWordKey(word);
-    if (!key || seen.has(key)) {
-      return concepts;
-    }
-    seen.add(key);
-    const previous = existing.get(key);
-    concepts.push({
-      canonical: word,
-      aliases: Array.isArray(previous?.aliases)
-        ? previous.aliases.filter((alias) => typeof alias === "string")
-        : [],
-      regexes: Array.isArray(previous?.regexes)
-        ? previous.regexes.filter((pattern) => typeof pattern === "string")
-        : [],
-    });
-    return concepts;
-  }, []);
-}
-
-function filterWordsAreSaveable(value) {
-  return String(value || "")
-    .split(/[\r\n,]+/)
-    .map((word) => word.trim())
-    .filter(Boolean)
-    .every((word) => {
-      const normalized = filterWordKey(word);
-      return /\p{L}/u.test(word)
-        && normalized.length >= 3
-        && normalized.length <= 64;
-    });
-}
-
-function privacyListToInput(values) {
-  return (Array.isArray(values) ? values : [])
-    .filter((value) => typeof value === "string" && value.trim())
-    .join("\n");
-}
-
-function privacyListFromInput(value) {
-  const seen = new Set();
-  return String(value || "")
-    .split(/[\r\n]+/)
-    .map((entry) => entry.trim())
-    .filter((entry) => {
-      const key = entry.normalize("NFKC").toLocaleLowerCase();
-      if (!entry || seen.has(key)) {
-        return false;
-      }
-      seen.add(key);
-      return true;
-    });
-}
-
-function cloneCustomCommands(commands) {
-  return JSON.parse(JSON.stringify(Array.isArray(commands) ? commands : []));
-}
-
-function defaultCustomAction(type) {
-  const reason = () => ({ mode: "optional", fixedValue: "" });
-  const entity = () => ({ mode: "required", fixedValue: "" });
-  switch (type) {
-    case "ban": return { type, reason: reason(), deleteMessageDays: { mode: "fixed", fixedValue: 0 } };
-    case "unban": return { type, reason: reason() };
-    case "kick": return { type, reason: reason() };
-    case "timeout": return { type, durationMinutes: { mode: "fixed", fixedValue: 60 }, reason: reason() };
-    case "removeTimeout": return { type, reason: reason() };
-    case "clearMessages": return {
-      type,
-      channel: { mode: "optional", fixedValue: "" },
-      count: { mode: "fixed", fixedValue: 10 },
-    };
-    case "addRole": return { type, role: entity(), reason: reason() };
-    case "removeRole": return { type, role: entity(), reason: reason() };
-    case "reply": return { type, text: "Relay", ephemeral: true };
-    default: return defaultCustomAction("ban");
-  }
-}
-
-function customActionTranslationKey(type) {
-  return {
-    ban: "customActionBan", unban: "customActionUnban", kick: "customActionKick",
-    timeout: "customActionTimeout", removeTimeout: "customActionRemoveTimeout",
-    clearMessages: "customActionClearMessages", addRole: "customActionAddRole",
-    removeRole: "customActionRemoveRole", reply: "customActionReply",
-  }[type] || "customActionReply";
-}
-
-function customActionPermissionKey(type) {
-  return {
-    ban: "permissionBanMembers", unban: "permissionBanMembers", kick: "permissionKickMembers",
-    timeout: "permissionModerateMembers", removeTimeout: "permissionModerateMembers",
-    clearMessages: "permissionManageMessages", addRole: "permissionManageRoles",
-    removeRole: "permissionManageRoles",
-  }[type];
-}
-
-function customParameterMarkup(key, labelKey, kind, minimum = "", maximum = "") {
-  const inputAttributes = kind === "integer"
-    ? `type="number" min="${minimum}" max="${maximum}" step="1"`
-    : `type="text" maxlength="512" autocomplete="off" spellcheck="false"`;
-  return `
-    <div class="custom-parameter" data-custom-parameter="${key}" data-kind="${kind}" data-min="${minimum}" data-max="${maximum}">
-      <strong>${t(labelKey)}</strong>
-      <label class="field">
-        <span>${t("customParameterMode")}</span>
-        <select data-custom-parameter-mode>
-          <option value="required">${t("parameterRequired")}</option>
-          <option value="optional">${t("parameterOptional")}</option>
-          <option value="fixed">${t("parameterFixed")}</option>
-        </select>
-      </label>
-      <label class="field">
-        <span>${t("customParameterValue")}</span>
-        <input data-custom-parameter-value ${inputAttributes}>
-      </label>
-    </div>`;
-}
-
-function setCustomParameterValue(key, parameter) {
-  const root = customActionFieldsElement.querySelector(`[data-custom-parameter="${key}"]`);
-  if (!root) return;
-  root.querySelector("[data-custom-parameter-mode]").value = parameter?.mode || "optional";
-  root.querySelector("[data-custom-parameter-value]").value = String(parameter?.fixedValue ?? "");
-}
-
-function updateCustomParameterAvailability(root = customActionFieldsElement) {
-  const parameters = root.matches?.("[data-custom-parameter]")
-    ? [root]
-    : $$('[data-custom-parameter]', root);
-  for (const parameter of parameters) {
-    const mode = parameter.querySelector("[data-custom-parameter-mode]").value;
-    const value = parameter.querySelector("[data-custom-parameter-value]");
-    value.disabled = mode === "required";
-    value.required = mode === "fixed" || (mode === "optional" && parameter.dataset.kind === "entity-role");
-  }
-}
-
-function renderCustomRequiredPermissions() {
-  const permissionKey = customActionPermissionKey(customCommandActionElement.value);
-  const permission = permissionKey ? t(permissionKey) : "—";
-  customRequiredPermissionsElement.textContent = formatTranslation("customRequiredPermission", { permission });
-}
-
-function renderCustomActionFields(action = defaultCustomAction(customCommandActionElement.value)) {
-  const type = customCommandActionElement.value;
-  if (action.type !== type) action = defaultCustomAction(type);
-  switch (type) {
-    case "ban":
-      customActionFieldsElement.innerHTML = customParameterMarkup("reason", "customReason", "text")
-        + customParameterMarkup("deleteMessageDays", "customDeleteDays", "integer", 0, 7);
-      setCustomParameterValue("reason", action.reason);
-      setCustomParameterValue("deleteMessageDays", action.deleteMessageDays);
-      break;
-    case "unban":
-    case "kick":
-    case "removeTimeout":
-      customActionFieldsElement.innerHTML = customParameterMarkup("reason", "customReason", "text");
-      setCustomParameterValue("reason", action.reason);
-      break;
-    case "timeout":
-      customActionFieldsElement.innerHTML = customParameterMarkup("durationMinutes", "customDurationMinutes", "integer", 1, 40320)
-        + customParameterMarkup("reason", "customReason", "text");
-      setCustomParameterValue("durationMinutes", action.durationMinutes);
-      setCustomParameterValue("reason", action.reason);
-      break;
-    case "clearMessages":
-      customActionFieldsElement.innerHTML = customParameterMarkup("channel", "customChannelId", "entity-channel")
-        + customParameterMarkup("count", "customMessageCount", "integer", 1, 1000);
-      setCustomParameterValue("channel", action.channel);
-      setCustomParameterValue("count", action.count);
-      break;
-    case "addRole":
-    case "removeRole":
-      customActionFieldsElement.innerHTML = customParameterMarkup("role", "customRoleId", "entity-role")
-        + customParameterMarkup("reason", "customReason", "text");
-      setCustomParameterValue("role", action.role);
-      setCustomParameterValue("reason", action.reason);
-      break;
-    case "reply":
-      customActionFieldsElement.innerHTML = `
-        <label class="field field--full">
-          <span>${t("customReplyText")}</span>
-          <textarea id="custom-reply-text" minlength="1" maxlength="1900" required></textarea>
-        </label>
-        <label class="field field--full">
-          <span>${t("customReplyVisibility")}</span>
-          <select id="custom-reply-visibility">
-            <option value="ephemeral">${t("customReplyEphemeral")}</option>
-            <option value="public">${t("customReplyPublic")}</option>
-          </select>
-        </label>`;
-      $("#custom-reply-text").value = action.text || "";
-      $("#custom-reply-visibility").value = action.ephemeral === false ? "public" : "ephemeral";
-      break;
-  }
-  updateCustomParameterAvailability();
-  renderCustomRequiredPermissions();
-}
-
-function normalizeDiscordId(value) {
-  const match = String(value || "").trim().match(/^(?:\d{17,20}|<@!?(\d{17,20})>|<@&(\d{17,20})>|<#(\d{17,20})>)$/);
-  if (!match) return null;
-  return match[1] || match[2] || match[3] || match[0];
-}
-
-function discordIdListFromInput(value) {
-  const tokens = String(value || "").split(/[\s,]+/).filter(Boolean);
-  const ids = tokens.map(normalizeDiscordId);
-  if (ids.some((id) => !id) || ids.length > 100) throw new Error(t("customInvalidIds"));
-  return [...new Set(ids)];
-}
-
-function readCustomParameter(key) {
-  const root = customActionFieldsElement.querySelector(`[data-custom-parameter="${key}"]`);
-  const mode = root.querySelector("[data-custom-parameter-mode]").value;
-  const input = root.querySelector("[data-custom-parameter-value]");
-  let fixedValue = input.value.trim();
-  if (root.dataset.kind === "integer") {
-    fixedValue = Number(fixedValue || root.dataset.min || 0);
-    if (mode !== "required"
-      && (!Number.isInteger(fixedValue)
-        || fixedValue < Number(root.dataset.min)
-        || fixedValue > Number(root.dataset.max))) {
-      input.setCustomValidity(t("customParameterValue"));
-      input.reportValidity();
-      input.setCustomValidity("");
-      throw new Error(t("customParameterValue"));
-    }
-  } else if (root.dataset.kind.startsWith("entity") && fixedValue) {
-    const id = normalizeDiscordId(fixedValue);
-    if (!id) throw new Error(t("customInvalidIds"));
-    fixedValue = id;
-  }
-  if (root.dataset.kind === "entity-role" && mode !== "required" && !fixedValue) {
-    throw new Error(t("customInvalidIds"));
-  }
-  if (root.dataset.kind === "entity-channel" && mode === "fixed" && !fixedValue) {
-    throw new Error(t("customInvalidIds"));
-  }
-  return { mode, fixedValue };
-}
-
-function readCustomAction() {
-  const type = customCommandActionElement.value;
-  switch (type) {
-    case "ban": return { type, reason: readCustomParameter("reason"), deleteMessageDays: readCustomParameter("deleteMessageDays") };
-    case "unban": return { type, reason: readCustomParameter("reason") };
-    case "kick": return { type, reason: readCustomParameter("reason") };
-    case "timeout": return { type, durationMinutes: readCustomParameter("durationMinutes"), reason: readCustomParameter("reason") };
-    case "removeTimeout": return { type, reason: readCustomParameter("reason") };
-    case "clearMessages": return { type, channel: readCustomParameter("channel"), count: readCustomParameter("count") };
-    case "addRole": return { type, role: readCustomParameter("role"), reason: readCustomParameter("reason") };
-    case "removeRole": return { type, role: readCustomParameter("role"), reason: readCustomParameter("reason") };
-    case "reply": return {
-      type,
-      text: $("#custom-reply-text").value,
-      ephemeral: $("#custom-reply-visibility").value !== "public",
-    };
-    default: throw new Error(t("customCommandAction"));
-  }
-}
-
-function collectCustomCommandDraft() {
-  if (!customCommandForm.reportValidity()) return null;
-  const name = customCommandNameElement.value.trim().toLowerCase();
-  if (defaultRelayCommandNames.has(name)
-    || customCommands.some((command, index) => command.name === name && index !== editingCustomCommandIndex)) {
-    throw new Error(t("customDuplicateName"));
-  }
-  return {
-    name,
-    description: customCommandDescriptionElement.value.trim(),
-    enabled: customCommandEnabledElement.checked,
-    action: readCustomAction(),
-    access: {
-      administratorOnly: customCommandAdminOnlyElement.checked,
-      requiredPermissions: customPermissionInputs.filter((input) => input.checked).map((input) => input.value),
-      allowedUserIds: discordIdListFromInput(customCommandUsersElement.value),
-      allowedRoleIds: discordIdListFromInput(customCommandRolesElement.value),
-      allowedChannelIds: discordIdListFromInput(customCommandChannelsElement.value),
-    },
-  };
-}
-
-function renderCustomCommands() {
-  customCommandListElement.replaceChildren();
-  customCommandCountElement.textContent = `${customCommands.length} / 16`;
-  customCommandsEmptyElement.hidden = customCommands.length !== 0;
-  addCustomCommandButton.disabled = customCommands.length >= 16;
-  for (const [index, command] of customCommands.entries()) {
-    const item = document.createElement("li");
-    item.className = "custom-command-card";
-    const identity = document.createElement("div");
-    identity.className = "custom-command-card__identity";
-    const title = document.createElement("span");
-    const code = document.createElement("strong");
-    code.className = "command-code";
-    code.textContent = `/relay ${command.name}`;
-    const badge = document.createElement("span");
-    badge.className = "custom-command-card__badge";
-    badge.dataset.active = String(command.enabled !== false);
-    badge.textContent = t(command.enabled !== false ? "active" : "disabled");
-    title.append(code, badge);
-    const details = document.createElement("small");
-    details.textContent = `${t(customActionTranslationKey(command.action?.type))} · ${command.description}`;
-    identity.append(title, details);
-    const actions = document.createElement("div");
-    actions.className = "custom-command-card__actions";
-    for (const [action, key] of [["edit", "edit"], ["delete", "delete"]]) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "button button--quiet";
-      button.dataset.customCommandAction = action;
-      button.dataset.customCommandIndex = String(index);
-      button.textContent = t(key);
-      actions.append(button);
-    }
-    item.append(identity, actions);
-    customCommandListElement.append(item);
-  }
-}
-
-function closeCustomCommandEditor() {
-  customCommandForm.hidden = true;
-  editingCustomCommandIndex = null;
-  customCommandEditorStateElement.textContent = "";
-  syncCustomCommandsButton.disabled = false;
-}
-
-function openCustomCommandEditor(index = null) {
-  if (index === null && customCommands.length >= 16) {
-    setSaveState(customCommandsSaveStateElement, "error", t("customMaxReached"));
-    return;
-  }
-  editingCustomCommandIndex = index;
-  const definition = index === null ? {
-    name: "",
-    description: "",
-    enabled: true,
-    action: defaultCustomAction("ban"),
-    access: { administratorOnly: true, requiredPermissions: [], allowedUserIds: [], allowedRoleIds: [], allowedChannelIds: [] },
-  } : cloneCustomCommands([customCommands[index]])[0];
-  customCommandNameElement.value = definition.name;
-  customCommandDescriptionElement.value = definition.description;
-  customCommandEnabledElement.checked = definition.enabled !== false;
-  customCommandActionElement.value = definition.action.type;
-  customCommandAdminOnlyElement.checked = definition.access?.administratorOnly !== false;
-  const requiredPermissions = new Set(definition.access?.requiredPermissions || []);
-  for (const input of customPermissionInputs) input.checked = requiredPermissions.has(input.value);
-  customCommandUsersElement.value = (definition.access?.allowedUserIds || []).join("\n");
-  customCommandRolesElement.value = (definition.access?.allowedRoleIds || []).join("\n");
-  customCommandChannelsElement.value = (definition.access?.allowedChannelIds || []).join("\n");
-  customCommandPreviewElement.textContent = `/relay ${definition.name || "command"}`;
-  renderCustomActionFields(definition.action);
-  customCommandForm.hidden = false;
-  syncCustomCommandsButton.disabled = true;
-  customCommandNameElement.focus();
-}
-
 function formSaveState(form) {
   const ids = {
-    "bot-presence-form": "bot-presence-save-state", "routing-form": "save-state",
+    "bot-presence-form": "bot-presence-save-state", "routing-form": "save-state", "system-form": "system-save-state",
     "music-form": "music-save-state", "media-form": "media-save-state",
     "messages-form": "messages-save-state",
     "moderation-form": "moderation-save-state", "commands-form": "commands-save-state",
@@ -1736,9 +1091,38 @@ function formSaveState(form) {
   return document.getElementById(ids[form.id]);
 }
 
+// Shows the outcome of an action in a toast visible from any page.
+function notify(state, message = t(state)) {
+  const toast = document.getElementById("toast");
+  if (!toast) return;
+  window.clearTimeout(notify.timer);
+  setSaveState(toast, state, message);
+  toast.hidden = !message;
+  if (state !== "saving") notify.timer = window.setTimeout(() => { toast.hidden = true; }, 5000);
+}
+
+// Last errors shown in the panel, kept for the diagnostic report.
+const recentErrors = [];
+
+// Backend errors are English; other languages get a translated summary and keep the original as a tooltip.
+function describeError(message) {
+  if (language === "en") return message;
+  const key = errorCategory(message);
+  return key ? t(key) : message;
+}
+
 function setSaveState(element, state, message = t(state)) {
   if (!element) return;
   element.dataset.state = state;
+  if (state === "error") {
+    const original = String(message ?? "");
+    recentErrors.push({ at: Date.now(), message: original });
+    if (recentErrors.length > 10) recentErrors.shift();
+    element.textContent = describeError(original);
+    element.title = original;
+    return;
+  }
+  element.title = "";
   element.textContent = message;
 }
 
@@ -1842,10 +1226,7 @@ function applyConfig(config) {
   commandInputs.lock.disabled = Boolean(config.channelLock);
   channelLockStateElement.dataset.i18n = config.channelLock ? "commandLockActive" : "commandLockInactive";
   channelLockStateElement.textContent = t(channelLockStateElement.dataset.i18n);
-  if (!customCommandsDirty) {
-    customCommands = cloneCustomCommands(config.customCommands);
-    renderCustomCommands();
-  }
+  customCommandsUi?.syncFromConfig(config);
   applyOutputGeometryConfig(config);
   updateSkipShortcutDisplay(config.skipShortcut);
   drafts.forEach(restoreFormDraft);
@@ -1855,6 +1236,7 @@ function applyConfig(config) {
 }
 
 function setCredentials(status) {
+  if (!status.configured) $("#disclosure-discord-connection").open = true;
   setSaveState(credentialStateElement, "idle", status.configured
     ? `${t("savedVia")} ${status.source}`
     : t("notConfigured"));
@@ -1984,7 +1366,7 @@ function renderHistory() {
       try {
         await invoke("replay_media", { messageId: mediaEvent.messageId });
       } catch (error) {
-        setSaveState(saveStateElement, "error", String(error));
+        notify("error", String(error));
       }
     });
     const downloadButton = item.querySelector(".history-item__download");
@@ -1999,30 +1381,79 @@ function renderHistory() {
         try {
           await invoke("save_history_to_library", { messageId: mediaEvent.messageId, mediaUrl: mediaEvent.url });
           await moduleControls?.loadLibrary();
-          setSaveState(saveStateElement, "saved", t("modSaved"));
-        } catch (error) { setSaveState(saveStateElement, "error", String(error)); }
+          notify("saved", t("modSaved"));
+        } catch (error) { notify("error", String(error)); }
         finally { saveLibrary.disabled = false; }
       });
     }
     downloadButton.textContent = t("download");
-    downloadButton.addEventListener("click", async () => {
+    const download = async (format) => {
       downloadButton.disabled = true;
-      setSaveState(saveStateElement, "saving", t("downloading"));
+      notify("saving", t("downloading"));
       try {
         const saved = await invoke("download_history_media", {
           messageId: mediaEvent.messageId,
           mediaUrl: mediaEvent.url,
+          format,
         });
-        setSaveState(saveStateElement, saved ? "saved" : "idle", saved ? t("downloaded") : t("downloadCanceled"));
+        notify(saved ? "saved" : "idle", saved ? t("downloaded") : t("downloadCanceled"));
       } catch (error) {
-        setSaveState(saveStateElement, "error", String(error));
+        notify("error", String(error));
       } finally {
         downloadButton.disabled = false;
       }
-    });
+    };
+    if (kind === "youtube") {
+      attachDownloadFormatMenu(downloadButton, download);
+    } else {
+      downloadButton.addEventListener("click", () => download(null));
+    }
     historyListElement.append(item);
   }
   loadHistoryVideoThumbnails();
+  updateOverview();
+}
+
+// YouTube downloads pick MP3 or MP4 in the panel before any native dialog opens.
+function attachDownloadFormatMenu(button, download) {
+  const menu = document.createElement("div");
+  menu.className = "download-menu";
+  menu.setAttribute("role", "menu");
+  menu.hidden = true;
+  const close = () => {
+    menu.hidden = true;
+    button.setAttribute("aria-expanded", "false");
+  };
+  for (const [format, key] of [["mp3", "downloadAudioMp3"], ["mp4", "downloadVideoMp4"]]) {
+    const choice = document.createElement("button");
+    choice.type = "button";
+    choice.className = "download-menu__item";
+    choice.setAttribute("role", "menuitem");
+    choice.textContent = t(key);
+    choice.addEventListener("click", () => {
+      close();
+      download(format);
+    });
+    menu.append(choice);
+  }
+  menu.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    close();
+    button.focus();
+  });
+  menu.addEventListener("focusout", (event) => {
+    if (!menu.contains(event.relatedTarget) && event.relatedTarget !== button) close();
+  });
+  button.setAttribute("aria-haspopup", "menu");
+  button.setAttribute("aria-expanded", "false");
+  button.addEventListener("click", () => {
+    const opening = menu.hidden;
+    menu.hidden = !opening;
+    button.setAttribute("aria-expanded", String(opening));
+    if (opening) menu.querySelector("button")?.focus();
+  });
+  button.parentElement.classList.add("history-item__actions--menu");
+  button.after(menu);
 }
 
 function isVideoThumbnail(kind, contentType) {
@@ -2040,6 +1471,15 @@ function loadHistoryVideoThumbnails() {
 
 function setMediaThumbnail(item, mediaEvent, kind) {
   const thumbnail = item.querySelector(".history-item__thumb");
+  if (kind === "youtube") {
+    thumbnail.alt = mediaEvent.filename;
+    thumbnail.onerror = () => {
+      thumbnail.onerror = null;
+      thumbnail.src = "./assets/relay-radar.png";
+    };
+    thumbnail.src = youtubeThumbnail(mediaEvent) || "./assets/relay-radar.png";
+    return;
+  }
   const panelToken = bootstrap?.wsUrl
     ? new URL(bootstrap.wsUrl).searchParams.get("token")
     : "";
@@ -2083,8 +1523,19 @@ function setMediaThumbnail(item, mediaEvent, kind) {
   }
 }
 
+// Only YouTube's image host is allowed by the panel CSP.
+function youtubeThumbnail(mediaEvent) {
+  try {
+    const url = new URL(mediaEvent.thumbnail);
+    if (url.protocol === "https:" && url.hostname === "i.ytimg.com") return url.href;
+  } catch {}
+  return /^[\w-]{11}$/.test(mediaEvent.videoId || "")
+    ? `https://i.ytimg.com/vi/${mediaEvent.videoId}/mqdefault.jpg`
+    : "";
+}
+
 function replaceHistory(mediaEvents) {
-  history.splice(0, history.length, ...mediaEvents.slice(0, 50));
+  history.splice(0, history.length, ...mediaEvents.slice(0, 50).map(historyMedia));
   renderHistory();
 }
 
@@ -2092,7 +1543,25 @@ function sameHistoryMedia(left, right) {
   return left?.messageId === right?.messageId && left?.url === right?.url;
 }
 
+function historyMedia(entry) {
+  if (!entry.music) return entry;
+  const music = entry.music;
+  return {
+    ...entry,
+    kind: "youtube",
+    messageId: `youtube-${music.playbackId}`,
+    url: `https://www.youtube.com/watch?v=${music.videoId}`,
+    filename: music.title,
+    title: music.title,
+    thumbnail: music.thumbnail,
+    videoId: music.videoId,
+    artist: music.channelTitle,
+    author: { username: music.requestedBy },
+  };
+}
+
 function rememberMedia(mediaEvent) {
+  mediaEvent = historyMedia(mediaEvent);
   // Replay rebroadcasts the same media over WS without updating server history.
   // Skip local duplicates so Replay does not create a second row.
   if (history.some((item) => sameHistoryMedia(item, mediaEvent))) {
@@ -2216,6 +1685,8 @@ function handleServerMessage(event) {
     replaceHistory(message.payload);
   } else if (message.type === "media") {
     if (message.payload) rememberMedia(message.payload);
+  } else if (message.type === "musicHistory") {
+    if (message.payload) rememberMedia(message.payload);
   } else if (message.type === "audioPlayback") {
     if (message.payload?.media?.kind === "audio") updateAudioPlayback(message.payload);
   } else if (message.type === "clear") {
@@ -2266,11 +1737,7 @@ function applyBootstrap(nextBootstrap, reconnect = false) {
   renderModeration();
   overlayUrlElement.value = bootstrap.overlayUrl;
   audioUrlElement.value = bootstrap.audioUrl;
-  if (youtubeUrlElement) youtubeUrlElement.value = bootstrap.youtubeUrl || bootstrap.overlayUrl || "";
-  if (ttsUrlElement) ttsUrlElement.value = bootstrap.ttsUrl;
-  if (notificationUrlElement) notificationUrlElement.value = bootstrap.notificationUrl || bootstrap.overlayUrl || "";
-  if (stickerUrlElement) stickerUrlElement.value = bootstrap.stickerUrl;
-  applyMusicOverlaySize(bootstrap.config, true);
+  $("#reactions-url").value = `http://127.0.0.1:${bootstrap.config.port}/reactions`;
   inviteRowElement.hidden = !bootstrap.inviteUrl;
   inviteUrlElement.value = bootstrap.inviteUrl || "";
   // Live preview stays on /medias (not the OBS composite) so preview=1 works.
@@ -2284,7 +1751,13 @@ function applyBootstrap(nextBootstrap, reconnect = false) {
   if (reconnect) {
     connectPanelSocket();
   }
+  updateOverview();
 }
+
+// The Overview module is created before startup; these wrappers keep call sites simple.
+function updateOverview() { overviewUi?.update(); }
+function markSetupTested() { overviewUi?.markTested(); }
+function setupStatus() { return overviewUi.setupStatus(); }
 
 function readConfigDraft(form, filterOnly = false) {
   if (filterOnly) {
@@ -2292,13 +1765,9 @@ function readConfigDraft(form, filterOnly = false) {
   }
   if (form === messagesForm) {
     return {
-      ttsChannelId: ttsChannelElement.value,
-      ttsCleanupEnabled: ttsCleanupEnabledElement.checked,
-      ttsWelcomeMessageId: ttsWelcomeMessageElement.value.trim(),
       notificationDurationMs: Number(notificationDurationElement.value) * 1000,
       ttsCharacterLimit: Number(ttsCharacterLimitElement.value),
       ttsQueueLimit: Number(ttsQueueLimitElement.value),
-      ttsSpeechEnabled: false,
       ttsNotificationsObsEnabled: ttsNotificationsObsElement.checked,
     };
   }
@@ -2307,20 +1776,25 @@ function readConfigDraft(form, filterOnly = false) {
       watchedChannelId: channelElement.value,
       mediaCleanupEnabled: mediaCleanupEnabledElement.checked,
       mediaWelcomeMessageId: mediaWelcomeMessageElement.value.trim(),
-      port: Number(portElement.value),
-    };
-  }
-  if (form === musicForm) {
-    return {
+      ttsChannelId: ttsChannelElement.value,
+      ttsCleanupEnabled: ttsCleanupEnabledElement.checked,
+      ttsWelcomeMessageId: ttsWelcomeMessageElement.value.trim(),
       musicChannelId: musicChannelElement.value,
       musicWelcomeMessageId: musicWelcomeElement.value.trim(),
       musicCleanupEnabled: musicCleanupEnabledElement.checked,
+      honeypotChannelId: honeypotChannelElement.value,
+      honeypotAction: honeypotActionElement.value,
     };
+  }
+  if (form === systemForm) {
+    return { port: Number(portElement.value) };
+  }
+  if (form === musicForm) {
+    // The music form only stores the YouTube key; its channel lives on the Discord page.
+    return {};
   }
   if (form === moderationForm) {
     return {
-      honeypotChannelId: honeypotChannelElement.value,
-      honeypotAction: honeypotActionElement.value,
       moderationEnabled: moderationEnabledElement.checked,
       moderationAllowImages: moderationAllowImagesElement.checked,
       moderationAllowVideos: moderationAllowVideosElement.checked,
@@ -2481,6 +1955,7 @@ async function refreshRuntimeStatus() {
       populateChannels(musicChannelElement, status.channels, musicChannelElement.value, t("musicDisabled"));
       populateChannels(honeypotChannelElement, status.channels, honeypotChannelElement.value, t("honeypotDisabled"));
     }
+    updateOverview();
   } catch {
     setServerStatus({ connected: false, overlayClients: 0 });
     setBotStatus({ connected: false });
@@ -2490,38 +1965,11 @@ async function refreshRuntimeStatus() {
 }
 
 for (const button of $$("[data-page-target]")) {
-  button.addEventListener("click", () => showPage(button.dataset.pageTarget));
+  button.addEventListener("click", () => showPage(button.dataset.pageTarget, { moveFocus: true }));
 }
 
 navigationBackButton.addEventListener("click", () => navigateHistory(-1));
 navigationForwardButton.addEventListener("click", () => navigateHistory(1));
-
-settingsSearchElement.addEventListener("input", renderSettingsSearchResults);
-settingsSearchElement.addEventListener("focus", renderSettingsSearchResults);
-settingsSearchElement.addEventListener("keydown", (event) => {
-  const results = $$(".settings-search__result", settingsSearchResultsElement);
-  if (event.key === "ArrowDown" && results.length) {
-    event.preventDefault();
-    results[0].focus();
-  }
-});
-settingsSearchResultsElement.addEventListener("keydown", (event) => {
-  const results = $$(".settings-search__result", settingsSearchResultsElement);
-  const index = results.indexOf(document.activeElement);
-  if (event.key === "ArrowDown" && index < results.length - 1) {
-    event.preventDefault();
-    results[index + 1].focus();
-  } else if (event.key === "ArrowUp") {
-    event.preventDefault();
-    if (index > 0) results[index - 1].focus();
-    else settingsSearchElement.focus();
-  }
-});
-settingsSearchClearButton.addEventListener("click", () => {
-  settingsSearchElement.value = "";
-  renderSettingsSearchResults();
-  settingsSearchElement.focus();
-});
 
 for (const button of $$("[data-help-link]")) {
   button.addEventListener("click", () => invoke("open_help_link", { link: button.dataset.helpLink }));
@@ -2565,9 +2013,7 @@ document.addEventListener("pointerdown", (event) => {
   if (!updateMenuElement.hidden && !updateControlElement.contains(event.target)) {
     setUpdateMenuOpen(false);
   }
-  if (!settingsSearchResultsElement.hidden && !settingsSearchControl.contains(event.target)) {
-    closeSettingsSearch();
-  }
+  settingsSearch.closeIfOutside(event.target);
   if (!interfaceLanguageOptionsElement.hidden && !interfaceLanguageElement.contains(event.target)) {
     setLanguageMenuOpen(false);
   }
@@ -2582,10 +2028,7 @@ document.addEventListener("keydown", (event) => {
       setUpdateMenuOpen(false);
       updateCheckButton.focus();
     }
-    if (!settingsSearchResultsElement.hidden) {
-      closeSettingsSearch();
-      settingsSearchElement.focus();
-    }
+    settingsSearch.closeAndFocus();
     if (!interfaceLanguageOptionsElement.hidden) {
       setLanguageMenuOpen(false);
       interfaceLanguageButton.focus();
@@ -2597,8 +2040,7 @@ document.addEventListener("keydown", (event) => {
   }
   if ((event.ctrlKey || event.metaKey) && event.key.toLocaleLowerCase() === "k") {
     event.preventDefault();
-    settingsSearchElement.focus();
-    settingsSearchElement.select();
+    settingsSearch.focus();
   }
   if (event.altKey && !event.ctrlKey && !event.metaKey && ["ArrowLeft", "ArrowRight"].includes(event.key)) {
     event.preventDefault();
@@ -2627,11 +2069,13 @@ interfaceLanguageButton.addEventListener("click", () => {
   setLanguageMenuOpen(interfaceLanguageOptionsElement.hidden);
 });
 
-for (const option of $$("[data-locale]", interfaceLanguageOptionsElement)) {
-  option.addEventListener("click", () => {
-    selectInterfaceLanguage(option.dataset.locale, interfaceLanguageButton);
-  });
-}
+interfaceLanguageOptionsElement.addEventListener("click", (event) => {
+  const option = event.target.closest("[data-locale]");
+  if (option) selectInterfaceLanguage(option.dataset.locale, interfaceLanguageButton);
+});
+
+interfaceLanguageOptionsElement.addEventListener("keydown", (event) => handleListboxKeys(interfaceLanguageOptionsElement, event));
+sidebarLanguageOptionsElement.addEventListener("keydown", (event) => handleListboxKeys(sidebarLanguageOptionsElement, event));
 
 sidebarLanguageOptionsElement.addEventListener("click", (event) => {
   const option = event.target.closest("[data-locale]");
@@ -2693,8 +2137,8 @@ fontScaleElement.addEventListener("input", () => {
 resetPersonalizationButton.addEventListener("click", () => {
   locale = "en-US";
   language = "en";
-  theme = "dark";
-  design = "openai";
+  theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  design = "graphite";
   interfaceFont = "design";
   sidebarLayout = "fixed";
   sidebarExpanded = false;
@@ -2740,6 +2184,11 @@ routingForm.addEventListener("submit", async (event) => {
   await saveConfig(saveStateElement, routingForm);
 });
 
+systemForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  await saveConfig(formSaveState(systemForm), systemForm);
+});
+
 messagesForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   await saveConfig(messagesSaveStateElement, messagesForm);
@@ -2772,14 +2221,14 @@ function clearMusicCleanupPreview() {
   musicCleanupToken = undefined;
   musicCleanupConfirmation.hidden = true;
 }
-musicForm.addEventListener("input", clearMusicCleanupPreview);
+routingForm.addEventListener("input", clearMusicCleanupPreview);
 $("#music-cleanup-cancel").addEventListener("click", () => {
   clearMusicCleanupPreview();
   musicCleanupStatus.textContent = "";
 });
 cleanupPreviewButton.addEventListener("click", async () => {
   clearMusicCleanupPreview();
-  if (dirtyForms.has(musicForm)) {
+  if (dirtyForms.has(routingForm)) {
     musicCleanupStatus.textContent = t("musicCleanupSaveFirst");
     return;
   }
@@ -2846,6 +2295,12 @@ moderationForm.addEventListener("submit", async (event) => {
 
 privacyConceptsElement.addEventListener("input", schedulePrivacyFilterSave);
 
+initializeAutosave({
+  forms: [botPresenceForm, routingForm, systemForm, mediaForm, messagesForm, moderationForm, commandsForm],
+  dirtyForms, formSaveState, setSaveState, t, skipTarget: privacyConceptsElement,
+});
+initializeStartWithWindows({ $, invoke, t, setSaveState });
+
 commandsForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const revision = formRevisions.get(commandsForm) || 0;
@@ -2863,98 +2318,19 @@ commandsForm.addEventListener("submit", async (event) => {
   }
 });
 
-addCustomCommandButton.addEventListener("click", () => openCustomCommandEditor());
-cancelCustomCommandButton.addEventListener("click", closeCustomCommandEditor);
-
-customCommandNameElement.addEventListener("input", () => {
-  const normalized = customCommandNameElement.value
-    .toLowerCase()
-    .replace(/\s+/g, "-")
-    .replace(/[^a-z0-9_-]/g, "");
-  if (normalized !== customCommandNameElement.value) customCommandNameElement.value = normalized;
-  customCommandPreviewElement.textContent = `/relay ${normalized || "command"}`;
-  customCommandEditorStateElement.textContent = "";
+// Page modules: each owns its DOM and receives the shared panel helpers it needs.
+const settingsSearch = initializeSettingsSearch({
+  $, $$, t, pageMetadata, showPage, getLocale: () => locale,
 });
 
-customCommandActionElement.addEventListener("change", () => {
-  renderCustomActionFields(defaultCustomAction(customCommandActionElement.value));
-  customCommandEditorStateElement.textContent = "";
+const overviewUi = initializeOverview({
+  $, $$, t, invoke, formatTranslation, setSaveState, setWidgetState,
+  getBootstrap: () => bootstrap, getHistory: () => history,
 });
 
-customActionFieldsElement.addEventListener("change", (event) => {
-  if (event.target.matches("[data-custom-parameter-mode]")) {
-    updateCustomParameterAvailability(event.target.closest("[data-custom-parameter]"));
-  }
-  customCommandEditorStateElement.textContent = "";
-});
-
-customCommandForm.addEventListener("submit", (event) => {
-  event.preventDefault();
-  customCommandEditorStateElement.textContent = "";
-  try {
-    const definition = collectCustomCommandDraft();
-    if (!definition) return;
-    if (editingCustomCommandIndex === null) customCommands.push(definition);
-    else customCommands[editingCustomCommandIndex] = definition;
-    customCommandsDirty = true;
-    renderCustomCommands();
-    closeCustomCommandEditor();
-    setSaveState(customCommandsSaveStateElement, "unsaved", t("customDraftSaved"));
-  } catch (error) {
-    customCommandEditorStateElement.textContent = String(error.message || error);
-  }
-});
-
-customCommandListElement.addEventListener("click", (event) => {
-  const button = event.target.closest("[data-custom-command-action]");
-  if (!button) return;
-  const index = Number(button.dataset.customCommandIndex);
-  if (!Number.isInteger(index) || !customCommands[index]) return;
-  if (button.dataset.customCommandAction === "edit") {
-    openCustomCommandEditor(index);
-    return;
-  }
-  customCommands.splice(index, 1);
-  customCommandsDirty = true;
-  closeCustomCommandEditor();
-  renderCustomCommands();
-  setSaveState(customCommandsSaveStateElement, "unsaved", t("customUnsaved"));
-});
-
-syncCustomCommandsButton.addEventListener("click", async () => {
-  setSaveState(customCommandsSaveStateElement, "saving", t("customValidating"));
-  const names = new Set();
-  const invalidName = customCommands.some((command) => {
-    if (defaultRelayCommandNames.has(command.name) || names.has(command.name)) return true;
-    names.add(command.name);
-    return false;
-  });
-  if (customCommands.length > 16 || invalidName) {
-    setSaveState(customCommandsSaveStateElement, "error", t("customDuplicateName"));
-    return;
-  }
-  syncCustomCommandsButton.disabled = true;
-  addCustomCommandButton.disabled = true;
-  setSaveState(customCommandsSaveStateElement, "saving", t("customSyncing"));
-  try {
-    const config = await invoke("save_custom_commands", { commands: cloneCustomCommands(customCommands) });
-    customCommandsDirty = false;
-    customCommands = cloneCustomCommands(config.customCommands);
-    bootstrap.config = config;
-    applyConfig(config);
-    try {
-      applyBootstrap(await invoke("get_bootstrap"));
-    } catch {
-      renderCustomCommands();
-    }
-    setSaveState(customCommandsSaveStateElement, "saved", t("customActive"));
-  } catch (error) {
-    customCommandsDirty = true;
-    setSaveState(customCommandsSaveStateElement, "error", String(error));
-  } finally {
-    syncCustomCommandsButton.disabled = false;
-    addCustomCommandButton.disabled = customCommands.length >= 16;
-  }
+const customCommandsUi = initializeCustomCommands({
+  $, $$, t, invoke, formatTranslation, setSaveState,
+  getBootstrap: () => bootstrap, applyConfig, applyBootstrap,
 });
 
 clearPendingMediaButton.addEventListener("click", async () => {
@@ -2987,36 +2363,26 @@ async function copyValue(button, value) {
 
 copyUrlButton.addEventListener("click", () => copyValue(copyUrlButton, overlayUrlElement.value));
 copyAudioUrlButton.addEventListener("click", () => copyValue(copyAudioUrlButton, audioUrlElement.value));
-if (copyYoutubeUrlButton && youtubeUrlElement) {
-  copyYoutubeUrlButton.addEventListener("click", () => copyValue(copyYoutubeUrlButton, youtubeUrlElement.value));
-}
-if (copyTtsUrlButton && ttsUrlElement) {
-  copyTtsUrlButton.addEventListener("click", () => copyValue(copyTtsUrlButton, ttsUrlElement.value));
-}
-if (copyNotificationUrlButton && notificationUrlElement) {
-  copyNotificationUrlButton.addEventListener("click", () => copyValue(copyNotificationUrlButton, notificationUrlElement.value));
-}
-if (copyStickerUrlButton && stickerUrlElement) {
-  copyStickerUrlButton.addEventListener("click", () => copyValue(copyStickerUrlButton, stickerUrlElement.value));
-}
 openInviteButton.addEventListener("click", () => invoke("open_help_link", { link: inviteUrlElement.value }));
 
-if (saveMusicOverlayButton) {
-  saveMusicOverlayButton.addEventListener("click", async () => {
-    if (musicOverlaySaveStateElement) musicOverlaySaveStateElement.textContent = t("saving");
-    try {
-      const config = await invoke("set_music_widget_size", {
-        width: clamp(musicWidgetWidthElement.value, 160, 16384),
-        height: clamp(musicWidgetHeightElement.value, 90, 16384),
-      });
-      bootstrap.config = config;
-      applyOutputGeometryTarget(config, "mediaWidget", true);
-      if (musicOverlaySaveStateElement) musicOverlaySaveStateElement.textContent = t("saved");
-    } catch (error) {
-      if (musicOverlaySaveStateElement) musicOverlaySaveStateElement.textContent = String(error);
-    }
+for (const button of $$("[data-go-to-page]")) {
+  button.addEventListener("click", () => {
+    showPage(button.dataset.goToPage, { moveFocus: true });
+    if (button.dataset.goToTarget) settingsSearch.reveal(document.getElementById(button.dataset.goToTarget));
   });
 }
+
+// The tray can ask the panel to open a specific page (for example Moderation).
+window.__TAURI__.event?.listen("relay-open-page", ({ payload }) => {
+  if (pageMetadata[payload]) showPage(payload, { moveFocus: true });
+});
+
+$("#setup-invite-button")?.addEventListener("click", () => {
+  if (bootstrap?.inviteUrl) void invoke("open_help_link", { link: bootstrap.inviteUrl });
+});
+
+const copyReactionsUrlButton = $("#copy-reactions-url");
+copyReactionsUrlButton.addEventListener("click", () => copyValue(copyReactionsUrlButton, $("#reactions-url").value));
 
 for (const [target, button] of outputTestButtons) {
   button.addEventListener("click", async () => {
@@ -3025,6 +2391,7 @@ for (const [target, button] of outputTestButtons) {
     try {
       await invoke("test_output", { target });
       button.textContent = t("outputTestSent");
+      markSetupTested();
     } catch (error) {
       button.textContent = t("outputTestFailed");
       button.title = String(error);
@@ -3037,12 +2404,34 @@ for (const [target, button] of outputTestButtons) {
 }
 
 regenerateSecretButton.addEventListener("click", async () => {
-  setSaveState(saveStateElement, "saving", t("regenerating"));
+  notify("saving", t("regenerating"));
   try {
     applyBootstrap(await invoke("regenerate_secret"), true);
-    setSaveState(saveStateElement, "saved", t("secretRegenerated"));
+    notify("saved", t("secretRegenerated"));
   } catch (error) {
-    setSaveState(saveStateElement, "error", String(error));
+    notify("error", String(error));
+  }
+});
+
+$("#copy-diagnostic").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  const state = $("#diagnostic-state");
+  button.disabled = true;
+  try {
+    const status = await invoke("get_runtime_status").catch(() => null);
+    const report = buildDiagnosticReport({
+      version: currentAppVersion,
+      bootstrap: { ...bootstrap, ...(status || {}), history },
+      interfaceState: { locale, design, theme, fontScale },
+      setup: bootstrap ? setupStatus() : {},
+      recentErrors,
+    });
+    await navigator.clipboard.writeText(report);
+    setSaveState(state, "saved", t("diagnosticCopied"));
+  } catch {
+    setSaveState(state, "error", t("copyFailed"));
+  } finally {
+    button.disabled = false;
   }
 });
 
@@ -3050,7 +2439,7 @@ toggleWidgetButton.addEventListener("click", async () => {
   try {
     setWidgetState(await invoke("toggle_widget"));
   } catch (error) {
-    setSaveState(saveStateElement, "error", String(error));
+    notify("error", String(error));
   }
 });
 
@@ -3058,7 +2447,7 @@ lockWidgetButton.addEventListener("click", async () => {
   try {
     setWidgetState(await invoke("set_widget_locked", { locked: !bootstrap.widget.locked }));
   } catch (error) {
-    setSaveState(saveStateElement, "error", String(error));
+    notify("error", String(error));
   }
 });
 
@@ -3069,7 +2458,7 @@ notificationWidgetEnabledElement.addEventListener("change", async () => {
     }));
   } catch (error) {
     notificationWidgetEnabledElement.checked = !notificationWidgetEnabledElement.checked;
-    setSaveState(saveStateElement, "error", String(error));
+    notify("error", String(error));
   }
 });
 
@@ -3079,7 +2468,7 @@ lockNotificationWidgetButton.addEventListener("click", async () => {
       locked: !bootstrap.notificationWidget.locked,
     }));
   } catch (error) {
-    setSaveState(saveStateElement, "error", String(error));
+    notify("error", String(error));
   }
 });
 
@@ -3173,7 +2562,7 @@ clearOverlayButton.addEventListener("click", async () => {
   try {
     await invoke("clear_overlay");
   } catch (error) {
-    setSaveState(mediaSaveStateElement, "error", String(error));
+    notify("error", String(error));
   }
 });
 
@@ -3214,7 +2603,7 @@ document.querySelector("#preview-sample").addEventListener("change", updateSampl
 document.querySelector("#send-preview-sample").addEventListener("click", async (event) => {
   const button = event.currentTarget; button.disabled = true;
   const state = document.querySelector("#preview-sample-state");
-  try { await invoke("preview_output_sample", { sample: document.querySelector("#preview-sample").value }); state.textContent = t("outputTestSent"); }
+  try { await invoke("preview_output_sample", { sample: document.querySelector("#preview-sample").value }); state.textContent = t("outputTestSent"); markSetupTested(); }
   catch (error) { state.textContent = String(error); }
   finally { updateSampleTestButton(); }
 });
@@ -3235,6 +2624,10 @@ try {
     renderChangelog();
   }).catch(() => renderChangelog());
   applyBootstrap(await invoke("get_bootstrap"));
+  const lastPage = readStorage("relay-last-page");
+  const setup = setupStatus();
+  const setupComplete = ["bot", "channel"].every((step) => setup[step]);
+  if (setupComplete && lastPage && pageMetadata[lastPage] && lastPage !== currentPage) showPage(lastPage);
   moduleControls = initializeModules({ invoke, t, getBootstrap: () => bootstrap });
   connectPanelSocket();
   statusTimer = window.setInterval(refreshRuntimeStatus, 1500);

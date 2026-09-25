@@ -21,11 +21,11 @@ function setup() {
     return elements.get(id);
   };
   const calls = [];
-  const musicForm = element("form");
+  const routingForm = element("form");
   const dirtyForms = new Set();
   const source = fs.readFileSync(__dirname + "/panel.js", "utf8");
   const block = source.slice(source.indexOf("let musicCleanupToken;"), source.indexOf('refreshChannelsButton.addEventListener("click"'));
-  const context = vm.createContext({ $: element, musicForm, dirtyForms,
+  const context = vm.createContext({ $: element, routingForm, dirtyForms,
     t: (key) => key,
     invoke: async (command, args) => {
       calls.push({ command, args });
@@ -33,7 +33,7 @@ function setup() {
     },
   });
   vm.runInContext(block, context);
-  return { element, calls, musicForm, dirtyForms };
+  return { element, calls, routingForm, dirtyForms };
 }
 
 test("preview requires a separate confirmation and sends only its snapshot token", async () => {
@@ -53,15 +53,15 @@ test("cancel and settings edits invalidate the cleanup confirmation", async () =
     const ui = setup();
     await ui.element("#music-cleanup-preview").handlers.click();
     if (cancel) ui.element("#music-cleanup-cancel").handlers.click();
-    else ui.musicForm.handlers.input();
+    else ui.routingForm.handlers.input();
     await ui.element("#music-cleanup-confirm").handlers.click();
     assert.equal(ui.calls.length, 1);
   }
 });
 
-test("unsaved music settings prevent cleanup previews", async () => {
+test("unsaved channel settings prevent cleanup previews", async () => {
   const ui = setup();
-  ui.dirtyForms.add(ui.musicForm);
+  ui.dirtyForms.add(ui.routingForm);
   await ui.element("#music-cleanup-preview").handlers.click();
   assert.equal(ui.calls.length, 0);
 });

@@ -1,11 +1,11 @@
 <!doctype html>
-<html lang="en" data-theme="light" data-design="openai">
+<html lang="en" data-theme="light" data-design="graphite">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data: http://127.0.0.1:* http://localhost:* https://cdn.discordapp.com https://media.discordapp.net https://*.discordapp.net https://*.klipy.com; media-src http://127.0.0.1:* http://localhost:* https://cdn.discordapp.com https://media.discordapp.net https://*.klipy.com; connect-src ws://127.0.0.1:* ws://localhost:*; frame-src http://127.0.0.1:* http://localhost:*"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data: http://127.0.0.1:* http://localhost:* https://cdn.discordapp.com https://media.discordapp.net https://*.discordapp.net https://*.klipy.com https://i.ytimg.com; media-src http://127.0.0.1:* http://localhost:* https://cdn.discordapp.com https://media.discordapp.net https://*.klipy.com; connect-src ws://127.0.0.1:* ws://localhost:*; frame-src http://127.0.0.1:* http://localhost:*"
     >
     <title>Relay</title>
     <link rel="stylesheet" href="./panel.css">
@@ -22,6 +22,7 @@
       <symbol id="nav-icon-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M9.8 9a2.3 2.3 0 1 1 3.6 1.9c-1.1.8-1.4 1.2-1.4 2.4M12 16.8h.01"/></symbol>
       <symbol id="nav-icon-personalization" viewBox="0 0 24 24"><path d="M4 7h16M4 17h16M8 4v6M16 14v6"/><circle cx="8" cy="7" r="2"/><circle cx="16" cy="17" r="2"/></symbol>
       <symbol id="nav-icon-changelog" viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></symbol>
+      <symbol id="nav-icon-discord" viewBox="0 0 24 24"><path d="M8 7.5c2.6-.9 5.4-.9 8 0l1.3 2.2c1 2 1.5 4.1 1.5 6.3-1.5 1.1-3 1.7-4.5 2l-.8-1.6M10.5 16.4l-.8 1.6c-1.5-.3-3-.9-4.5-2 0-2.2.5-4.3 1.5-6.3L8 7.5"/><circle cx="9.5" cy="12.5" r="1.1"/><circle cx="14.5" cy="12.5" r="1.1"/></symbol>
       <symbol id="nav-icon-about" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 10v5M12 7.3h.01"/></symbol>
     </svg>
     <div class="app-shell">
@@ -33,69 +34,68 @@
           </div>
         </div>
 
-        <nav class="navigation" aria-label="Primary navigation">
-          <button class="navigation__item is-active" type="button" data-page-target="overview">
-            <span class="navigation__index">01</span>
+        <nav class="navigation" aria-label="Primary navigation" data-i18n-aria-label="navPrimaryLabel">
+          <p class="navigation__group" data-i18n="navGroupStart">Get started</p>
+          <button class="navigation__item is-active" type="button" data-page-target="overview" aria-current="page">
             <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#nav-icon-overview"></use></svg>
             <span class="navigation__label" data-i18n="navOverview">Overview</span>
           </button>
+          <button class="navigation__item" type="button" data-page-target="discord">
+            <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#nav-icon-discord"></use></svg>
+            <span class="navigation__label" data-i18n="navDiscord">Discord</span>
+            <span class="navigation__badge" data-nav-badge="discord" hidden></span>
+          </button>
+          <button class="navigation__item" type="button" data-page-target="help">
+            <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#nav-icon-help"></use></svg>
+            <span class="navigation__label" data-i18n="navHelp">Help</span>
+          </button>
+          <p class="navigation__group" data-i18n="navGroupContent">Content</p>
           <button class="navigation__item" type="button" data-page-target="messages">
-            <span class="navigation__index">02</span>
             <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v12H9l-5 4V4Z"/><path d="M8 8h8M8 12h5"/></svg>
             <span class="navigation__label" data-i18n="moduleMessages">Messages</span>
           </button>
           <button class="navigation__item" type="button" data-page-target="media">
-            <span class="navigation__index">03</span>
             <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#nav-icon-media"></use></svg>
             <span class="navigation__label" data-i18n="navMedia">Media</span>
           </button>
           <button class="navigation__item" type="button" data-page-target="music">
-            <span class="navigation__index">04</span>
             <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#nav-icon-music"></use></svg>
             <span class="navigation__label" data-i18n="navMusic">Music</span>
           </button>
           <button class="navigation__item" type="button" data-page-target="reactions">
-            <span class="navigation__index">05</span>
             <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10h4l5-5v14l-5-5H4v-4ZM17 8a6 6 0 0 1 0 8M20 5a10 10 0 0 1 0 14"/></svg>
             <span class="navigation__label" data-i18n="moduleReactions">Sounds and reactions</span>
           </button>
+          <p class="navigation__group" data-i18n="navGroupBroadcast">Broadcast</p>
           <button class="navigation__item" type="button" data-page-target="overlay">
-            <span class="navigation__index">06</span>
             <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#nav-icon-overlay"></use></svg>
             <span class="navigation__label" data-i18n="navOverlay">Overlay</span>
-          </button>
-          <button class="navigation__item" type="button" data-page-target="moderation">
-            <span class="navigation__index">07</span>
-            <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#nav-icon-moderation"></use></svg>
-            <span class="navigation__label" data-i18n="navModeration">Moderation</span>
-          </button>
-          <button class="navigation__item" type="button" data-page-target="commands">
-            <span class="navigation__index">08</span>
-            <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#nav-icon-commands"></use></svg>
-            <span class="navigation__label" data-i18n="navCommands">Commands</span>
+            <span class="navigation__badge" data-nav-badge="overlay" hidden></span>
           </button>
           <button class="navigation__item" type="button" data-page-target="history">
-            <span class="navigation__index">09</span>
             <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#nav-icon-history"></use></svg>
             <span class="navigation__label" data-i18n="navHistory">History</span>
           </button>
-          <button class="navigation__item" type="button" data-page-target="help">
-            <span class="navigation__index">10</span>
-            <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#nav-icon-help"></use></svg>
-            <span class="navigation__label" data-i18n="navHelp">Help</span>
+          <p class="navigation__group" data-i18n="navGroupSafety">Safety</p>
+          <button class="navigation__item" type="button" data-page-target="moderation">
+            <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#nav-icon-moderation"></use></svg>
+            <span class="navigation__label" data-i18n="navModeration">Moderation</span>
+            <span class="navigation__badge" data-nav-badge="moderation" hidden></span>
           </button>
+          <button class="navigation__item" type="button" data-page-target="commands">
+            <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#nav-icon-commands"></use></svg>
+            <span class="navigation__label" data-i18n="navCommands">Commands</span>
+          </button>
+          <p class="navigation__group" data-i18n="navGroupApp">App</p>
           <button class="navigation__item" type="button" data-page-target="personalization">
-            <span class="navigation__index">11</span>
             <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#nav-icon-personalization"></use></svg>
             <span class="navigation__label" data-i18n="navPersonalization">Personalization</span>
           </button>
           <button class="navigation__item" type="button" data-page-target="changelog">
-            <span class="navigation__index">12</span>
             <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#nav-icon-changelog"></use></svg>
             <span class="navigation__label" data-i18n="navChangelog">Changelog</span>
           </button>
           <button class="navigation__item" type="button" data-page-target="about">
-            <span class="navigation__index">13</span>
             <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#nav-icon-about"></use></svg>
             <span class="navigation__label" data-i18n="navAbout">About</span>
           </button>
@@ -112,7 +112,7 @@
             </button>
             <div id="sidebar-language-options" class="language-picker__options sidebar-language-picker__options" role="listbox" hidden></div>
           </div>
-          <button id="theme-toggle" class="utility-button" type="button" aria-label="Switch theme">
+          <button id="theme-toggle" class="utility-button" type="button" aria-label="Switch theme" data-i18n-aria-label="switchThemeLabel">
             <span data-i18n="appearance">Appearance</span>
             <strong id="theme-value">Light</strong>
             <svg class="utility-button__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v2M12 19v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M3 12h2M19 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/><circle cx="12" cy="12" r="4"/></svg>
@@ -126,7 +126,7 @@
               aria-expanded="false"
               aria-controls="update-menu"
             >
-              <span><span class="version__platform">Windows · </span>v<span data-app-version>1.3.4</span></span>
+              <span><span class="version__platform">Windows · </span>v<span data-app-version>1.3.7</span></span>
               <span id="update-available-dot" class="update-available-dot" hidden></span>
               <svg class="update-check__icon" viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M20 6v5h-5M4 18v-5h5M6.1 9a7 7 0 0 1 11.3-2.1L20 11M4 13l2.6 4.1A7 7 0 0 0 17.9 15"/>
@@ -166,7 +166,7 @@
             </div>
             <div class="topbar__heading">
               <p id="page-kicker" class="kicker">System</p>
-              <h1 id="page-title">Overview</h1>
+              <h1 id="page-title" tabindex="-1">Overview</h1>
             </div>
           </div>
           <div id="settings-search-control" class="settings-search">
@@ -176,6 +176,10 @@
             <input
               id="settings-search"
               type="search"
+              role="combobox"
+              aria-autocomplete="list"
+              aria-controls="settings-search-results"
+              aria-expanded="false"
               autocomplete="off"
               spellcheck="false"
               data-i18n-placeholder="searchPlaceholder"
@@ -206,33 +210,190 @@
               </button>
             </div>
           </section>
-          <div class="status-strip" aria-label="Relay status">
-            <div class="status" id="bot-status">
+          <div class="status-strip" aria-label="Relay status" data-i18n-aria-label="relayStatusLabel">
+            <button class="status" id="bot-status" type="button" data-go-to-page="discord" data-i18n-title="statusBotTitle">
               <span class="status__light"></span>
               <img id="bot-avatar" class="status__avatar" alt="" hidden>
               <span id="bot-label">Bot offline</span>
-            </div>
-            <div class="status" id="server-status">
+            </button>
+            <button class="status" id="server-status" type="button" data-go-to-page="personalization" data-go-to-target="system-settings" data-i18n-title="statusServerTitle">
               <span class="status__light"></span>
               <span id="server-label">Server offline</span>
-            </div>
-            <div class="status status--count">
+            </button>
+            <button class="status status--count" type="button" data-go-to-page="overlay" data-go-to-target="disclosure-overlay-1" data-i18n-title="statusOutputsTitle">
               <span id="client-count">0</span>
               <span data-i18n="overlays">overlays</span>
-            </div>
+            </button>
           </div>
         </header>
 
         <main class="pages">
           <section class="page is-active" data-page="overview">
-            <div class="page-intro">
+            <div class="page-intro page-intro--compact">
               <p class="kicker" data-i18n="overviewKicker">Local broadcast</p>
-              <h2 data-i18n="overviewTitle">One channel. Every screen.</h2>
-              <p data-i18n="overviewCopy">Connect Discord once, choose a channel, then keep the relay running quietly in the tray.</p>
+              <h2 data-i18n="overviewTitle">Get Relay ready.</h2>
+              <p data-i18n="overviewCopy">Follow these steps once. Each button opens the right setting.</p>
             </div>
 
-            <div class="split-layout">
-              <details class="panel-section panel-disclosure" id="disclosure-overview-1">
+            <details class="panel-section panel-section--wide setup-checklist" id="setup-checklist" open>
+              <summary class="section-heading">
+                <div>
+                  <h3 data-i18n="setupTitle">Setup checklist</h3>
+                  <p id="setup-progress" class="setup-progress" role="status"></p>
+                </div>
+                <span class="setup-meter" aria-hidden="true"><span id="setup-meter-fill"></span></span>
+              </summary>
+              <ol class="setup-steps">
+                <li class="setup-step" data-setup-step="bot">
+                  <span class="setup-step__marker" aria-hidden="true"></span>
+                  <span class="setup-step__copy">
+                    <strong data-i18n="setupBotTitle"></strong>
+                    <small data-i18n="setupBotHelp"></small>
+                  </span>
+                  <span class="setup-step__state" data-setup-state></span>
+                  <button class="button button--quiet" type="button" data-go-to-page="discord" data-go-to-target="disclosure-discord-connection" data-i18n="setupOpen">Open</button>
+                </li>
+                <li class="setup-step" data-setup-step="invite">
+                  <span class="setup-step__marker" aria-hidden="true"></span>
+                  <span class="setup-step__copy">
+                    <strong data-i18n="setupInviteTitle"></strong>
+                    <small data-i18n="setupInviteHelp"></small>
+                  </span>
+                  <span class="setup-step__state" data-setup-state></span>
+                  <button class="button button--quiet" type="button" data-go-to-page="discord" data-go-to-target="disclosure-discord-connection" id="setup-invite-button" data-i18n="setupInviteOpen">Open invitation</button>
+                </li>
+                <li class="setup-step" data-setup-step="channel">
+                  <span class="setup-step__marker" aria-hidden="true"></span>
+                  <span class="setup-step__copy">
+                    <strong data-i18n="setupChannelTitle"></strong>
+                    <small data-i18n="setupChannelHelp"></small>
+                  </span>
+                  <span class="setup-step__state" data-setup-state></span>
+                  <button class="button button--quiet" type="button" data-go-to-page="discord" data-go-to-target="channel" data-i18n="setupOpen">Open</button>
+                </li>
+                <li class="setup-step" data-setup-step="obs">
+                  <span class="setup-step__marker" aria-hidden="true"></span>
+                  <span class="setup-step__copy">
+                    <strong data-i18n="setupObsTitle"></strong>
+                    <small data-i18n="setupObsHelp"></small>
+                  </span>
+                  <span class="setup-step__state" data-setup-state></span>
+                  <button class="button button--quiet" type="button" data-go-to-page="overlay" data-go-to-target="disclosure-overlay-2" data-i18n="setupOpen">Open</button>
+                </li>
+                <li class="setup-step" data-setup-step="test">
+                  <span class="setup-step__marker" aria-hidden="true"></span>
+                  <span class="setup-step__copy">
+                    <strong data-i18n="setupTestTitle"></strong>
+                    <small data-i18n="setupTestHelp"></small>
+                  </span>
+                  <span class="setup-step__state" data-setup-state></span>
+                  <button class="button button--quiet" type="button" data-go-to-page="overlay" data-go-to-target="disclosure-overlay-preview" data-i18n="setupOpen">Open</button>
+                </li>
+              </ol>
+              <details class="settings-disclosure setup-optional">
+                <summary>
+                  <span>
+                    <strong data-i18n="setupOptionalTitle">Optional features</strong>
+                    <small data-i18n="setupOptionalHelp">Turn these on whenever you need them.</small>
+                  </span>
+                  <i aria-hidden="true"></i>
+                </summary>
+                <ol class="setup-steps settings-disclosure__content">
+                <li class="setup-step" data-setup-step="notifications" data-setup-optional>
+                  <span class="setup-step__marker" aria-hidden="true"></span>
+                  <span class="setup-step__copy">
+                    <strong data-i18n="setupNotificationsTitle"></strong>
+                    <small data-i18n="setupNotificationsHelp"></small>
+                  </span>
+                  <span class="setup-step__state" data-setup-state></span>
+                  <button class="button button--quiet" type="button" data-go-to-page="discord" data-go-to-target="tts-channel" data-i18n="setupOpen">Open</button>
+                </li>
+                <li class="setup-step" data-setup-step="music" data-setup-optional>
+                  <span class="setup-step__marker" aria-hidden="true"></span>
+                  <span class="setup-step__copy">
+                    <strong data-i18n="setupMusicTitle"></strong>
+                    <small data-i18n="setupMusicHelp"></small>
+                  </span>
+                  <span class="setup-step__state" data-setup-state></span>
+                  <button class="button button--quiet" type="button" data-go-to-page="music" data-go-to-target="disclosure-music-1" data-i18n="setupOpen">Open</button>
+                </li>
+                <li class="setup-step" data-setup-step="reactions" data-setup-optional>
+                  <span class="setup-step__marker" aria-hidden="true"></span>
+                  <span class="setup-step__copy">
+                    <strong data-i18n="setupReactionsTitle"></strong>
+                    <small data-i18n="setupReactionsHelp"></small>
+                  </span>
+                  <span class="setup-step__state" data-setup-state></span>
+                  <button class="button button--quiet" type="button" data-go-to-page="reactions" data-i18n="setupOpen">Open</button>
+                </li>
+                </ol>
+              </details>
+            </details>
+
+            <section class="panel-section panel-section--wide trial-mode" id="trial-mode" hidden>
+              <div class="section-heading">
+                <div>
+                  <h3 data-i18n="trialTitle">Try Relay without Discord</h3>
+                </div>
+              </div>
+              <p class="section-copy" data-i18n="trialCopy">See how media looks before you create a bot. Tests stay on this computer and nothing is posted to Discord.</p>
+              <ol class="trial-steps">
+                <li>
+                  <span data-i18n="trialStep1">Show the media widget on your screen, or add Relay Visual in OBS.</span>
+                  <span class="trial-actions">
+                    <button id="trial-show-widget" class="button button--quiet" type="button" data-i18n="trialShowWidget">Show the widget</button>
+                    <button class="button button--quiet" type="button" data-go-to-page="overlay" data-go-to-target="disclosure-overlay-2" data-i18n="helpGoObs">Open OBS links</button>
+                  </span>
+                </li>
+                <li>
+                  <span data-i18n="trialStep2">Pick a sample and send it.</span>
+                  <span class="trial-actions">
+                    <select id="trial-sample" aria-label="Test media" data-i18n-aria-label="sampleMedia">
+                      <option value="portrait" data-i18n="samplePortrait">Portrait image</option>
+                      <option value="landscape" data-i18n="sampleLandscape">Landscape image</option>
+                      <option value="gif" data-i18n="sampleGif">GIF</option>
+                      <option value="video" data-i18n="sampleVideo">Video</option>
+                      <option value="audio" data-i18n="sampleAudio">Audio</option>
+                      <option value="notification" data-i18n="sampleNotification">Message notification</option>
+                    </select>
+                    <button id="trial-send" class="button button--primary" type="button" data-i18n="trialSend">Send a test</button>
+                  </span>
+                </li>
+              </ol>
+              <p id="trial-state" class="trial-state" role="status"></p>
+            </section>
+
+            <section class="overview-dashboard" aria-labelledby="dashboard-title">
+              <h3 id="dashboard-title" class="overview-dashboard__title" data-i18n="dashboardTitle">At a glance</h3>
+              <div class="overview-dashboard__grid">
+                <button class="dashboard-tile" type="button" data-go-to-page="discord">
+                  <span data-i18n="dashboardBot">Discord bot</span>
+                  <strong id="dashboard-bot"></strong>
+                </button>
+                <button class="dashboard-tile" type="button" data-go-to-page="overlay" data-go-to-target="disclosure-overlay-1">
+                  <span data-i18n="dashboardOutputs">OBS outputs</span>
+                  <strong id="dashboard-outputs"></strong>
+                </button>
+                <button class="dashboard-tile" type="button" data-go-to-page="moderation">
+                  <span data-i18n="dashboardPending">Awaiting moderation</span>
+                  <strong id="dashboard-pending"></strong>
+                </button>
+                <button class="dashboard-tile" type="button" data-go-to-page="history">
+                  <span data-i18n="dashboardLastMedia">Last media</span>
+                  <strong id="dashboard-last-media"></strong>
+                </button>
+              </div>
+            </section>
+          </section>
+
+          <section class="page" data-page="discord" hidden>
+            <div class="page-intro page-intro--compact">
+              <p class="kicker" data-i18n="discordKicker">Discord</p>
+              <h2 data-i18n="discordTitle">Connect the bot, then pick its channels.</h2>
+              <p data-i18n="discordCopy">Everything Relay needs from Discord is on this page.</p>
+            </div>
+
+            <details class="panel-section panel-section--wide panel-disclosure" id="disclosure-discord-connection" open>
                 <summary class="section-heading">
                   <div>
                     <span class="section-number">01</span>
@@ -256,7 +417,7 @@
                   <label class="field">
                     <span data-i18n="inviteUrl">Bot invitation URL</span>
                     <span class="url-field">
-                      <input id="invite-url" type="text" readonly aria-label="Discord bot invitation URL">
+                      <input id="invite-url" type="text" readonly aria-label="Discord bot invitation URL" data-i18n-aria-label="inviteUrl">
                       <button id="open-invite" class="button button--quiet" type="button" data-i18n="openInvite">Open</button>
                     </span>
                   </label>
@@ -297,13 +458,127 @@
                     </label>
                     <div class="settings-actions field--wide">
                       <span id="bot-presence-save-state" class="save-state" role="status"></span>
-                      <button class="button button--quiet" type="submit" data-i18n="saveBotPresence">Save bot status</button>
                     </div>
                   </form>
                 </details>
               </details>
 
-            </div>
+            <section class="panel-section panel-section--wide discord-channels" id="discord-channels">
+              <div class="section-heading">
+                <div>
+                  <span class="section-number">02</span>
+                  <h3 data-i18n="channelsTitle">Channels</h3>
+                </div>
+                <span class="section-actions">
+                  <span id="save-state" class="save-state" role="status"></span>
+                  <button id="refresh-channels" class="button button--quiet" type="button" data-i18n="refreshChannels">Refresh channels</button>
+                </span>
+              </div>
+              <p class="section-copy" data-i18n="channelsCopy">Pick which Discord channel feeds each feature. Leave a channel empty to turn that feature off.</p>
+              <form id="routing-form" class="channel-groups">
+                <fieldset class="channel-group">
+                  <legend data-i18n="channelGroupMedia">Media to OBS</legend>
+                  <label class="field field--wide">
+                    <span data-i18n="mediaChannel">Media channel</span>
+                    <select id="channel" name="watchedChannelId">
+                      <option value="">Select a visible text channel</option>
+                    </select>
+                  </label>
+                  <label class="setting-row setting-row--switch field--wide">
+                    <span>
+                      <strong data-i18n="mediaCleanup24h">Delete media channel messages after 24 hours</strong>
+                      <small data-i18n="channelCleanup24hHelp">Checks every 5 minutes while Relay runs. Deletes messages older than 24 hours, except the protected welcome message. Requires Manage Messages.</small>
+                    </span>
+                    <span class="switch">
+                      <input id="media-cleanup-enabled" type="checkbox">
+                      <span class="switch__track" aria-hidden="true"></span>
+                    </span>
+                  </label>
+                  <label class="field field--wide">
+                    <span data-i18n="mediaWelcomeMessage">Media welcome message (optional)</span>
+                    <input id="media-welcome-message" type="text" autocomplete="off" spellcheck="false" data-i18n-placeholder="musicWelcomePlaceholder" placeholder="Discord message link or ID">
+                    <small data-i18n="channelWelcomeOptionalHelp">Leave empty only if no message needs to be kept. A supplied message must belong to this channel.</small>
+                  </label>
+                </fieldset>
+                <fieldset class="channel-group">
+                  <legend data-i18n="channelGroupNotifications">Message notifications</legend>
+                  <label class="field field--wide">
+                    <span data-i18n="ttsChannel">Message notification channel</span>
+                    <select id="tts-channel" name="ttsChannelId">
+                      <option value="">Message notifications disabled</option>
+                    </select>
+                  </label>
+                  <label class="setting-row setting-row--switch field--wide">
+                    <span>
+                      <strong data-i18n="ttsCleanup24h">Delete notification messages after 24 hours</strong>
+                      <small data-i18n="channelCleanup24hHelp">Checks every 5 minutes while Relay runs. Deletes messages older than 24 hours, except the protected welcome message. Requires Manage Messages.</small>
+                    </span>
+                    <span class="switch">
+                      <input id="tts-cleanup-enabled" type="checkbox">
+                      <span class="switch__track" aria-hidden="true"></span>
+                    </span>
+                  </label>
+                  <label class="field field--wide">
+                    <span data-i18n="ttsWelcomeMessage">Notification channel welcome message (optional)</span>
+                    <input id="tts-welcome-message" type="text" autocomplete="off" spellcheck="false" data-i18n-placeholder="musicWelcomePlaceholder" placeholder="Discord message link or ID">
+                    <small data-i18n="channelWelcomeOptionalHelp">Leave empty only if no message needs to be kept. A supplied message must belong to this channel.</small>
+                  </label>
+                </fieldset>
+                <fieldset class="channel-group">
+                  <legend data-i18n="channelGroupMusic">Music requests</legend>
+                  <label class="field field--wide">
+                    <span data-i18n="musicChannel">Music channel</span>
+                    <select id="music-channel" name="musicChannelId">
+                      <option value="" data-i18n="musicDisabled">Music disabled</option>
+                    </select>
+                  </label>
+                  <label class="field field--wide">
+                    <span data-i18n="musicWelcome">Protected welcome message (optional)</span>
+                    <input id="music-welcome-message" type="text" autocomplete="off" spellcheck="false" data-i18n-placeholder="musicWelcomePlaceholder" placeholder="Discord message link or ID">
+                    <small data-i18n="musicWelcomeHelp">Leave empty to protect no welcome message. If provided, this message is never deleted. Save its link or ID before enabling cleanup.</small>
+                  </label>
+                  <label class="setting-row setting-row--switch field--wide">
+                    <span>
+                      <strong data-i18n="musicCleanupEnabled">Automatically clean music messages</strong>
+                      <small data-i18n="musicCleanupHelp">Requires Manage Messages. A protected welcome message is optional; if provided, it is preserved. Requests disappear after processing; unused results expire after 120 seconds.</small>
+                    </span>
+                    <span class="switch">
+                      <input id="music-cleanup-enabled" type="checkbox">
+                      <span class="switch__track" aria-hidden="true"></span>
+                    </span>
+                  </label>
+                </fieldset>
+                <fieldset class="channel-group">
+                  <legend data-i18n="channelGroupSecurity">Security trap</legend>
+                  <label class="field field--full">
+                    <span data-i18n="honeypotChannel">Compromised account trap</span>
+                    <select id="honeypot-channel" name="honeypotChannelId">
+                      <option value="" data-i18n="honeypotDisabled">Disabled</option>
+                    </select>
+                    <small data-i18n="honeypotChannelHelp">Choose a protected Discord channel. Any non-bot account that posts there is treated as potentially compromised.</small>
+                  </label>
+                  <label class="field field--full">
+                    <span data-i18n="honeypotAction">Trap action</span>
+                    <select id="honeypot-action" name="honeypotAction">
+                      <option value="kick" data-i18n="honeypotKick">Kick</option>
+                      <option value="ban" data-i18n="honeypotBan">Ban</option>
+                    </select>
+                    <small data-i18n="honeypotActionHelp">Relay sends an English security notice, then applies the selected action. The bot needs the matching Discord permission and role position.</small>
+                  </label>
+                </fieldset>
+                <div class="settings-actions">
+                  <p class="autosave-note" data-i18n="autosaveNote">Changes are saved automatically.</p>
+                </div>
+              </form>
+              <div class="music-cleanup-tools">
+                <button id="music-cleanup-preview" class="button button--quiet" type="button" data-i18n="musicCleanupPreview">Preview channel cleanup</button>
+                <p id="music-cleanup-status" role="status" aria-live="polite"></p>
+                <div id="music-cleanup-confirmation" hidden>
+                  <button id="music-cleanup-confirm" class="button button--danger" type="button" data-i18n="musicCleanupConfirm">Delete these messages</button>
+                  <button id="music-cleanup-cancel" class="button button--quiet" type="button" data-i18n="musicCleanupCancel">Cancel</button>
+                </div>
+              </div>
+            </section>
           </section>
 
           <section class="page" data-page="messages" hidden>
@@ -319,27 +594,11 @@
               </div>
               <p class="section-copy" data-i18n="ttsSpeechHelp">Message notifications remain visual; optional notification sounds can be configured separately.</p>
               <form id="messages-form" class="settings-list">
-                <label class="field field--wide">
-                  <span data-i18n="ttsChannel">Message notification channel</span>
-                  <select id="tts-channel" name="ttsChannelId">
-                    <option value="">Message notifications disabled</option>
-                  </select>
-                </label>
-                <label class="setting-row setting-row--switch field--wide">
-                  <span>
-                    <strong data-i18n="ttsCleanup24h">Delete notification messages after 24 hours</strong>
-                    <small data-i18n="channelCleanup24hHelp">Checks every 5 minutes while Relay runs. Deletes messages older than 24 hours, except the protected welcome message. Requires Manage Messages.</small>
-                  </span>
-                  <span class="switch">
-                    <input id="tts-cleanup-enabled" type="checkbox">
-                    <span class="switch__track" aria-hidden="true"></span>
-                  </span>
-                </label>
-                <label class="field field--wide">
-                  <span data-i18n="ttsWelcomeMessage">Notification channel welcome message (optional)</span>
-                  <input id="tts-welcome-message" type="text" autocomplete="off" spellcheck="false" data-i18n-placeholder="musicWelcomePlaceholder" placeholder="Discord message link or ID">
-                  <small data-i18n="channelWelcomeOptionalHelp">Leave empty only if no message needs to be kept. A supplied message must belong to this channel.</small>
-                </label>
+                <p class="channel-link">
+                  <span data-i18n="channelLinkLabel">Discord channel</span>
+                  <strong data-channel-name="tts-channel"></strong>
+                  <button class="text-link" type="button" data-go-to-page="discord" data-go-to-target="tts-channel" data-i18n="channelChange">Change</button>
+                </p>
                 <label class="setting-row">
                   <span>
                     <strong data-i18n="notificationDuration">Notification duration</strong>
@@ -381,7 +640,7 @@
                   </span>
                 </label>
                 <div class="settings-actions">
-                  <button class="button button--primary" type="submit" data-i18n="savePlayback">Save messages</button>
+                  <p class="autosave-note" data-i18n="autosaveNote">Changes are saved automatically.</p>
                 </div>
               </form>
             </section>
@@ -391,12 +650,13 @@
             <section class="panel-section panel-section--wide" id="reaction-module"></section>
           </section>
           <section class="page" data-page="music" hidden>
-            <section class="panel-section panel-section--wide" id="music-queue-module"></section>
             <div class="page-intro page-intro--compact">
               <p class="kicker" data-i18n="musicKicker">Discord jukebox</p>
               <h2 data-i18n="musicTitle">Search YouTube. Play locally.</h2>
               <p data-i18n="musicCopy">Save a YouTube Data API key, pick a music channel, then type a search in Discord.</p>
             </div>
+
+            <section class="panel-section panel-section--wide" id="music-queue-module"></section>
 
             <div class="split-layout">
               <details class="panel-section panel-disclosure" id="disclosure-music-1" open>
@@ -409,66 +669,44 @@
                 </summary>
                 <p class="section-copy" data-i18n="musicSettingsCopy">The API key stays in Windows Credential Manager. Discord replies follow Relay’s interface language.</p>
                 <form id="music-form" class="form-grid">
+                  <p class="channel-link">
+                    <span data-i18n="channelLinkLabel">Discord channel</span>
+                    <strong data-channel-name="music-channel"></strong>
+                    <button class="text-link" type="button" data-go-to-page="discord" data-go-to-target="music-channel" data-i18n="channelChange">Change</button>
+                  </p>
                   <label class="field field--wide">
                     <span data-i18n="youtubeApiKey">YouTube API key</span>
                     <input id="youtube-api-key" name="youtubeApiKey" type="password" autocomplete="new-password">
                     <small data-i18n="youtubeApiKeyHelp">Stored in Windows Credential Manager and never shown again.</small>
                   </label>
                   <p id="youtube-key-status" class="section-copy" role="status"></p>
-                  <label class="field field--wide">
-                    <span data-i18n="musicChannel">Music channel</span>
-                    <select id="music-channel" name="musicChannelId">
-                      <option value="" data-i18n="musicDisabled">Music disabled</option>
-                    </select>
-                  </label>
-                  <label class="field field--wide">
-                    <span data-i18n="musicWelcome">Protected welcome message (optional)</span>
-                    <input id="music-welcome-message" type="text" autocomplete="off" spellcheck="false" data-i18n-placeholder="musicWelcomePlaceholder" placeholder="Discord message link or ID">
-                    <small data-i18n="musicWelcomeHelp">Leave empty to protect no welcome message. If provided, this message is never deleted. Save its link or ID before enabling cleanup.</small>
-                  </label>
-                  <label class="setting-row setting-row--switch field--wide">
-                    <span>
-                      <strong data-i18n="musicCleanupEnabled">Automatically clean music messages</strong>
-                      <small data-i18n="musicCleanupHelp">Requires Manage Messages. A protected welcome message is optional; if provided, it is preserved. Requests disappear after processing; unused results expire after 120 seconds.</small>
-                    </span>
-                    <span class="switch">
-                      <input id="music-cleanup-enabled" type="checkbox">
-                      <span class="switch__track" aria-hidden="true"></span>
-                    </span>
-                  </label>
                   <button class="button button--primary field--wide" type="submit" data-i18n="saveMusic">Save music settings</button>
                 </form>
-                <button id="music-cleanup-preview" class="button button--quiet" type="button" data-i18n="musicCleanupPreview">Preview channel cleanup</button>
-                <p id="music-cleanup-status" role="status" aria-live="polite"></p>
-                <div id="music-cleanup-confirmation" hidden>
-                  <button id="music-cleanup-confirm" class="button button--quiet" type="button" data-i18n="musicCleanupConfirm">Delete these messages</button>
-                  <button id="music-cleanup-cancel" class="button button--quiet" type="button" data-i18n="musicCleanupCancel">Cancel</button>
-                </div>
               </details>
 
-              <details class="panel-section panel-disclosure" lang="en" id="disclosure-music-2">
+              <details class="panel-section panel-disclosure" id="disclosure-music-2">
                 <summary class="section-heading">
                   <div>
                     <span class="section-number">02</span>
-                    <h3>YouTube Data API setup</h3>
+                    <h3 data-i18n="ytGuideTitle">YouTube Data API setup</h3>
                   </div>
                 </summary>
-                <p class="section-copy">English-only guide. Relay uses an API key, not OAuth — no client ID, secret, or redirect URI.</p>
+                <p class="section-copy" data-i18n="ytGuideCopy">Relay uses an API key, not OAuth: no client ID, secret or redirect URI.</p>
                 <div class="help-accordions">
                   <details class="help-disclosure" open>
                     <summary>
                       <span class="help-disclosure__number">01</span>
                       <span>
-                        <strong>Create a Google Cloud project</strong>
+                        <strong data-i18n="ytStep1Title">Create a Google Cloud project</strong>
                         <small>console.cloud.google.com</small>
                       </span>
                       <i aria-hidden="true"></i>
                     </summary>
                     <div class="help-disclosure__content">
                       <ol>
-                        <li>Open the Google Cloud Console and sign in.</li>
-                        <li>Top bar → Select a project → New project (for example <code>Relay Music</code>).</li>
-                        <li>Create it, then select that project so every later step stays on it.</li>
+                        <li data-i18n="ytStep1a">Open the Google Cloud Console and sign in.</li>
+                        <li data-i18n="ytStep1b">Top bar → Select a project → New project (for example Relay Music).</li>
+                        <li data-i18n="ytStep1c">Create it, then select that project so every later step stays on it.</li>
                       </ol>
                       <button class="help-link" type="button" data-help-link="google-cloud" data-i18n="openGoogleCloud">Open Google Cloud Console</button>
                     </div>
@@ -477,56 +715,56 @@
                     <summary>
                       <span class="help-disclosure__number">02</span>
                       <span>
-                        <strong>Enable YouTube Data API v3</strong>
+                        <strong data-i18n="ytStep2Title">Enable YouTube Data API v3</strong>
                         <small>APIs &amp; Services → Library</small>
                       </span>
                       <i aria-hidden="true"></i>
                     </summary>
                     <div class="help-disclosure__content">
                       <ol>
-                        <li>Open APIs &amp; Services → Library.</li>
-                        <li>Search for <strong>YouTube Data API v3</strong>.</li>
-                        <li>Open it → Enable, then wait for confirmation.</li>
+                        <li data-i18n="ytStep2a">Open APIs &amp; Services → Library.</li>
+                        <li data-i18n="ytStep2b">Search for YouTube Data API v3.</li>
+                        <li data-i18n="ytStep2c">Open it → Enable, then wait for confirmation.</li>
                       </ol>
-                      <button class="help-link" type="button" data-help-link="youtube-api-library">Open API Library</button>
+                      <button class="help-link" type="button" data-help-link="youtube-api-library" data-i18n="ytOpenLibrary">Open API Library</button>
                     </div>
                   </details>
                   <details class="help-disclosure">
                     <summary>
                       <span class="help-disclosure__number">03</span>
                       <span>
-                        <strong>Create and restrict the API key</strong>
+                        <strong data-i18n="ytStep3Title">Create and restrict the API key</strong>
                         <small>Credentials → API key</small>
                       </span>
                       <i aria-hidden="true"></i>
                     </summary>
                     <div class="help-disclosure__content">
                       <ol>
-                        <li>APIs &amp; Services → Credentials → Create credentials → API key.</li>
-                        <li>Copy the key, then Edit / Restrict key.</li>
-                        <li>API restrictions → Restrict key → YouTube Data API v3 only.</li>
-                        <li>Application restrictions: None for home use, or IP addresses if stable. Do not use HTTP referrers.</li>
+                        <li data-i18n="ytStep3a">APIs &amp; Services → Credentials → Create credentials → API key.</li>
+                        <li data-i18n="ytStep3b">Copy the key, then Edit / Restrict key.</li>
+                        <li data-i18n="ytStep3c">API restrictions → Restrict key → YouTube Data API v3 only.</li>
+                        <li data-i18n="ytStep3d">Application restrictions: None for home use, or IP addresses if stable. Do not use HTTP referrers.</li>
                       </ol>
-                      <button class="help-link" type="button" data-help-link="google-credentials">Open Credentials</button>
-                      <p class="help-note">Treat the key like a password. Never paste it in Discord or show it on stream.</p>
+                      <button class="help-link" type="button" data-help-link="google-credentials" data-i18n="ytOpenCredentials">Open Credentials</button>
+                      <p class="help-note" data-i18n="ytStep3Note">Treat the key like a password. Never paste it in Discord or show it on stream.</p>
                     </div>
                   </details>
                   <details class="help-disclosure">
                     <summary>
                       <span class="help-disclosure__number">04</span>
                       <span>
-                        <strong>Use it in Relay</strong>
-                        <small>Music channel + Discord search</small>
+                        <strong data-i18n="ytStep4Title">Use it in Relay</strong>
+                        <small data-i18n="ytStep4Summary">Music channel + Discord search</small>
                       </span>
                       <i aria-hidden="true"></i>
                     </summary>
                     <div class="help-disclosure__content">
                       <ol>
-                        <li>Paste the key above and choose a Music channel, then Save.</li>
-                        <li>In that Discord channel, type a search (for example <code>jennie mantra</code>).</li>
-                        <li>Pick a result, then preview (~30 s) or full track. Tracks longer than 3 minutes are filtered out.</li>
+                        <li data-i18n="ytStep4a">Paste the key above and save, then choose the music channel on the Discord page.</li>
+                        <li data-i18n="ytStep4b">In that Discord channel, type a search (for example jennie mantra).</li>
+                        <li data-i18n="ytStep4c">Pick a result, then preview (about 30 s) or the full track. Tracks longer than 3 minutes are filtered out.</li>
                       </ol>
-                      <p class="help-note">Full write-up: docs/youtube-api-setup.md in the Relay repository.</p>
+                      <p class="help-note" data-i18n="ytStep4Note">Full write-up: docs/youtube-api-setup.md in the Relay repository.</p>
                     </div>
                   </details>
                 </div>
@@ -539,81 +777,24 @@
                   <span class="section-number">03</span>
                   <h3 data-i18n="musicOverlayTitle">Overlay OBS / Windows</h3>
                 </div>
-                <span id="music-overlay-save-state" class="save-state" role="status"></span>
               </summary>
               <p class="section-copy" data-i18n="musicOverlayCopy">Windows Now Playing uses the 16:9 media floating widget. Message notifications use the separate compact notification widget.</p>
-              <div class="form-grid">
-                <div class="source-field field--wide">
-                  <span data-i18n="youtubeSource">Relay Visual (includes YouTube)</span>
-                  <div class="url-field">
-                    <input id="youtube-url" type="text" readonly aria-label="OBS Relay Visual Browser Source URL">
-                    <button id="copy-youtube-url" class="button button--quiet" type="button" data-i18n="copy">Copy</button>
-                  </div>
-                  <small data-i18n="youtubeSourceHelp">Paste as one OBS Browser Source (suggested 1920×1080). Includes medias, stickers, notification cards, and Discord jukebox. Remove any old separate YouTube source to avoid double audio.</small>
-                </div>
-                <label class="field">
-                  <span data-i18n="musicWidgetWidth">Media widget width</span>
-                  <input id="music-widget-width" name="musicWidgetWidth" type="number" min="160" max="16384" step="1">
-                </label>
-                <label class="field">
-                  <span data-i18n="musicWidgetHeight">Media widget height</span>
-                  <input id="music-widget-height" name="musicWidgetHeight" type="number" min="90" max="16384" step="1">
-                </label>
-                <div class="settings-actions field--wide">
-                  <button id="save-music-overlay" class="button button--primary" type="button" data-i18n="saveMusicOverlay">Save media widget size</button>
-                </div>
-              </div>
+              <p class="section-copy" data-i18n="outputSettingsOnOverlay">The OBS Browser Source URL and the media widget size are set on the Overlay page.</p>
+              <button class="button button--quiet" type="button" data-go-to-page="overlay" data-i18n="openOverlayPage">Open Overlay</button>
             </details>
           </section>
 
           <section class="page" data-page="media" hidden>
-            <details class="panel-section panel-section--wide panel-disclosure" id="disclosure-overview-2" open>
-              <summary class="section-heading">
-                <div>
-                  <span class="section-number">02</span>
-                  <h3 data-i18n="routingTitle">Input routing</h3>
-                </div>
-                <span class="section-actions">
-                  <span id="save-state" class="save-state" role="status"></span>
-                  <button id="refresh-channels" class="button button--quiet" type="button" data-i18n="refreshChannels">Refresh channels</button>
-                </span>
-              </summary>
-              <p class="section-copy" data-i18n="routingCopy">Choose one Discord channel for media and another for message notifications.</p>
-              <form id="routing-form" class="form-grid">
-                <label class="field field--wide">
-                  <span data-i18n="mediaChannel">Media channel</span>
-                  <select id="channel" name="watchedChannelId">
-                    <option value="">Select a visible text channel</option>
-                  </select>
-                </label>
-                <label class="setting-row setting-row--switch field--wide">
-                  <span>
-                    <strong data-i18n="mediaCleanup24h">Delete media channel messages after 24 hours</strong>
-                    <small data-i18n="channelCleanup24hHelp">Checks every 5 minutes while Relay runs. Deletes messages older than 24 hours, except the protected welcome message. Requires Manage Messages.</small>
-                  </span>
-                  <span class="switch">
-                    <input id="media-cleanup-enabled" type="checkbox">
-                    <span class="switch__track" aria-hidden="true"></span>
-                  </span>
-                </label>
-                <label class="field field--wide">
-                  <span data-i18n="mediaWelcomeMessage">Media welcome message (optional)</span>
-                  <input id="media-welcome-message" type="text" autocomplete="off" spellcheck="false" data-i18n-placeholder="musicWelcomePlaceholder" placeholder="Discord message link or ID">
-                  <small data-i18n="channelWelcomeOptionalHelp">Leave empty only if no message needs to be kept. A supplied message must belong to this channel.</small>
-                </label>
-                <label class="field field--wide">
-                  <span data-i18n="localPort">Local port</span>
-                  <input id="port" name="port" type="number" min="1024" max="65535" step="1" required>
-                </label>
-                <button class="button button--primary field--wide" type="submit" data-i18n="saveRouting">Save routing</button>
-              </form>
-            </details>
-            <section class="panel-section panel-section--wide" id="library-module"></section>
             <div class="page-intro page-intro--compact">
               <p class="kicker" data-i18n="mediaKicker">Playback queue</p>
               <h2 data-i18n="mediaTitle">Media, on your terms.</h2>
               <p data-i18n="mediaCopy">Images use a display timer. Video and audio continue naturally until they end.</p>
             </div>
+            <p class="channel-link channel-link--page">
+              <span data-i18n="channelLinkLabel">Discord channel</span>
+              <strong data-channel-name="channel"></strong>
+              <button class="text-link" type="button" data-go-to-page="discord" data-go-to-target="channel" data-i18n="channelChange">Change</button>
+            </p>
 
             <section class="transport">
               <div class="transport__identity">
@@ -629,10 +810,13 @@
               </button>
             </section>
 
+            <section class="panel-section panel-section--wide" id="library-module"></section>
+
+
             <section class="panel-section panel-section--wide">
               <div class="section-heading">
                 <div>
-                  <span class="section-number">03</span>
+                  <span class="section-number">01</span>
                   <h3 data-i18n="playbackTitle">Playback settings</h3>
                 </div>
                 <span id="media-save-state" class="save-state" role="status"></span>
@@ -743,7 +927,7 @@
                     <label class="setting-row setting-row--switch">
                       <span>
                         <strong data-i18n="showAuthor">Show author</strong>
-                        <small data-i18n="showAuthorHelp">Display the Discord name and avatar over media.</small>
+                        <small data-i18n="showAuthorHelp">When off, hide media and music credits; messages use Anonymous, a neutral avatar, and no tag.</small>
                       </span>
                       <span class="switch">
                         <input id="show-author" name="showAuthor" type="checkbox">
@@ -774,7 +958,6 @@
                 </details>
                 <div class="settings-actions">
                   <p data-i18n="supportedFormats">Images, GIF, MP4/WebM and common audio formats are accepted.</p>
-                  <button class="button button--primary" type="submit" data-i18n="savePlayback">Save playback</button>
                 </div>
               </form>
             </section>
@@ -794,14 +977,14 @@
               </summary>
               <div class="history-filters"><label class="field"><span data-i18n="sampleMedia"></span><select id="preview-sample"><option value="portrait" data-i18n="samplePortrait"></option><option value="landscape" data-i18n="sampleLandscape"></option><option value="gif" data-i18n="sampleGif"></option><option value="video" data-i18n="sampleVideo"></option><option value="audio" data-i18n="sampleAudio"></option><option value="notification" data-i18n="sampleNotification"></option><option value="sticker" data-i18n="sampleSticker"></option></select></label><button id="send-preview-sample" class="button button--quiet" type="button" data-i18n="testOutput"></button><p id="preview-sample-state" role="status"></p></div>
                <div class="preview-shell">
-                <iframe id="preview" title="Live OBS overlay preview"></iframe>
+                <iframe id="preview" title="Live OBS overlay preview" data-i18n-title="overlayPreviewTitle"></iframe>
               </div>
             </details>
 
             <details class="panel-section panel-disclosure panel-section--wide output-readiness-section" id="disclosure-overlay-1" open>
               <summary class="section-heading">
                 <div>
-                  <span class="section-number">04</span>
+                  <span class="section-number">01</span>
                   <h3 data-i18n="outputReadiness">Output readiness</h3>
                 </div>
               </summary>
@@ -839,6 +1022,13 @@
                   <small class="output-readiness-card__last" data-output-last-connected="sticker"></small>
                   <button class="button button--quiet output-readiness-card__test" type="button" data-test-output="sticker" data-i18n="testOutput" disabled>Test output</button>
                 </article>
+                <article class="output-readiness-card" data-output-card="reaction">
+                  <div class="output-readiness-card__heading">
+                    <strong data-i18n="reactionsSourceLabel">Sounds and reactions</strong>
+                    <span class="output-readiness-card__state" data-output-state="reaction" role="status"></span>
+                  </div>
+                  <small class="output-readiness-card__last" data-output-last-connected="reaction"></small>
+                </article>
               </div>
             </details>
 
@@ -846,15 +1036,20 @@
               <details class="panel-section panel-disclosure" id="disclosure-overlay-2">
                 <summary class="section-heading">
                   <div>
-                    <span class="section-number">05</span>
+                    <span class="section-number">02</span>
                     <h3 data-i18n="browserSource">OBS Browser Sources</h3>
                   </div>
                 </summary>
+                <ol class="obs-steps">
+                  <li data-i18n="obsStep1">In OBS, click + under Sources and choose Browser.</li>
+                  <li data-i18n="obsStep2">Paste one link below into URL, set 1920 × 1080, then confirm.</li>
+                  <li data-i18n="obsStep3">Repeat for each link. Output readiness turns green once OBS is connected.</li>
+                </ol>
                 <p class="section-copy" data-i18n="browserSourceHelp">Add these two URLs as OBS Browser Sources. They replace the old separate medias / audios / stickers / notifications / YouTube sources.</p>
                 <div class="source-field">
                   <span data-i18n="visualSource">Relay Visual</span>
                   <div class="url-field">
-                    <input id="overlay-url" type="text" readonly aria-label="OBS Relay Visual Browser Source URL">
+                    <input id="overlay-url" type="text" readonly aria-label="OBS Relay Visual Browser Source URL" data-i18n-aria-label="visualSource">
                     <button id="copy-url" class="button button--quiet" type="button" data-i18n="copy">Copy</button>
                   </div>
                   <small data-i18n="visualSourceHelp">Medias, stickers, message notification cards, and YouTube jukebox. Use localhost (auto-copied). Suggested size 1920×1080.</small>
@@ -862,18 +1057,26 @@
                 <div class="source-field">
                   <span data-i18n="audioSource">Relay Audio</span>
                   <div class="url-field">
-                    <input id="audio-url" type="text" readonly aria-label="OBS Relay Audio Browser Source URL">
+                    <input id="audio-url" type="text" readonly aria-label="OBS Relay Audio Browser Source URL" data-i18n-aria-label="audioSource">
                     <button id="copy-audio-url" class="button button--quiet" type="button" data-i18n="copy">Copy</button>
                   </div>
                   <small data-i18n="audioSourceHelp">Discord file audio. Separate mixer fader from Visual.</small>
                 </div>
-                <button id="regenerate-secret" class="text-button" type="button" data-i18n="regenerateSecret">Reconnect OBS sources</button>
+                <div class="source-field">
+                  <span data-i18n="reactionsSourceLabel">Sounds and reactions</span>
+                  <div class="url-field">
+                    <input id="reactions-url" type="text" readonly aria-label="OBS Sounds and reactions Browser Source URL" data-i18n-aria-label="reactionsSourceLabel">
+                    <button id="copy-reactions-url" class="button button--quiet" type="button" data-i18n="copy">Copy</button>
+                  </div>
+                  <small data-i18n="reactionsSourceHelp">Optional. Reaction sounds and visuals triggered from Discord.</small>
+                </div>
+                <button id="regenerate-secret" class="button button--quiet regenerate-secret" type="button" data-i18n="regenerateSecret">Reconnect OBS sources</button>
               </details>
 
               <details class="panel-section panel-disclosure" id="disclosure-overlay-3">
                 <summary class="section-heading">
                   <div>
-                    <span class="section-number">06</span>
+                    <span class="section-number">03</span>
                     <h3 data-i18n="floatingWidget">Media floating widget</h3>
                   </div>
                 </summary>
@@ -890,18 +1093,11 @@
               <details class="panel-section panel-disclosure panel-section--wide notification-output-card" data-output="obs" id="disclosure-overlay-4">
                 <summary class="section-heading">
                   <div>
-                    <span class="section-number">07</span>
+                    <span class="section-number">04</span>
                     <h3 data-i18n="obsNotificationOutput">OBS message notification overlay</h3>
                   </div>
                 </summary>
                 <p class="section-copy" data-i18n="obsNotificationOutputHelp">Notification cards are included in Relay Visual (Overview → OBS Browser Sources). No separate Browser Source needed.</p>
-                <div class="source-field notification-output-url">
-                  <span data-i18n="notificationSource">Relay Visual (includes notifications)</span>
-                  <div class="url-field">
-                    <input id="notification-url" type="text" readonly aria-label="OBS notification Browser Source URL">
-                    <button id="copy-notification-url" class="button button--quiet" type="button" data-i18n="copy">Copy</button>
-                  </div>
-                </div>
                 <label class="setting-row setting-row--switch">
                   <span>
                     <strong data-i18n="notificationSoundObs">Notification sound in OBS</strong>
@@ -917,7 +1113,7 @@
               <details class="panel-section panel-disclosure panel-section--wide notification-output-card" data-output="windows" id="disclosure-overlay-5">
                 <summary class="section-heading">
                   <div>
-                    <span class="section-number">08</span>
+                    <span class="section-number">05</span>
                     <h3 data-i18n="windowsNotificationWidget">Windows Notification Widget</h3>
                   </div>
                 </summary>
@@ -954,7 +1150,7 @@
             <details class="panel-section panel-disclosure panel-section--wide output-geometry-section" id="disclosure-overlay-6">
               <summary class="section-heading">
                 <div>
-                  <span class="section-number">09</span>
+                  <span class="section-number">06</span>
                   <h3 data-i18n="sizeAndCrop">Size and crop</h3>
                 </div>
               </summary>
@@ -973,7 +1169,7 @@
             <section class="panel-section panel-section--wide moderation-settings">
               <div class="section-heading">
                 <div>
-                  <span class="section-number">04</span>
+                  <span class="section-number">01</span>
                   <h3 data-i18n="moderationSettings">Moderation settings</h3>
                 </div>
                 <span id="moderation-save-state" class="save-state" role="status"></span>
@@ -981,7 +1177,7 @@
               <form id="moderation-form" class="settings-list">
                 <details id="moderation-automod" class="settings-disclosure moderation-disclosure" open>
                   <summary>
-                    <span class="moderation-disclosure__number">04A</span>
+                    <span class="moderation-disclosure__number">A</span>
                     <span class="moderation-disclosure__summary">
                       <strong data-i18n="automaticFilterWords">Automatic filtering</strong>
                       <small data-i18n="automaticFilterWordsHelp">Filter words are saved automatically after you stop typing. They run even when manual moderation and the local image scan are off.</small>
@@ -999,27 +1195,17 @@
                       <input id="privacy-exempt-role-ids" type="text" autocomplete="off" spellcheck="false" placeholder="&lt;@&amp;123456789012345678&gt;, 123456789012345678">
                       <small data-i18n="privacyExemptRolesHelp">Enter role IDs or Discord role mentions separated by commas or new lines. These roles bypass filter words only; local privacy signals and manual moderation still apply.</small>
                     </label>
-                    <label class="field field--full">
+                    <p class="channel-link">
                       <span data-i18n="honeypotChannel">Compromised account trap</span>
-                      <select id="honeypot-channel" name="honeypotChannelId">
-                        <option value="" data-i18n="honeypotDisabled">Disabled</option>
-                      </select>
-                      <small data-i18n="honeypotChannelHelp">Choose a protected Discord channel. Any non-bot account that posts there is treated as potentially compromised.</small>
-                    </label>
-                    <label class="field field--full">
-                      <span data-i18n="honeypotAction">Trap action</span>
-                      <select id="honeypot-action" name="honeypotAction">
-                        <option value="kick" data-i18n="honeypotKick">Kick</option>
-                        <option value="ban" data-i18n="honeypotBan">Ban</option>
-                      </select>
-                      <small data-i18n="honeypotActionHelp">Relay sends an English security notice, then applies the selected action. The bot needs the matching Discord permission and role position.</small>
-                    </label>
+                      <strong data-channel-name="honeypot-channel"></strong>
+                      <button class="text-link" type="button" data-go-to-page="discord" data-go-to-target="honeypot-channel" data-i18n="channelChange">Change</button>
+                    </p>
                   </div>
                 </details>
 
                 <details id="moderation-manual" class="settings-disclosure moderation-disclosure">
                   <summary>
-                    <span class="moderation-disclosure__number">04B</span>
+                    <span class="moderation-disclosure__number">B</span>
                     <span class="moderation-disclosure__summary">
                       <strong data-i18n="manualModeration">Manual moderation</strong>
                       <small data-i18n="manualModerationHelp">Hold media for approval independently from automatic filtering.</small>
@@ -1072,7 +1258,7 @@
 
                 <details id="moderation-privacy" class="settings-disclosure moderation-disclosure">
                   <summary>
-                    <span class="moderation-disclosure__number">04C</span>
+                    <span class="moderation-disclosure__number">C</span>
                     <span class="moderation-disclosure__summary">
                       <strong data-i18n="privacyProtection">Anti-doxxing protection</strong>
                       <small data-i18n="privacyProtectionHelp">Scan locally before Discord text or media can reach history, WebSocket, Windows widgets, or OBS.</small>
@@ -1160,7 +1346,6 @@
                 </details>
                 <div class="settings-actions">
                   <p data-i18n="moderationLocalOnly">Decisions stay local and never notify Discord users.</p>
-                  <button class="button button--primary" type="submit" data-i18n="saveModeration">Save moderation</button>
                 </div>
               </form>
             </section>
@@ -1186,7 +1371,7 @@
             <section class="panel-section panel-section--wide">
               <div class="section-heading">
                 <div>
-                  <span class="section-number">05A</span>
+                  <span class="section-number">01</span>
                   <h3 data-i18n="defaultCommands">Default Commands</h3>
                 </div>
                 <span id="commands-save-state" class="save-state" role="status"></span>
@@ -1234,7 +1419,6 @@
                 </label>
                 <div class="settings-actions">
                   <p id="channel-lock-state" data-i18n="commandLockInactive">The media channel is currently unlocked.</p>
-                  <button class="button button--primary" type="submit" data-i18n="saveCommands">Save commands</button>
                 </div>
               </form>
             </section>
@@ -1243,7 +1427,7 @@
             <section class="panel-section panel-section--wide custom-commands-section">
               <div class="section-heading custom-commands-heading">
                 <div>
-                  <span class="section-number">05B</span>
+                  <span class="section-number">02</span>
                   <h3 data-i18n="customCommands">Custom Commands</h3>
                 </div>
                 <div class="section-actions">
@@ -1351,7 +1535,7 @@
               </div>
               <button id="clear-overlay" class="button button--quiet" type="button" data-i18n="clearOverlay">Clear overlay</button>
             </div>
-            <div class="history-filters"><label class="field"><span data-i18n="historySearch"></span><input id="history-search" type="search"></label><label class="field"><span data-i18n="historyAll"></span><select id="history-kind"><option value="" data-i18n="historyAll"></option><option value="image">Image</option><option value="gif">GIF</option><option value="video">Video</option><option value="audio">Audio</option></select></label></div>
+            <div class="history-filters"><label class="field"><span data-i18n="historySearch"></span><input id="history-search" type="search"></label><label class="field"><span data-i18n="historyType">Type</span><select id="history-kind"><option value="" data-i18n="historyAll"></option><option value="image" data-i18n="kindImage">Image</option><option value="gif" data-i18n="kindGif">GIF</option><option value="video" data-i18n="kindVideo">Video</option><option value="audio" data-i18n="kindAudio">Audio</option><option value="youtube">YouTube</option></select></label></div>
             <p id="history-empty" class="empty-state" data-i18n="historyEmpty">Waiting for the first Discord media.</p>
             <ol id="history-list" class="history-list"></ol>
           </section>
@@ -1388,6 +1572,7 @@
                     <li data-i18n="helpDiscordStep3">Copy the Application ID from General Information; this is the client ID.</li>
                     <li data-i18n="helpDiscordStep4">Paste both values into Relay. They are encrypted by Windows.</li>
                   </ol>
+                  <button class="help-link" type="button" data-go-to-page="discord" data-go-to-target="disclosure-discord-connection" data-i18n="helpGoDiscord">Open Discord settings</button>
                   <button class="help-link" type="button" data-help-link="discord" data-i18n="openDiscordPortal">Open Discord Developer Portal</button>
                 </div>
               </details>
@@ -1427,6 +1612,7 @@
                     <li data-i18n="helpChannelsStep3">Select media and notification channels on Overview. Configure the Music channel on the Music page.</li>
                     <li data-i18n="helpChannelsStep4">Messages in this channel appear as visual notifications.</li>
                   </ol>
+                  <button class="help-link" type="button" data-go-to-page="discord" data-go-to-target="discord-channels" data-i18n="helpGoChannels">Open channels</button>
                 </div>
               </details>
 
@@ -1447,6 +1633,7 @@
                     <li data-i18n="helpObsStep4">Use the notifications URL for the PS5-style message card.</li>
                     <li data-i18n="helpObsStep5">Keep the private URLs unchanged; Relay reconnects them after every restart.</li>
                   </ol>
+                  <button class="help-link" type="button" data-go-to-page="overlay" data-go-to-target="disclosure-overlay-2" data-i18n="helpGoObs">Open OBS links</button>
                   <button class="help-link" type="button" data-help-link="obs" data-i18n="openObsGuide">Open OBS Browser Source guide</button>
                 </div>
               </details>
@@ -1467,6 +1654,7 @@
                     <li data-i18n="helpWidgetsStep3">Lock it so mouse clicks pass through to applications underneath.</li>
                     <li data-i18n="helpWidgetsStep4">Visibility, lock state and position are restored on restart.</li>
                   </ol>
+                  <button class="help-link" type="button" data-go-to-page="overlay" data-go-to-target="disclosure-overlay-3" data-i18n="helpGoWidgets">Open widgets</button>
                 </div>
               </details>
 
@@ -1487,6 +1675,11 @@
                     <li data-i18n="helpTroubleshooting4">Blank OBS source: refresh it once and confirm Relay is running on the displayed local port.</li>
                     <li data-i18n="helpTroubleshooting5">Never regenerate a Discord token for a gateway-intent error; enable the intent instead.</li>
                   </ul>
+                  <div class="diagnostic-tools">
+                    <button id="copy-diagnostic" class="button button--quiet" type="button" data-i18n="copyDiagnostic">Copy diagnostic</button>
+                    <small data-i18n="copyDiagnosticHelp">Copies a support report with versions, output status and recent errors. It never includes your token, private links or channel IDs.</small>
+                    <span id="diagnostic-state" class="save-state" role="status"></span>
+                  </div>
                 </div>
               </details>
 
@@ -1533,44 +1726,7 @@
                       <span id="interface-language-label">English (US)</span>
                       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 9 5 5 5-5"/></svg>
                     </button>
-                    <div id="interface-language-options" class="language-picker__options" role="listbox" hidden>
-                      <button class="language-picker__option" type="button" role="option" data-locale="en-US">
-                        <img class="flag-icon" src="./assets/flags/us.svg" alt=""><span>English (US)</span><i aria-hidden="true">✓</i>
-                      </button>
-                      <button class="language-picker__option" type="button" role="option" data-locale="en-GB">
-                        <img class="flag-icon" src="./assets/flags/gb.svg" alt=""><span>English (UK)</span><i aria-hidden="true">✓</i>
-                      </button>
-                      <button class="language-picker__option" type="button" role="option" data-locale="en-IN">
-                        <img class="flag-icon" src="./assets/flags/in.svg" alt=""><span>English (India)</span><i aria-hidden="true">✓</i>
-                      </button>
-                      <button class="language-picker__option" type="button" role="option" data-locale="fr-FR">
-                        <img class="flag-icon" src="./assets/flags/fr.svg" alt=""><span>Français</span><i aria-hidden="true">✓</i>
-                      </button>
-                      <button class="language-picker__option" type="button" role="option" data-locale="de-DE">
-                        <img class="flag-icon" src="./assets/flags/de.svg" alt=""><span>Deutsch</span><i aria-hidden="true">✓</i>
-                      </button>
-                      <button class="language-picker__option" type="button" role="option" data-locale="es-ES">
-                        <img class="flag-icon" src="./assets/flags/es.svg" alt=""><span>Español</span><i aria-hidden="true">✓</i>
-                      </button>
-                      <button class="language-picker__option" type="button" role="option" data-locale="es-419">
-                        <img class="flag-icon" src="./assets/flags/mx.svg" alt=""><span>Español (Latinoamérica)</span><i aria-hidden="true">✓</i>
-                      </button>
-                      <button class="language-picker__option" type="button" role="option" data-locale="ru-RU">
-                        <img class="flag-icon" src="./assets/flags/ru.svg" alt=""><span>Русский</span><i aria-hidden="true">✓</i>
-                      </button>
-                      <button class="language-picker__option" type="button" role="option" data-locale="zh-CN">
-                        <img class="flag-icon" src="./assets/flags/cn.svg" alt=""><span>简体中文</span><i aria-hidden="true">✓</i>
-                      </button>
-                      <button class="language-picker__option" type="button" role="option" data-locale="ko-KR">
-                        <img class="flag-icon" src="./assets/flags/kr.svg" alt=""><span>한국어</span><i aria-hidden="true">✓</i>
-                      </button>
-                      <button class="language-picker__option" type="button" role="option" data-locale="ja-JP">
-                        <img class="flag-icon" src="./assets/flags/jp.svg" alt=""><span>日本語</span><i aria-hidden="true">✓</i>
-                      </button>
-                      <button class="language-picker__option" type="button" role="option" data-locale="id-ID">
-                        <img class="flag-icon" src="./assets/flags/id.svg" alt=""><span>Bahasa Indonesia</span><i aria-hidden="true">✓</i>
-                      </button>
-                    </div>
+                    <div id="interface-language-options" class="language-picker__options" role="listbox" hidden></div>
                   </div>
                 </div>
                 <label class="source-field">
@@ -1608,25 +1764,25 @@
               <details id="design-picker" class="design-picker">
                 <summary>
                   <span data-i18n="designLabel">Design</span>
-                  <span id="design-picker-selected" class="design-picker__selection">OpenAI</span>
+                  <span id="design-picker-selected" class="design-picker__selection">Graphite</span>
                   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 9 5 5 5-5"/></svg>
                 </summary>
                 <div class="design-picker__content">
                   <div class="design-picker__grid">
-                  <label class="design-choice design-choice--openai">
-                    <input type="radio" name="interface-design" value="openai" checked>
+                  <label class="design-choice design-choice--graphite">
+                    <input type="radio" name="interface-design" value="graphite" checked>
                     <span class="design-choice__preview" aria-hidden="true"><i></i><i></i><i></i></span>
                     <span class="design-choice__copy">
-                      <strong>OpenAI</strong>
-                      <small data-i18n="openaiDesignCopy">Precise, calm and utilitarian.</small>
+                      <strong>Graphite</strong>
+                      <small data-i18n="graphiteDesignCopy">Precise, calm and utilitarian.</small>
                     </span>
                   </label>
-                  <label class="design-choice design-choice--anthropic">
-                    <input type="radio" name="interface-design" value="anthropic">
+                  <label class="design-choice design-choice--paper">
+                    <input type="radio" name="interface-design" value="paper">
                     <span class="design-choice__preview" aria-hidden="true"><i></i><i></i><i></i></span>
                     <span class="design-choice__copy">
-                      <strong>Anthropic</strong>
-                      <small data-i18n="anthropicDesignCopy">Warm, literary and human.</small>
+                      <strong>Paper</strong>
+                      <small data-i18n="paperDesignCopy">Warm, literary and human.</small>
                     </span>
                   </label>
                   <label class="design-choice design-choice--neo-brutalism">
@@ -1662,7 +1818,7 @@
                   <label>R <input id="accent-r" type="number" min="0" max="255" value="88"></label>
                   <label>G <input id="accent-g" type="number" min="0" max="255" value="185"></label>
                   <label>B <input id="accent-b" type="number" min="0" max="255" value="137"></label>
-                  <input id="accent-picker" class="accent-preview" type="color" value="#58b989" aria-label="Choose accent color">
+                  <input id="accent-picker" class="accent-preview" type="color" value="#58b989" aria-label="Choose accent color" data-i18n-aria-label="accentColor">
                 </div>
               </fieldset>
               <label class="source-field font-scale-control">
@@ -1679,6 +1835,30 @@
                 <p id="personalization-state" role="status"></p>
                 <button id="reset-personalization" class="button button--quiet" type="button" data-i18n="resetDefaults">Restore defaults</button>
               </div>
+            </section>
+            <section class="panel-section personalization-card" id="system-settings">
+              <h3 data-i18n="systemSettingsTitle">System</h3>
+              <p class="section-copy" data-i18n="systemSettingsCopy">Local server used by OBS Browser Sources and Windows widgets. Changing the port reconnects every output.</p>
+              <label class="setting-row setting-row--switch">
+                <span>
+                  <strong data-i18n="startWithWindows">Start with Windows</strong>
+                  <small data-i18n="startWithWindowsHelp">Relay starts quietly in the system tray when you sign in to Windows.</small>
+                </span>
+                <span class="switch">
+                  <input id="start-with-windows" type="checkbox">
+                  <span class="switch__track" aria-hidden="true"></span>
+                </span>
+              </label>
+              <p id="start-with-windows-state" class="save-state" role="status"></p>
+              <form id="system-form" class="form-grid">
+                <label class="field">
+                  <span data-i18n="localPort">Local port</span>
+                  <input id="port" name="port" type="number" min="1024" max="65535" step="1" required>
+                </label>
+                <div class="settings-actions field--wide">
+                  <span id="system-save-state" class="save-state" role="status"></span>
+                </div>
+              </form>
             </section>
           </section>
 
@@ -1710,7 +1890,7 @@
                 <div>
                   <span class="kicker">Relay</span>
                   <strong>Relay</strong>
-                  <small>Windows · v<span data-app-version>1.3.4</span></small>
+                  <small>Windows · v<span data-app-version>1.3.7</span></small>
                 </div>
               </div>
               <div class="about-card__statement">
@@ -1722,13 +1902,13 @@
             <section class="about-profile">
               <div class="about-profile__copy">
                 <span class="kicker" data-i18n="aboutCreatorLabel">Creator</span>
-                <h3>Stealthy</h3>
+                <h3>inerthel-agi</h3>
                 <p data-i18n="aboutCreatorCopy">Explore the creator's projects and source work on GitHub.</p>
               </div>
               <button class="about-github" type="button" data-help-link="github">
                 <span>
                   <small>GitHub</small>
-                  <strong>@stealthsrc</strong>
+                  <strong>@inerthel-agi</strong>
                 </span>
                 <svg viewBox="0 0 20 20" aria-hidden="true">
                   <path d="M6 14 14 6M8 6h6v6"></path>
@@ -1756,6 +1936,7 @@
             </footer>
           </section>
         </main>
+        <p id="toast" class="toast save-state" role="status" aria-live="polite" hidden></p>
       </div>
     </div>
 

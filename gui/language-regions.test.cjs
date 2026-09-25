@@ -12,9 +12,10 @@ const flags = ["us", "gb", "in", "fr", "de", "es", "mx", "ru", "cn", "kr", "jp",
 
 test("the language picker exposes every supported regional locale", () => {
   for (const locale of locales) {
-    assert.match(panelHtml, new RegExp(`data-locale="${locale}"`), locale);
     assert.match(panelSource, new RegExp(`locale: "${locale}"`), locale);
   }
+  assert.match(panelSource, /interfaceLanguageOptionsElement\.replaceChildren\(\.\.\.languageOptionButtons\(/);
+  assert.match(panelSource, /sidebarLanguageOptionsElement\.replaceChildren\(\s*\.\.\.languageOptionButtons\(/);
   assert.match(panelSource, /language = option\.language/);
   assert.match(panelSource, /localStorage\.setItem\("relay-locale", locale\)/);
 });
@@ -33,7 +34,7 @@ test("every regional locale uses a bundled SVG flag", () => {
     const path = `${__dirname}/assets/flags/${flag}.svg`;
     assert.ok(fs.existsSync(path), path);
     assert.match(fs.readFileSync(path, "utf8"), /<svg[^>]+viewBox="0 0 24 16"/);
-    assert.match(panelHtml, new RegExp(`assets/flags/${flag}\\.svg`), flag);
+    assert.match(panelSource, new RegExp(`flag: "${flag}"`), flag);
   }
 });
 

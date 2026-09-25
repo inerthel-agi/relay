@@ -37,17 +37,15 @@ test("the sidebar exposes a Changelog page after Personalization", () => {
 test("parses published changelog sections and skips Unreleased", () => {
   const releases = context.parseChangelogReleases(changelogMarkdown);
   assert.ok(releases.length >= 2);
-  const version = JSON.parse(fs.readFileSync(__dirname + "/../src-tauri/tauri.conf.json", "utf8")).version;
+  const version = panelSource.match(/let currentAppVersion = "([^"]+)"/)?.[1];
   const pending = changelogMarkdown.split("## [Unreleased]")[1]?.split(/\n## \[/)[0];
   const target = pending?.match(/Target version: (\d+\.\d+\.\d+)\./)?.[1];
   assert.equal(target || releases[0].version, version);
+  assert.equal((panelHtml.match(/data-app-version>1\.3\.7</g) || []).length, 2);
   assert.match(releases[0].date, /^\d{4}-\d{2}-\d{2}$/);
-  for (const heading of [
-    "### English", "### Français", "### Español", "### Deutsch",
-    "### Русский", "### 简体中文", "### 한국어", "### 日本語", "### Bahasa Indonesia",
-  ]) {
-    assert.match(releases[0].body, new RegExp(heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
-  }
+  assert.match(releases[0].body, /### English/);
+  assert.ok([...changelogMarkdown.matchAll(/^### (.+)$/gm)]
+    .every((match) => match[1].trim() === "English"));
   assert.doesNotMatch(releases[0].body, /Pending change|Unreleased/);
   assert.equal(releases.some((release) => release.version === "Unreleased"), false);
 });
@@ -77,25 +75,26 @@ test("selects every Relay interface language from a multilingual section", () =>
   assert.match(context.changelogBodyForLanguage(body, "pt"), /New feature/);
 });
 
-test("the installed 1.3.1 notes keep each interface language distinct", () => {
+test("English release notes are available in every interface language", () => {
   const releases = context.parseChangelogReleases(changelogMarkdown);
   const body = releases.find((release) => release.version === "1.3.1").body;
-  assert.match(context.changelogBodyForLanguage(body, "de"), /Kanalreferenzen/);
-  assert.doesNotMatch(context.changelogBodyForLanguage(body, "de"), /#### Added/);
-  assert.match(context.changelogBodyForLanguage(body, "ja"), /チャンネル/);
-  assert.doesNotMatch(context.changelogBodyForLanguage(body, "ja"), /#### Ajouté/);
+  const english = context.changelogBodyForLanguage(body, "en");
+  assert.ok(english.length > 0);
+  for (const language of ["fr", "es", "de", "ru", "zh", "ko", "ja", "id"]) {
+    assert.equal(context.changelogBodyForLanguage(body, language), english);
+  }
 });
 
 test("an up-to-date local build shows its installed version, not the older GitHub release", () => {
   const control = () => ({ classList: { toggle() {} } });
   const status = { textContent: "" };
   const local = vm.createContext({
-    currentAppVersion: "1.3.4", updateUiState: { kind: "current", version: "1.3.3" },
+    currentAppVersion: "1.3.6g", updateUiState: { kind: "current", version: "1.3.6" },
     latestUpdate: { updateAvailable: false }, updateStatusElement: status,
     updateCheckButton: control(), installUpdateButton: control(), updateAvailableDot: control(),
     t: (key) => key, formatTranslation: (key, values) => `${key}: ${values.version}`,
   });
   vm.runInContext(sourceBetween(panelSource, "function renderUpdateStatus", "function setUpdateMenuOpen")
     + "\nrenderUpdateStatus();", local);
-  assert.equal(status.textContent, "upToDate: 1.3.4");
+  assert.equal(status.textContent, "upToDate: 1.3.6g");
 });

@@ -7,7 +7,7 @@ const source = require("./test-source.cjs").panelSource();
 const html = fs.readFileSync(__dirname + "/panel.html", "utf8");
 const helpers = source.slice(source.indexOf("function formSaveState"), source.indexOf("function setCredentials"));
 const saveSource = source.slice(source.indexOf("function readConfigDraft"), source.indexOf("async function saveMediaCaptionVisibility"));
-const commandSource = source.slice(source.indexOf('commandsForm.addEventListener("submit"'), source.indexOf("\naddCustomCommandButton"));
+const commandSource = source.slice(source.indexOf('commandsForm.addEventListener("submit"'), source.indexOf("\n// Page modules"));
 
 function fixture() {
   const elements = new Map();
@@ -35,7 +35,7 @@ function fixture() {
   const context = {
     document: { getElementById: element },
     dirtyForms: new Set(), formRevisions: new WeakMap(),
-    t: (key) => key,
+    t: (key) => key, language: "en", errorCategory: () => null,
     filterWordsToConcepts: (value) => value ? [{ canonical: value, aliases: [], regexes: [] }] : [],
     filterConceptsToLines: (value) => (value || []).map((item) => item.canonical).join(", "),
     filterRoleIds: (value) => value ? value.split(",") : [],
@@ -44,9 +44,8 @@ function fixture() {
     privacyListToInput: (value) => (value || []).join("\n"),
     populateChannels: (input, channels, selected) => { input.value = selected || ""; },
     applyNotificationSoundConfig() {}, updateBotActivityAvailability() {},
-    cloneCustomCommands: (value) => value || [], renderCustomCommands() {},
+    customCommandsUi: undefined,
     applyOutputGeometryConfig() {}, updateSkipShortcutDisplay() {},
-    customCommandsDirty: false,
   };
   for (const match of source.matchAll(/const (\w+) = \$\("#([^"]+)"\);/g)) {
     context[match[1]] = forms.get(match[2]) || element(match[2]);
@@ -61,7 +60,7 @@ function fixture() {
     showMediaTextWidget: false, widgetSoundEnabled: false,
     port: 4590, displayDurationMs: 8000, gifDurationMs: 8000, stickerDurationMs: 8000,
     notificationDurationMs: 8000, mediaVolume: 50, ttsCharacterLimit: 0, ttsQueueLimit: 50,
-    ttsSpeechEnabled: true, ttsNotificationsObsEnabled: false, showAuthor: true,
+    ttsNotificationsObsEnabled: false, showAuthor: true,
     botOnlineStatus: "online", botActivityType: "custom", botActivityText: "",
     privacyConcepts: [], privacyFilterExemptRoleIds: [], privacyAllowlist: [], privacyCustomPatterns: [],
     privacyProtectionLevel: "balanced", privacyEnabledCategories: ["contact"], privacyBlockThreshold: "high",
@@ -115,12 +114,10 @@ test("saving routing excludes unrelated drafts, even invalid privacy input", asy
   assert.equal(f.element("duration").value, "17");
 });
 
-test("saving messages excludes media and routing drafts", async () => {
+test("saving messages excludes media and channel drafts", async () => {
   const f = fixture();
   f.edit("duration", "17");
   f.edit("tts-channel", "messages");
-  f.edit("tts-cleanup-enabled", true);
-  f.edit("tts-welcome-message", "welcome");
   f.edit("notification-duration", "12");
   f.edit("tts-character-limit", "180");
   f.edit("tts-queue-limit", "5");
@@ -131,16 +128,40 @@ test("saving messages excludes media and routing drafts", async () => {
     true,
   );
   const saved = f.calls.find((call) => call.command === "apply_config").args.config;
-  assert.equal(saved.ttsChannelId, "messages");
-  assert.equal(saved.ttsCleanupEnabled, true);
-  assert.equal(saved.ttsWelcomeMessageId, "welcome");
+  assert.equal(saved.ttsChannelId, "");
   assert.equal(saved.notificationDurationMs, 12000);
   assert.equal(saved.ttsCharacterLimit, 180);
   assert.equal(saved.ttsQueueLimit, 5);
-  assert.equal(saved.ttsSpeechEnabled, false);
+  assert.equal("ttsSpeechEnabled" in saved, false);
   assert.equal(saved.ttsNotificationsObsEnabled, true);
   assert.equal(saved.displayDurationMs, 8000);
+  assert.equal(f.element("tts-channel").value, "messages");
   assert.equal(f.context.dirtyForms.has(f.forms.get("media-form")), true);
+});
+
+test("the Discord channels form saves every channel together", async () => {
+  const f = fixture();
+  f.edit("channel", "media-2");
+  f.edit("tts-channel", "messages");
+  f.edit("tts-cleanup-enabled", true);
+  f.edit("tts-welcome-message", "welcome");
+  f.edit("music-channel", "music");
+  f.edit("music-cleanup-enabled", true);
+  f.edit("honeypot-channel", "trap");
+  f.edit("honeypot-action", "ban");
+  f.edit("duration", "17");
+
+  assert.equal(await f.context.saveConfig(f.element("save-state"), f.forms.get("routing-form")), true);
+  const saved = f.calls.find((call) => call.command === "apply_config").args.config;
+  assert.equal(saved.watchedChannelId, "media-2");
+  assert.equal(saved.ttsChannelId, "messages");
+  assert.equal(saved.ttsCleanupEnabled, true);
+  assert.equal(saved.ttsWelcomeMessageId, "welcome");
+  assert.equal(saved.musicChannelId, "music");
+  assert.equal(saved.musicCleanupEnabled, true);
+  assert.equal(saved.honeypotChannelId, "trap");
+  assert.equal(saved.honeypotAction, "ban");
+  assert.equal(saved.displayDurationMs, 8000);
 });
 
 test("automatic filters never save a cleanup or moderation draft", async () => {
@@ -181,7 +202,7 @@ test("queued form saves merge the latest persisted values", async () => {
   f.edit("port", "4591");
   await Promise.all([
     f.context.saveConfig(f.element("media-save-state"), f.forms.get("media-form")),
-    f.context.saveConfig(f.element("save-state"), f.forms.get("routing-form")),
+    f.context.saveConfig(f.element("system-save-state"), f.forms.get("system-form")),
   ]);
   const writes = f.calls.filter((call) => call.command === "apply_config");
   assert.equal(writes[1].args.config.displayDurationMs, 17000);

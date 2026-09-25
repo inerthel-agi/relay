@@ -217,6 +217,55 @@ button:focus-visible {
   font-size: 10px;
 }
 
+/* Shown only when something needs action; opens the matching panel page. */
+.attention-action {
+  display: flex;
+  min-height: 46px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  padding: 0 14px;
+  border: 1px solid var(--tray-accent);
+  border-radius: 12px;
+  color: inherit;
+  background: color-mix(in srgb, var(--tray-accent) 14%, transparent);
+  cursor: pointer;
+  text-align: left;
+}
+
+.attention-action[hidden] {
+  display: none;
+}
+
+.attention-action span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.attention-action small {
+  overflow: hidden;
+  opacity: 0.8;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attention-action strong {
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.attention-action svg {
+  width: 16px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.7;
+}
+
 .primary-action {
   display: flex;
   min-height: 54px;
@@ -446,7 +495,7 @@ button:disabled {
   color-scheme: light;
 }
 
-:root[data-design="openai"][data-theme="light"] {
+:root[data-design="graphite"][data-theme="light"] {
   --tray-bg: #f7f7f4;
   --tray-surface: #ffffff;
   --tray-surface-raised: #eeeeea;
@@ -461,7 +510,7 @@ button:disabled {
   --tray-danger: #c43c36;
 }
 
-:root[data-design="anthropic"] {
+:root[data-design="paper"] {
   --tray-bg: #141413;
   --tray-surface: #1f1f1d;
   --tray-surface-raised: #2a2925;
@@ -479,7 +528,7 @@ button:disabled {
   font-family: Lora, Georgia, serif;
 }
 
-:root[data-design="anthropic"][data-theme="light"] {
+:root[data-design="paper"][data-theme="light"] {
   --tray-bg: #faf9f5;
   --tray-surface: #f0eee6;
   --tray-surface-raised: #e8e6dc;
@@ -677,21 +726,21 @@ body {
   background: color-mix(in srgb, var(--tray-danger) 9%, transparent);
 }
 
-:root[data-design="anthropic"] .tray-brand strong,
-:root[data-design="anthropic"] .primary-action,
-:root[data-design="anthropic"] .chip {
+:root[data-design="paper"] .tray-brand strong,
+:root[data-design="paper"] .primary-action,
+:root[data-design="paper"] .chip {
   font-family: Poppins, "Segoe UI", sans-serif;
 }
 
-:root[data-design="anthropic"] .tray-logo {
+:root[data-design="paper"] .tray-logo {
   border-radius: 50% 50% 8px 50%;
 }
 
-:root[data-design="anthropic"] .widget-icon--signal {
+:root[data-design="paper"] .widget-icon--signal {
   color: #788c5d;
 }
 
-:root[data-design="anthropic"] .widget-row:first-of-type .widget-icon {
+:root[data-design="paper"] .widget-row:first-of-type .widget-icon {
   color: #6a9bcc;
 }
 

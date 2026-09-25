@@ -108,6 +108,7 @@ test("history starts loading video thumbnails after rendering", () => {
   const context = vm.createContext({
     history: [],
     historyEmptyElement: {},
+    updateOverview() {},
     document: { querySelector: () => null },
     t: (key) => key,
     historyListElement: {
@@ -219,4 +220,121 @@ test("rememberMedia still records distinct attachments from the same message", (
     url: "https://cdn.discordapp.com/attachments/1/b.png",
   });
   assert.equal(history.length, 2);
+});
+
+test("YouTube history normalizes live and bootstrap entries and deduplicates replay", () => {
+  const { history, rememberMedia } = createRememberMediaHarness();
+  const entry = { timestamp: 123, music: {
+    playbackId: "p1", videoId: "abcdefghijk", title: "Song", channelTitle: "Artist",
+    requestedBy: "Requester", mode: "custom", startSeconds: 50, endSeconds: 95,
+  } };
+  rememberMedia(entry);
+  rememberMedia(entry);
+  assert.equal(history.length, 1);
+  assert.equal(history[0].kind, "youtube");
+  assert.equal(history[0].messageId, "youtube-p1");
+  assert.equal(history[0].filename, "Song");
+  assert.equal(history[0].author.username, "Requester");
+  assert.equal(history[0].music.startSeconds, 50);
+  const context = vm.createContext({ history: [], renderHistory() {} });
+  const replaceSource = panelSource.slice(panelSource.indexOf("function replaceHistory"), panelSource.indexOf("function renderModeration"));
+  vm.runInContext(replaceSource, context);
+  context.replaceHistory([entry]);
+  assert.equal(JSON.stringify(context.history[0]), JSON.stringify(history[0]));
+});
+
+test("YouTube history never loads a watch page as a media thumbnail", () => {
+  const { functions, videos } = createHarness();
+  const { item, thumbnail } = createItem();
+  functions.setMediaThumbnail(item, { filename: "Song", url: "https://www.youtube.com/watch?v=abcdefghijk" }, "youtube");
+  assert.equal(thumbnail.src, "./assets/relay-radar.png");
+  assert.equal(thumbnail.alt, "Song");
+  assert.equal(videos.length, 0);
+});
+
+test("YouTube history shows the video thumbnail from YouTube's image host only", () => {
+  const { functions } = createHarness();
+  const cases = [
+    [{ thumbnail: "https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg" }, "https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg"],
+    [{ thumbnail: "https://evil.example/x.jpg", videoId: "abcdefghijk" }, "https://i.ytimg.com/vi/abcdefghijk/mqdefault.jpg"],
+    [{ thumbnail: "http://i.ytimg.com/x.jpg", videoId: "bad id" }, "./assets/relay-radar.png"],
+  ];
+  for (const [event, expected] of cases) {
+    const { item, thumbnail } = createItem();
+    functions.setMediaThumbnail(item, { filename: "Song", ...event }, "youtube");
+    assert.equal(thumbnail.src, expected);
+    thumbnail.onerror();
+    assert.equal(thumbnail.src, "./assets/relay-radar.png");
+  }
+});
+
+function fakeElement() {
+  const element = {
+    children: [], attributes: {}, listeners: {}, hidden: false,
+    classList: { values: new Set(), add(value) { this.values.add(value); } },
+    addEventListener(type, callback) { this.listeners[type] = callback; },
+    setAttribute(name, value) { this.attributes[name] = String(value); },
+    getAttribute(name) { return this.attributes[name]; },
+    append(...nodes) { this.children.push(...nodes); },
+    after(node) { this.parentElement.append(node); },
+    querySelector() { return this.children[0]; },
+    focus() {},
+  };
+  return element;
+}
+
+test("YouTube rows filter, replay and download through the history commands", async () => {
+  const calls = [];
+  const rows = [];
+  const music = { kind: "youtube", messageId: "youtube-p1", filename: "Song", title: "Song",
+    timestamp: 123, url: "https://www.youtube.com/watch?v=abcdefghijk", author: { username: "Requester" } };
+  const context = vm.createContext({
+    history: [music, { kind: "image", filename: "Photo" }],
+    historyEmptyElement: {}, locale: "en", t: (key) => key, notify() {}, updateOverview() {},
+    invoke: async (...args) => { calls.push(args); return true; },
+    document: {
+      querySelector: (selector) => ({ value: selector === "#history-kind" ? "youtube" : "song" }),
+      createElement: () => fakeElement(),
+    },
+    historyListElement: { replaceChildren() {}, append: (row) => rows.push(row), querySelectorAll: () => [] },
+    historyItemTemplate: { content: { cloneNode() {
+      const nodes = new Map();
+      const actions = fakeElement();
+      return { querySelector(selector) {
+        if (!nodes.has(selector)) {
+          const node = fakeElement();
+          node.parentElement = actions;
+          node.click = function () { return this.listeners.click?.(); };
+          nodes.set(selector, node);
+        }
+        return nodes.get(selector);
+      } };
+    } } },
+  });
+  vm.runInContext(historyRenderSource, context);
+  context.renderHistory();
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].querySelector(".history-item__filename").textContent, "Song");
+  assert.equal(rows[0].querySelector(".history-item__type").textContent, "YOUTUBE");
+  const download = rows[0].querySelector(".history-item__download");
+  assert.equal(download.textContent, "download");
+  await rows[0].querySelector(".history-item__replay").click();
+  assert.equal(calls[0][0], "replay_media");
+  assert.equal(calls[0][1].messageId, "youtube-p1");
+
+  // Download opens the in-panel format menu instead of invoking immediately.
+  const menu = download.parentElement.children[0];
+  assert.equal(menu.hidden, true);
+  download.click();
+  assert.equal(menu.hidden, false);
+  assert.equal(download.getAttribute("aria-expanded"), "true");
+  assert.equal(calls.length, 1);
+  const [mp3, mp4] = menu.children;
+  assert.equal(mp3.textContent, "downloadAudioMp3");
+  assert.equal(mp4.textContent, "downloadVideoMp4");
+  await mp4.listeners.click();
+  assert.equal(menu.hidden, true);
+  assert.equal(calls[1][0], "download_history_media");
+  assert.equal(calls[1][1].messageId, "youtube-p1");
+  assert.equal(calls[1][1].format, "mp4");
 });

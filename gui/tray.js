@@ -50,6 +50,17 @@ Object.assign(trayTranslations, {
   },
 });
 
+// Attention row: the tray opens the panel on the page that needs action.
+Object.assign(trayTranslations.en, { pendingReview: "{count} media awaiting moderation", reviewNow: "Review now", discordNotReady: "Discord is not connected", openDiscordSettings: "Open Discord settings" });
+Object.assign(trayTranslations.fr, { pendingReview: "{count} média(s) en attente de modération", reviewNow: "Vérifier maintenant", discordNotReady: "Discord n’est pas connecté", openDiscordSettings: "Ouvrir les réglages Discord" });
+Object.assign(trayTranslations.es, { pendingReview: "{count} medios pendientes de moderación", reviewNow: "Revisar ahora", discordNotReady: "Discord no está conectado", openDiscordSettings: "Abrir ajustes de Discord" });
+Object.assign(trayTranslations.de, { pendingReview: "{count} Medien warten auf Moderation", reviewNow: "Jetzt prüfen", discordNotReady: "Discord ist nicht verbunden", openDiscordSettings: "Discord-Einstellungen öffnen" });
+Object.assign(trayTranslations.ru, { pendingReview: "Ожидают модерации: {count}", reviewNow: "Проверить", discordNotReady: "Discord не подключён", openDiscordSettings: "Открыть настройки Discord" });
+Object.assign(trayTranslations.zh, { pendingReview: "{count} 个媒体待审核", reviewNow: "立即审核", discordNotReady: "Discord 未连接", openDiscordSettings: "打开 Discord 设置" });
+Object.assign(trayTranslations.ko, { pendingReview: "검토 대기 미디어 {count}개", reviewNow: "지금 검토", discordNotReady: "Discord가 연결되지 않음", openDiscordSettings: "Discord 설정 열기" });
+Object.assign(trayTranslations.ja, { pendingReview: "モデレーション待ちのメディア {count} 件", reviewNow: "今すぐ確認", discordNotReady: "Discord に接続されていません", openDiscordSettings: "Discord 設定を開く" });
+Object.assign(trayTranslations.id, { pendingReview: "{count} media menunggu moderasi", reviewNow: "Tinjau sekarang", discordNotReady: "Discord tidak terhubung", openDiscordSettings: "Buka pengaturan Discord" });
+
 const trayRegionalTranslations = {
   "en-US": {
     displayWidgets: "Display widgets",
@@ -92,7 +103,9 @@ function applyTrayAccent() {
 function applyTrayLanguage() {
   const storedLanguage = localStorage.getItem("relay-language");
   const storedLocale = localStorage.getItem("relay-locale");
-  const storedDesign = localStorage.getItem("relay-design");
+  const legacyDesignNames = { openai: "graphite", anthropic: "paper" };
+  const rawDesign = localStorage.getItem("relay-design");
+  const storedDesign = legacyDesignNames[rawDesign] || rawDesign;
   const storedTheme = localStorage.getItem("relay-theme");
   const storedInterfaceFont = localStorage.getItem("relay-interface-font");
   language = Object.hasOwn(trayTranslations, storedLanguage) ? storedLanguage : "en";
@@ -100,9 +113,9 @@ function applyTrayLanguage() {
     ? storedLocale
     : language === "en" ? "en-US" : language;
   document.documentElement.lang = locale;
-  document.documentElement.dataset.design = ["anthropic", "neo-brutalism", "gridline", "lumen"].includes(storedDesign)
+  document.documentElement.dataset.design = ["paper", "neo-brutalism", "gridline", "lumen"].includes(storedDesign)
     ? storedDesign
-    : "openai";
+    : "graphite";
   document.documentElement.dataset.theme = storedTheme === "light" ? "light" : "dark";
   document.documentElement.dataset.interfaceFont = [
     "bricolage", "dm-sans", "figtree", "inter", "jetbrains-mono",
@@ -155,6 +168,7 @@ function render(status) {
   elements.serverStatus.textContent = translate(status.server.connected ? "online" : "offline");
   elements.serverDetail.textContent = `${status.server.overlayClients} ${translate(status.server.overlayClients === 1 ? "output" : "outputs")}`;
 
+  renderAttention(status);
   renderWidget(status.widget, elements.mediaState, elements.toggleMedia, elements.lockMedia, "mediaWidget");
   renderWidget(
     status.notificationWidget,
@@ -163,6 +177,24 @@ function render(status) {
     elements.lockNotification,
     "notificationWidget",
   );
+}
+
+let attentionPage = null;
+function renderAttention(status) {
+  const pending = (status.pendingMedia || []).length;
+  const button = document.querySelector("#tray-attention");
+  if (pending > 0) {
+    attentionPage = "moderation";
+    document.querySelector("#tray-attention-label").textContent = translate("pendingReview").replace("{count}", pending);
+    document.querySelector("#tray-attention-action").textContent = translate("reviewNow");
+  } else if (!status.bot.connected) {
+    attentionPage = "discord";
+    document.querySelector("#tray-attention-label").textContent = translate("discordNotReady");
+    document.querySelector("#tray-attention-action").textContent = translate("openDiscordSettings");
+  } else {
+    attentionPage = null;
+  }
+  button.hidden = !attentionPage;
 }
 
 async function refreshTray() {
@@ -196,6 +228,7 @@ async function runAction(button, command, payload) {
 }
 
 elements.openPanel.addEventListener("click", () => invoke("tray_open_control_panel"));
+document.querySelector("#tray-attention").addEventListener("click", () => invoke("tray_open_control_panel", { page: attentionPage }));
 elements.toggleMedia.addEventListener("click", () => runAction(elements.toggleMedia, "tray_toggle_media_widget"));
 elements.lockMedia.addEventListener("click", () => runAction(elements.lockMedia, "tray_toggle_media_widget_lock"));
 elements.toggleNotification.addEventListener("click", () => runAction(elements.toggleNotification, "tray_toggle_notification_widget"));

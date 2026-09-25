@@ -100,5 +100,5 @@ test("voice controls are removed while message routing remains", () => {
   assert.doesNotMatch(panelHtml, /id="tts-speech-enabled"|data-output-card="tts"/);
   assert.match(panelHtml, /id="tts-channel"/);
   assert.match(panelHtml, /id="tts-cleanup-enabled"/);
-  assert.match(panelSource, /ttsSpeechEnabled: false/);
+  assert.doesNotMatch(panelSource, /ttsSpeechEnabled/);
 });

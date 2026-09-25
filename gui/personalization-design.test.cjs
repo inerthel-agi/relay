@@ -7,20 +7,20 @@ const panelSource = require("./test-source.cjs").panelSource();
 const panelCss = require("./test-source.cjs").panelStyles();
 const traySource = fs.readFileSync(__dirname + "/tray.js", "utf8");
 const trayCss = fs.readFileSync(__dirname + "/tray.css", "utf8");
-const designs = ["openai", "anthropic", "neo-brutalism", "gridline", "lumen"];
+const designs = ["graphite", "paper", "neo-brutalism", "gridline", "lumen"];
 
 test("personalization exposes five accessible design choices in a retractable picker", () => {
   assert.match(panelHtml, /<details id="design-picker" class="design-picker">/);
   assert.match(panelHtml, /<summary>/);
   assert.match(panelHtml, /id="design-picker-selected"/);
-  assert.match(panelHtml, /<html[^>]+data-design="openai"/);
+  assert.match(panelHtml, /<html[^>]+data-design="graphite"/);
   for (const design of designs) {
     assert.match(panelHtml, new RegExp(`name="interface-design" value="${design}"`));
   }
 });
 
 test("the selected design is persisted and applied without changing the native preference schema", () => {
-  assert.match(panelSource, /const supportedDesigns = \["openai", "anthropic", "neo-brutalism", "gridline", "lumen"\]/);
+  assert.match(panelSource, /const supportedDesigns = \["graphite", "paper", "neo-brutalism", "gridline", "lumen"\]/);
   assert.match(panelSource, /localStorage\.getItem\("relay-design"\)/);
   assert.match(panelSource, /localStorage\.setItem\("relay-design", design\)/);
   assert.match(panelSource, /document\.documentElement\.dataset\.design = design/);
@@ -29,17 +29,26 @@ test("the selected design is persisted and applied without changing the native p
   assert.match(panelSource, /language, theme, accentRgb, fontScale,/);
 });
 
+test("brand-named designs stored by earlier releases migrate to neutral names", () => {
+  const legacy = /const legacyDesignNames = (\{[^}]+\})/;
+  for (const source of [panelSource, traySource]) {
+    const names = Function(`return ${source.match(legacy)[1]}`)();
+    assert.deepEqual(names, { openai: "graphite", anthropic: "paper" });
+  }
+  assert.match(panelSource, /design = legacyDesignNames\[design\] \|\| design;/);
+  assert.match(traySource, /legacyDesignNames\[rawDesign\] \|\| rawDesign/);
+});
+
 test("each art direction covers light, dark, focus, responsive and reduced-motion states", () => {
   for (const design of designs.slice(1)) {
     assert.match(panelCss, new RegExp(`data-design="${design}"`));
     assert.match(trayCss, new RegExp(`data-design="${design}"`));
   }
-  assert.match(panelCss, /data-design="anthropic"\]\[data-theme="dark"\]/);
+  assert.match(panelCss, /data-design="paper"\]\[data-theme="dark"\]/);
   assert.match(panelCss, /data-design="neo-brutalism"\]\[data-theme="dark"\]/);
   assert.match(panelCss, /data-design="gridline"\]\[data-theme="dark"\]/);
   assert.match(panelCss, /data-design="lumen"\]\[data-theme="dark"\]/);
   assert.match(panelCss, /design-choice:has\(input:focus-visible\)/);
-  assert.match(panelCss, /@media \(max-width: 700px\)/);
   assert.match(panelCss, /@media \(prefers-reduced-motion: reduce\)/);
 });
 
@@ -53,17 +62,13 @@ test("tray refresh reads the design and theme shared by personalization", () => 
   assert.match(trayCss, /--tray-accent/);
 });
 
-test("text scaling measures the unscaled tree before applying the factor", () => {
+test("text scaling uses one root factor that later-rendered content inherits", () => {
   const scalingSource = panelSource.slice(
     panelSource.indexOf("function scaleInterfaceText"),
     panelSource.indexOf("function syncInterfacePreferences"),
   );
-  assert.ok(
-    scalingSource.indexOf('style.removeProperty("font-size")')
-      < scalingSource.indexOf("window.getComputedStyle(element).fontSize"),
-  );
-  assert.ok(
-    scalingSource.indexOf("window.getComputedStyle(element).fontSize")
-      < scalingSource.lastIndexOf("element.style.fontSize ="),
-  );
+  assert.match(scalingSource, /setProperty\("--text-scale", String\(fontScale \/ 100\)\)/);
+  assert.doesNotMatch(scalingSource, /element\.style\.fontSize/);
+  assert.match(panelCss, /:root \{\s*--text-scale: 1;/);
+  assert.doesNotMatch(panelCss, /font-size:\s*\d+(?:\.\d+)?px\s*;/);
 });

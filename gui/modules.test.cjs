@@ -119,6 +119,7 @@ class FakeElement {
   }
 
   matches(selector) {
+    if (selector.includes(",")) return selector.split(",").some((part) => this.matches(part.trim()));
     if (selector === "button") return this.tagName === "BUTTON";
     if (selector === "input") return this.tagName === "INPUT";
     if (/^[a-z]+$/i.test(selector)) return this.tagName === selector.toUpperCase();
@@ -445,7 +446,12 @@ test("reaction disclosures retain expanded state and draft settings after librar
     assert.equal(elementsByI18n(root, "modReactionGeneral")[0].parentElement.open, true);
     assert.equal(elementsByI18n(root, "modGlobalCooldown")[0].parentElement.querySelector("input").value, 42);
     assert.equal(elementsByI18n(root, "modReactionAccess")[0].parentElement.open, false);
-    await buttonByI18n(root, "modSave").click();
+    // Leaving the field saves the reactions without a Save button.
+    const editor = root.children.find((child) => child.className === "reaction-editor");
+    const edited = elementsByI18n(root, "modGlobalCooldown")[0].parentElement.querySelector("input");
+    await editor.dispatch("change", { target: edited });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await flush();
     assert.equal(harness.calls.find(({ name }) => name === "save_reactions").args.settings.globalCooldownSeconds, 42);
   } finally { harness.cleanup(); }
 });

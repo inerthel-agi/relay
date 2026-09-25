@@ -1,27 +1,14 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const test = require("node:test");
-const vm = require("node:vm");
+const customCommands = require("./custom-commands.mjs");
 
 const panelSource = require("./test-source.cjs").panelSource();
 const panelHtml = fs.readFileSync(__dirname + "/panel.html", "utf8");
-const helperSource = panelSource.slice(
-  panelSource.indexOf("function cloneCustomCommands"),
-  panelSource.indexOf("function applyConfig"),
-);
+const helperSource = fs.readFileSync(__dirname + "/custom-commands.mjs", "utf8");
 
 function helpers() {
-  const context = vm.createContext({
-    JSON,
-    Set,
-    String,
-    t: (key) => key,
-  });
-  vm.runInContext(
-    `${helperSource}\nglobalThis.customHelpers = { defaultCustomAction, normalizeDiscordId, discordIdListFromInput, customActionPermissionKey };`,
-    context,
-  );
-  return context.customHelpers;
+  return customCommands;
 }
 
 test("the editor exposes every closed custom action", () => {
