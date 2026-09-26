@@ -107,16 +107,14 @@ async fn enforce_honeypot_action(
         .await
         .is_ok();
     let action_result = match action {
-        HoneypotAction::Kick => {
-            guild_id
-                .kick_with_reason(&context.http, message.author.id, HONEYPOT_AUDIT_REASON)
-                .await
-        }
-        HoneypotAction::Ban => {
-            guild_id
-                .ban_with_reason(&context.http, message.author.id, 0, HONEYPOT_AUDIT_REASON)
-                .await
-        }
+        HoneypotAction::Kick => guild_id
+            .kick_with_reason(&context.http, message.author.id, HONEYPOT_AUDIT_REASON)
+            .await
+            .map_err(anyhow::Error::from),
+        HoneypotAction::Ban => guild_id
+            .ban_with_reason(&context.http, message.author.id, 0, HONEYPOT_AUDIT_REASON)
+            .await
+            .map_err(anyhow::Error::from),
         HoneypotAction::Timeout => timeout_member(
             &context.http,
             guild_id,
@@ -150,7 +148,7 @@ pub(crate) async fn timeout_member(
     guild_id: serenity::model::id::GuildId,
     user_id: serenity::model::id::UserId,
     minutes: u16,
-) -> serenity::Result<serenity::model::guild::Member> {
+) -> Result<serenity::model::guild::Member> {
     let seconds = i64::from(minutes.clamp(1, 40_320)) * 60;
     let until = serenity::model::Timestamp::from_unix_timestamp(
         serenity::model::Timestamp::now().unix_timestamp() + seconds,
@@ -165,6 +163,7 @@ pub(crate) async fn timeout_member(
                 .audit_log_reason("Relay moderation"),
         )
         .await
+        .map_err(Into::into)
 }
 
 fn honeypot_outcome_error(
