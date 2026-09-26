@@ -29,7 +29,7 @@ function classList() {
   };
 }
 
-function createHarness(target = "obs", language = "en", preview = false, autoGrantStage = true) {
+function createHarness(target = "obs", language = "en", preview = false, autoGrantStage = true, { withTheme = false } = {}) {
   const sockets = [];
   const timers = new Map();
   const timerDelays = [];
@@ -282,6 +282,7 @@ function createHarness(target = "obs", language = "en", preview = false, autoGra
   });
   const source = fs.readFileSync(__dirname + "/notifications.js", "utf8");
   vm.runInContext(fs.readFileSync(__dirname + "/../outputs/layout.js", "utf8"), context);
+  if (withTheme) vm.runInContext(fs.readFileSync(__dirname + "/../outputs/theme.js", "utf8"), context);
   vm.runInContext(source, context);
 
   return {
@@ -392,16 +393,22 @@ test("notification output applies live crop and scale for OBS and widgets", () =
     /html\.notification-widget \.notification-card\s*\{[^}]*--notification-scale:\s*calc\([\s\S]*1\.15/s,
   );
   assert.doesNotMatch(css, /100cqh\s*\/\s*84px/);
-  // The presence dot keeps the chosen accent; the redundant side signal is hidden.
-  assert.match(css, /\.notification-card__presence,[^}]*background:\s*var\(--accent\)/s);
+  // The always-on presence dot was removed; the redundant side signal stays hidden.
+  assert.doesNotMatch(css, /notification-card__presence/);
   assert.match(css, /\.notification-card__signal\s*\{[^}]*display:\s*none/s);
   assert.doesNotMatch(css, /#9fc9ff/);
   assert.doesNotMatch(css, /159 201 255/);
   const source = fs.readFileSync(__dirname + "/notifications.js", "utf8");
   assert.match(source, /probeWatchdog[\s\S]*probe\.close\(\)/);
   // No outer glow on transparent OBS / widget chrome (opaque cards, no blur halo).
-  assert.match(css, /\.notification-card\s*\{[^}]*box-shadow:\s*none[^}]*filter:\s*none/s);
-  assert.match(css, /\.notification-card\s*\{[^}]*border:\s*1px\s+solid\s+#2a2e36/s);
+  assert.match(css, /\.notification-card\s*\{[^}]*box-shadow:\s*var\(--out-shadow\)[^}]*filter:\s*none/s);
+  assert.match(css, /\.notification-card\s*\{[^}]*border:\s*var\(--out-border\)\s+solid\s+var\(--out-line\)/s);
+  // Shared styles may only use hard, opaque offset shadows (no blur radius).
+  const theme = fs.readFileSync(__dirname + "/../outputs/theme.css", "utf8");
+  for (const [, value] of theme.matchAll(/--out-shadow:\s*([^;]+);/g)) {
+    assert.match(value.trim(), /^(none|-?\d+px -?\d+px 0 #[0-9a-f]{6})$/i, value);
+  }
+  assert.doesNotMatch(theme, /backdrop-filter|drop-shadow|blur\(/);
   assert.doesNotMatch(css, /color-scheme:\s*(dark|only\s+light)/);
   assert.doesNotMatch(css, /backdrop-filter/);
   assert.doesNotMatch(css, /drop-shadow/);
@@ -1110,12 +1117,43 @@ test("sticker-only notifications use a compact layout and plain text resets it",
   assert.equal(elements["#notification"].classList.contains("is-sticker-only"), false);
 });
 
-test("presence indicator includes its border within a small proportional diameter", () => {
+test("the compact card follows its text, shows three lines and animates its exit", () => {
   const css = fs.readFileSync(__dirname + "/notifications.css", "utf8");
-  const dot = css.slice(css.indexOf(".notification-card__presence {"), css.indexOf("\n}", css.indexOf(".notification-card__presence {")));
-  assert.match(dot, /box-sizing: border-box/);
-  assert.match(dot, /width: calc\(9px \* var\(--notification-scale\)\)/);
-  assert.match(dot, /height: calc\(9px \* var\(--notification-scale\)\)/);
+  const card = css.slice(css.indexOf(".notification-card {"), css.indexOf("\n}", css.indexOf(".notification-card {")));
+  assert.match(card, /width: fit-content/);
+  assert.match(card, /min-height: calc\(56px \* var\(--notification-scale\)\)/);
+  assert.match(card, /max-width: min\(calc\(340px/);
+  // Colors, borders and motion come from the shared stream style.
+  assert.match(card, /background-color: var\(--out-surface\)/);
+  assert.match(card, /border: var\(--out-border\) solid var\(--out-line\)/);
+  assert.match(card, /display var\(--out-exit-duration\) allow-discrete/);
+  assert.match(css, /@starting-style\s*\{\s*\.notification-card\.is-visible/);
+  assert.match(css, /\.notification-card__message\s*\{[^}]*-webkit-line-clamp: 3/s);
+  // No overshooting curve: the entrance no longer bounces.
+  assert.doesNotMatch(css, /cubic-bezier\([^)]*1\.12\)/);
+  const html = fs.readFileSync(__dirname + "/index.html", "utf8");
+  assert.ok(html.indexOf("/output-theme.css") < html.indexOf("notifications.css"));
+  assert.ok(html.indexOf("/output-theme.js") < html.indexOf("notifications.js"));
+});
+
+test("appearance messages set the stream style on the notification page", () => {
+  const harness = createHarness("obs", "en", false, true, { withTheme: true });
+  const root = harness.context.document.documentElement;
+  assert.equal(root.dataset.outputStyle, "graphite");
+  assert.equal(root.dataset.outputBackground, "dark");
+  harness.socket.emit("message", JSON.stringify({
+    type: "appearance",
+    payload: { language: "en", theme: "light", accentRgb: [20, 20, 120], fontScale: 100, design: "paper", outputStyle: "auto", outputBackground: "auto" },
+  }));
+  assert.equal(root.dataset.outputStyle, "paper");
+  assert.equal(root.dataset.outputBackground, "light");
+  assert.equal(harness.cssProperties["--accent-ink"], "#ffffff");
+  harness.socket.emit("message", JSON.stringify({
+    type: "appearance",
+    payload: { language: "en", theme: "light", accentRgb: [88, 185, 137], fontScale: 100, design: "paper", outputStyle: "subtitle", outputBackground: "dark" },
+  }));
+  assert.equal(root.dataset.outputStyle, "subtitle");
+  assert.equal(root.dataset.outputBackground, "dark");
 });
 
 function visualNotification(id, username = `User ${id}`) {

@@ -4,6 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Relay</title>
+    <link rel="stylesheet" href="/output-theme.css">
     <link rel="stylesheet" href="/notification-assets/notifications.css">
   </head>
   <body>
@@ -11,7 +12,6 @@
       <article id="notification" class="notification-card" aria-hidden="true">
         <div class="notification-card__avatar-shell">
           <img id="notification-avatar" class="notification-card__avatar" src="/overlay-assets/relay-radar.png" alt="">
-          <span class="notification-card__presence" aria-hidden="true"></span>
         </div>
         <div class="notification-card__copy">
           <div class="notification-card__identity">
@@ -30,6 +30,7 @@
     <div id="notification-move-layer" class="notification-move-layer" data-tauri-drag-region>
       <span id="notification-move-label" class="notification-move-badge">Move notification</span>
     </div>
+    <script src="/output-theme.js" defer></script>
     <script src="/notification-assets/notifications.js" defer></script>
   </body>
 </html>

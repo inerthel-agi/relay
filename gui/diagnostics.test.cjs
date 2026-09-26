@@ -28,13 +28,14 @@ test("common backend errors map to translated categories", () => {
 });
 
 test("every error category is translated in all interface languages", () => {
+  const { translations } = require("./translations.mjs");
   const keys = [...fs.readFileSync(__dirname + "/diagnostics.mjs", "utf8").matchAll(/"(err[A-Z]\w+)"/g)].map((match) => match[1]);
-  const errorBlock = translationsSource.slice(translationsSource.indexOf("const errorLabels"), translationsSource.indexOf("Object.entries(errorLabels)"));
   for (const language of ["en", "fr", "es", "de", "ru", "zh", "ko", "ja", "id"]) {
-    const line = errorBlock.split("\n").find((row) => row.trim().startsWith(`${language}: {`));
-    assert.ok(line, language);
-    for (const key of keys) assert.match(line, new RegExp(`${key}: "`), `${language} ${key}`);
+    for (const key of keys) assert.ok(translations[language][key], `${language} ${key}`);
   }
+  assert.equal(errorCategory("Relay is paused."), "errPaused");
+  assert.equal(errorCategory("The OBS WebSocket password is incorrect."), "errObsPassword");
+  assert.equal(errorCategory("OBS is not reachable. In OBS, open Tools"), "errObsUnreachable");
 });
 
 test("sanitizing removes tokens, private link secrets, Discord IDs and the Windows user name", () => {

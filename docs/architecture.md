@@ -11,8 +11,11 @@ Relay is a Windows desktop application that relays Discord media to authenticate
 | Application state | `src-tauri/src/state.rs` | Configuration updates, privacy gate, queues, history, replay, caches and relay events |
 | Privacy scanner | `src-tauri/src/privacy.rs` | Local text, EXIF, GPS and OCR analysis with risk classification and sanitized decisions |
 | Local server | `src-tauri/src/server.rs` | Authenticated localhost HTTP and WebSocket output routes |
-| Output clients | `overlay/`, `notifications/`, `stickers/`, `reactions/`, `outputs/` | OBS Browser Sources and widget-facing playback clients; `outputs/layout.js` holds shared placement |
+| Output clients | `overlay/`, `notifications/`, `stickers/`, `reactions/`, `outputs/` | OBS Browser Sources and widget-facing playback clients; `outputs/layout.js` holds shared placement; `outputs/theme.css` and `outputs/theme.js` hold the shared stream style |
 | Sound reactions | `src-tauri/src/reactions.rs`, `src-tauri/src/reaction_*.rs` | Reaction library, trimming, access rules and playback leases |
+| Panic button | `src-tauri/src/panic.rs`, `src-tauri/src/stage_scheduler.rs` | Clears every output and pauses the scheduler; paused content is dropped, reactions and music requests are refused |
+| Bot check | `src-tauri/src/discord_check.rs` | Message Content Intent state and missing channel permissions per feature |
+| OBS setup | `src-tauri/src/obs.rs` | obs-websocket 5 client on 127.0.0.1: authentication, scene list, Browser Source creation and update |
 | Control panel | `gui/` | Tauri control interface, translations, personalization and local moderation controls |
 
 ## Media path
@@ -75,7 +78,10 @@ Panel translations, output presets, privacy filter parsing (`gui/privacy-filters
 | `gui/settings-search.mjs` | Top bar search and the `reveal` helper used by internal links |
 | `gui/autosave.mjs` | Automatic saving of settings forms and the Start with Windows switch |
 | `gui/diagnostics.mjs` | Translated error categories and the sanitized diagnostic report |
+| `gui/panic.mjs` | Top bar panic button and the paused banner |
+| `gui/discord-check.mjs` | Discord → Bot check results |
+| `gui/obs-setup.mjs` | Automatic OBS source setup on OBS & widgets |
 
-Each module exports an `initialize…` function that receives the panel helpers it needs (`$`, `t`, `invoke`, `setSaveState`, getters for shared state) and returns a small API. `panel.js` creates them after the `// Page modules` marker. `gui/test-source.cjs` lists the panel modules that tests read alongside `panel.js`. Shared output placement lives in `outputs/layout.js`; generated local samples live in `outputs/samples/`. HTTP handlers live in `src-tauri/src/server/http_routes.rs`, Discord music handlers in `src-tauri/src/bot/music_handlers.rs`, and state music/cache operations in `src-tauri/src/state/`. Rust tests are stored in each module directory.
+Each module exports an `initialize…` function that receives the panel helpers it needs (`$`, `t`, `invoke`, `setSaveState`, getters for shared state) and returns a small API. `panel.js` creates them after the `// Page modules` marker. `gui/test-source.cjs` lists the panel modules that tests read alongside `panel.js`. Moderation lives in `src-tauri/src/moderation.rs` (gate, word lists, link and spam rules, presets, decision log, live mode) with its queue helpers in `src-tauri/src/state/moderation_queue.rs`, its commands in `src-tauri/src/commands/moderation.rs` and its page in `gui/moderation-ui.mjs`; see [Moderation](moderation-design.md). Shared output placement lives in `outputs/layout.js` and the stream style in `outputs/theme.css`/`outputs/theme.js`, served at `/output-theme.css`, `/output-theme.js` and `/output-fonts/{file}` (bundled fonts only, allowed by `font-src 'self'`); generated local samples live in `outputs/samples/`. HTTP handlers live in `src-tauri/src/server/http_routes.rs`, Discord music handlers in `src-tauri/src/bot/music_handlers.rs`, and state music/cache operations in `src-tauri/src/state/`. Rust tests are stored in each module directory.
 
 See [Output controls and refactoring](refactoring-and-output-controls.md) for feature locations, compatibility and validation boundaries.

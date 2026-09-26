@@ -2,6 +2,9 @@
 
 // Ordered: the first matching pattern wins. Keys live in translations.mjs.
 const errorCategories = [
+  [/relay is paused/i, "errPaused"],
+  [/obs is not reachable|obs did not answer/i, "errObsUnreachable"],
+  [/obs websocket password|obs asks for a websocket password/i, "errObsPassword"],
   [/discord bot is not connected|connect the discord bot|bot offline/i, "errBotOffline"],
   [/shortcut is already in use/i, "errShortcutInUse"],
   [/file with that name already exists/i, "errFileExists"],

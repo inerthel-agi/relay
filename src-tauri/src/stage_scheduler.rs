@@ -3,7 +3,7 @@ use std::{
     collections::{BTreeMap, HashMap, HashSet},
     sync::{
         Arc,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::Duration,
 };
@@ -55,6 +55,8 @@ struct Inner {
     next_insertion: AtomicU64,
     ready_timeout: Duration,
     claim_timeout: Duration,
+    /// Set by the panic button: new content is dropped until resumed.
+    paused: AtomicBool,
     state: Mutex<SchedulerState>,
 }
 
@@ -117,6 +119,7 @@ impl StageScheduler {
                 next_insertion: AtomicU64::new(1),
                 ready_timeout,
                 claim_timeout,
+                paused: AtomicBool::new(false),
                 state: Mutex::new(SchedulerState::default()),
             }),
         }
@@ -178,9 +181,27 @@ impl StageScheduler {
         ticket
     }
 
+    pub fn set_paused(&self, paused: bool) {
+        self.inner.paused.store(paused, Ordering::SeqCst);
+    }
+
+    pub fn is_paused(&self) -> bool {
+        self.inner.paused.load(Ordering::SeqCst)
+    }
+
     pub async fn ready(&self, ticket: StageTicket, event: RelayEvent) {
         {
             let mut state = self.inner.state.lock().await;
+            // While paused, content that becomes ready is discarded rather than queued,
+            // so resuming does not flood the stream with everything sent meanwhile.
+            if self.is_paused() {
+                if let Some(entry) = state.entries.remove(&ticket)
+                    && let Some(key) = entry.key
+                {
+                    state.ordered.remove(&key);
+                }
+                return;
+            }
             if state.messages_pinned
                 && matches!(&event, RelayEvent::Tts(_))
                 && state

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-preview-moderation-preset"
+description = "Enables the preview_moderation_preset command without any pre-configured scope."
+commands.allow = ["preview_moderation_preset"]
+
+[[permission]]
+identifier = "deny-preview-moderation-preset"
+description = "Denies the preview_moderation_preset command without any pre-configured scope."
+commands.deny = ["preview_moderation_preset"]

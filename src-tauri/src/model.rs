@@ -164,6 +164,40 @@ pub struct PendingMedia {
     pub privacy_categories: Vec<crate::privacy::PrivacyCategory>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub privacy_reason: Option<String>,
+    /// Why moderation held it: "new_account", "raid", "safety_delay"...
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hold_reason: Option<String>,
+    /// Safety delay: published automatically at this time unless rejected.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub release_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub channel_id: Option<String>,
+    #[serde(default)]
+    pub queued_at: u64,
+}
+
+/// A notification message held for review instead of being dropped.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingText {
+    pub id: u64,
+    pub message_id: String,
+    pub text: String,
+    pub author: AuthorIdentity,
+    #[serde(skip)]
+    pub guild_tag: Option<GuildTagIdentity>,
+    #[serde(skip)]
+    pub segments: Vec<VisualSegment>,
+    pub timestamp: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub channel_id: Option<String>,
+    pub queued_at: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -278,13 +312,30 @@ pub struct ServerStatus {
     pub error: Option<String>,
 }
 
+/// Panel designs; outputs mirror the active one when their style is "auto".
+pub const INTERFACE_DESIGNS: [&str; 6] = [
+    "graphite",
+    "paper",
+    "neo-brutalism",
+    "gridline",
+    "lumen",
+    "signal",
+];
+/// Output-only style that draws outlined text without a card.
+pub const SUBTITLE_OUTPUT_STYLE: &str = "subtitle";
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(default, rename_all = "camelCase")]
 pub struct InterfacePreferences {
     pub language: String,
     pub theme: String,
     pub accent_rgb: [u8; 3],
     pub font_scale: u8,
+    pub design: String,
+    /// "auto" follows `design`; otherwise a design or "subtitle".
+    pub output_style: String,
+    /// "auto" follows `theme`; otherwise "light" or "dark".
+    pub output_background: String,
 }
 
 impl Default for InterfacePreferences {
@@ -294,6 +345,9 @@ impl Default for InterfacePreferences {
             theme: "dark".into(),
             accent_rgb: [88, 185, 137],
             font_scale: 100,
+            design: "graphite".into(),
+            output_style: "auto".into(),
+            output_background: "auto".into(),
         }
     }
 }
@@ -318,4 +372,6 @@ pub enum RelayEvent {
     Clear,
     Skip,
     Appearance(InterfacePreferences),
+    /// Panic button state; outputs ignore it, the panel and tray show it.
+    OutputsPaused(bool),
 }

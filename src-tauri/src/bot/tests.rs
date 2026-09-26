@@ -12,7 +12,7 @@ fn honeypot_reports_each_failure_without_masking_other_failures() {
                 );
                 let text = error.unwrap_or_default();
                 assert_eq!(text.contains("DM could not"), !dm_delivered);
-                assert_eq!(text.contains("Kick or ban failed"), action_failed);
+                assert_eq!(text.contains("Kick, ban or timeout failed"), action_failed);
                 assert_eq!(text.contains("Message deletion failed"), deletion_failed);
             }
         }
@@ -35,31 +35,123 @@ fn honeypot_targets_only_the_configured_channel_with_english_notices() {
         honeypot_action_for_channel(&config, "223456789012345678"),
         None
     );
-    assert!(honeypot_notice(HoneypotAction::Kick).contains("kicked from the server"));
-    assert!(honeypot_notice(HoneypotAction::Ban).contains("banned from the server"));
+    use crate::moderation::messages::honeypot_notice;
+    assert!(honeypot_notice(HoneypotAction::Kick, "en").contains("removed from the server"));
+    assert!(honeypot_notice(HoneypotAction::Ban, "en").contains("banned from the server"));
+    assert!(honeypot_notice(HoneypotAction::Timeout, "en").contains("muted"));
+    assert!(honeypot_notice(HoneypotAction::Ban, "fr").contains("banni du serveur"));
     for notice in [
-        honeypot_notice(HoneypotAction::Kick),
-        honeypot_notice(HoneypotAction::Ban),
+        honeypot_notice(HoneypotAction::Kick, "en"),
+        honeypot_notice(HoneypotAction::Ban, "en"),
+        honeypot_notice(HoneypotAction::Timeout, "en"),
     ] {
-        assert!(notice.contains("token-grabbing"));
+        assert!(notice.contains("token-stealing"));
         assert!(notice.contains("Change your Discord password"));
         assert!(notice.contains("two-factor authentication"));
     }
 }
 
 #[test]
-fn deferred_embed_updates_fetch_roles_before_using_the_partial_fallback() {
-    let source = include_str!("../bot.rs");
-    let handler = source
-        .split("async fn message_update(")
-        .nth(1)
-        .and_then(|value| value.split("async fn interaction_create(").next())
-        .expect("message update handler");
-    let fetch = handler
-        .find("get_message(event.channel_id, event.id)")
-        .unwrap();
-    let partial = handler.find("role_ids: Vec::new()").unwrap();
-    assert!(fetch < partial);
+fn deferred_embed_updates_preserve_admission_without_recounting() {
+    use crate::moderation::Lane;
+    let directory = tempfile::tempdir().unwrap();
+    let core = AppCore::load(directory.path().join("config.json")).unwrap();
+    let mut config = AppConfig::default();
+    config.moderation.user_cooldown_seconds = 60;
+    let mut message = Message::default();
+    message.id = MessageId::new(123_456_789_012_345_678);
+    message.author.id = UserId::new(223_456_789_012_345_678);
+    assert!(apply_moderation_gate(
+        &core,
+        &message,
+        &[],
+        Lane::Media,
+        &config
+    ));
+    assert!(apply_moderation_gate(
+        &core,
+        &message,
+        &[],
+        Lane::Media,
+        &config
+    ));
+
+    message.id = MessageId::new(123_456_789_012_345_679);
+    assert!(!apply_moderation_gate(
+        &core,
+        &message,
+        &[],
+        Lane::Media,
+        &config
+    ));
+    config.moderation.user_cooldown_seconds = 0;
+    assert!(!apply_moderation_gate(
+        &core,
+        &message,
+        &[],
+        Lane::Media,
+        &config
+    ));
+
+    message.id = MessageId::new(123_456_789_012_345_678);
+    config
+        .moderation
+        .blocked_user_ids
+        .push(message.author.id.to_string());
+    assert!(!apply_moderation_gate(
+        &core,
+        &message,
+        &[],
+        Lane::Media,
+        &config
+    ));
+    message.id = MessageId::new(123_456_789_012_345_680);
+    assert!(!apply_moderation_gate(
+        &core,
+        &message,
+        &[],
+        Lane::Media,
+        &config
+    ));
+}
+
+#[test]
+fn deferred_embed_updates_preserve_review_holds() {
+    use crate::moderation::Lane;
+    let directory = tempfile::tempdir().unwrap();
+    let core = AppCore::load(directory.path().join("config.json")).unwrap();
+    let mut config = AppConfig::default();
+    config.moderation.min_account_age_days = 365;
+    let mut message = Message::default();
+    message.id = MessageId::new(123_456_789_012_345_678);
+    message.author.id = UserId::new((now_ms() - 1_420_070_400_000) << 22);
+    assert!(apply_moderation_gate(
+        &core,
+        &message,
+        &[],
+        Lane::Media,
+        &config
+    ));
+    let verdict = core.moderation_verdict(&message.id.to_string()).unwrap();
+    assert_eq!(verdict.hold, Some("new_account"));
+    assert!(apply_moderation_gate(
+        &core,
+        &message,
+        &[],
+        Lane::Media,
+        &config
+    ));
+    assert_eq!(
+        core.moderation_verdict(&message.id.to_string()).unwrap(),
+        verdict
+    );
+}
+
+#[test]
+fn channel_commands_reject_foreign_guilds() {
+    let invoking = GuildId::new(123_456_789_012_345_678);
+    assert!(require_same_guild(invoking, invoking).is_ok());
+    assert!(require_same_guild(GuildId::new(223_456_789_012_345_678), invoking).is_err());
 }
 
 #[test]
@@ -118,7 +210,7 @@ fn formats_local_overlay_urls_without_secret() {
 fn builds_invite_url_with_required_scopes_and_permissions() {
     assert_eq!(
         invite_url("123456789012345678", &AppConfig::default()),
-        "https://discord.com/oauth2/authorize?client_id=123456789012345678&permissions=268510224&scope=bot%20applications.commands"
+        "https://discord.com/oauth2/authorize?client_id=123456789012345678&permissions=268528656&scope=bot%20applications.commands"
     );
 }
 

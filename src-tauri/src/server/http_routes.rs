@@ -224,6 +224,41 @@ pub(super) async fn output_layout() -> impl IntoResponse {
     )
 }
 
+pub(super) async fn output_theme_css() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
+        include_str!("../../../outputs/theme.css"),
+    )
+}
+
+pub(super) async fn output_theme_js() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
+        include_str!("../../../outputs/theme.js"),
+    )
+}
+
+/// Fonts used by the output styles; the same files the panel bundles.
+pub(super) async fn output_font(Path(file): Path<String>) -> Response {
+    let bytes: &[u8] = match file.as_str() {
+        "DMSans.woff2" => include_bytes!("../../../gui/assets/fonts/DMSans.woff2"),
+        "Inter.woff2" => include_bytes!("../../../gui/assets/fonts/Inter.woff2"),
+        "JetBrainsMono.woff2" => include_bytes!("../../../gui/assets/fonts/JetBrainsMono.woff2"),
+        "Manrope.woff2" => include_bytes!("../../../gui/assets/fonts/Manrope.woff2"),
+        "Poppins.woff2" => include_bytes!("../../../gui/assets/fonts/Poppins.woff2"),
+        "SpaceGrotesk.woff2" => include_bytes!("../../../gui/assets/fonts/SpaceGrotesk.woff2"),
+        _ => return StatusCode::NOT_FOUND.into_response(),
+    };
+    (
+        [
+            (header::CONTENT_TYPE, "font/woff2"),
+            (header::CACHE_CONTROL, "public, max-age=86400"),
+        ],
+        bytes,
+    )
+        .into_response()
+}
+
 pub(super) async fn overlay_js() -> impl IntoResponse {
     (
         [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],

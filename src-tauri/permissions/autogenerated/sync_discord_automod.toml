@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-sync-discord-automod"
+description = "Enables the sync_discord_automod command without any pre-configured scope."
+commands.allow = ["sync_discord_automod"]
+
+[[permission]]
+identifier = "deny-sync-discord-automod"
+description = "Denies the sync_discord_automod command without any pre-configured scope."
+commands.deny = ["sync_discord_automod"]

@@ -373,3 +373,23 @@ async fn scheduler_rejects_reordering_an_active_or_incomplete_music_set() {
     assert!(!scheduler.reorder_music(&[]).await);
     assert_eq!(scheduler.queue_snapshot().await[0].title, "Waiting");
 }
+
+#[tokio::test]
+async fn paused_scheduler_drops_ready_content_until_resumed() {
+    let (tx, mut rx) = broadcast::channel(16);
+    let scheduler = StageScheduler::new(tx);
+    scheduler.set_paused(true);
+    let dropped = scheduler
+        .reserve(30_000, "300", 200, StageLane::Media)
+        .await;
+    scheduler.ready(dropped, media(30_000, "300")).await;
+    assert!(rx.try_recv().is_err());
+    assert!(scheduler.queue_snapshot().await.is_empty());
+
+    scheduler.set_paused(false);
+    let shown = scheduler
+        .reserve(30_001, "301", 200, StageLane::Media)
+        .await;
+    scheduler.ready(shown, media(30_001, "301")).await;
+    assert!(matches!(rx.try_recv(), Ok(RelayEvent::Media(_))));
+}

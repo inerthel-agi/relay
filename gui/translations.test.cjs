@@ -110,8 +110,10 @@ test("translation values contain no UTF-8 mojibake", () => {
   }
 });
 
-test("moderation settings use three native disclosures without changing control IDs", () => {
-  assert.equal([...panelHtml.matchAll(/<details id="moderation-/g)].length, 3);
+test("moderation settings use native disclosures without changing control IDs", () => {
+  for (const id of ["automod", "manual", "privacy", "spam", "sanctions", "live"]) {
+    assert.match(panelHtml, new RegExp(`<details id="moderation-${id}"`), id);
+  }
   assert.match(panelHtml, /<details id="moderation-automod"[^>]* open>/);
   assert.match(panelHtml, /<details id="moderation-manual"[^>]*>/);
   assert.match(panelHtml, /<details id="moderation-privacy"[^>]*>/);

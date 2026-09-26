@@ -1,0 +1,251 @@
+/*
+  Stream styles shared by notifications, the music card, media captions and the
+  YouTube credit. outputs/theme.js sets data-output-style and data-output-background
+  on <html> from the interface preferences.
+
+  OBS rule: edges stay opaque. A translucent fill, blur or soft shadow on a
+  transparent Browser Source leaves a black halo, so only hard offset shadows
+  with an opaque color are allowed.
+*/
+
+@font-face { font-family: "Relay Output DM Sans"; font-weight: 400; font-display: swap; src: url("/output-fonts/DMSans.woff2") format("woff2"); }
+@font-face { font-family: "Relay Output Inter"; font-weight: 400; font-display: swap; src: url("/output-fonts/Inter.woff2") format("woff2"); }
+@font-face { font-family: "Relay Output JetBrains Mono"; font-weight: 400; font-display: swap; src: url("/output-fonts/JetBrainsMono.woff2") format("woff2"); }
+@font-face { font-family: "Relay Output Manrope"; font-weight: 400; font-display: swap; src: url("/output-fonts/Manrope.woff2") format("woff2"); }
+@font-face { font-family: "Relay Output Poppins"; font-weight: 400; font-display: swap; src: url("/output-fonts/Poppins.woff2") format("woff2"); }
+@font-face { font-family: "Relay Output Space Grotesk"; font-weight: 400; font-display: swap; src: url("/output-fonts/SpaceGrotesk.woff2") format("woff2"); }
+
+/* Graphite, dark: also the fallback before the first appearance message. */
+:root {
+  --accent-ink: #07130d;
+  --out-surface: #0a0a0a;
+  --out-surface-image: none;
+  --out-surface-size: auto;
+  --out-ink: #f5f5f1;
+  --out-muted: #a8a8a0;
+  --out-line: #2a2a27;
+  --out-border: 1px;
+  --out-radius: 14px;
+  --out-radius-inner: 10px;
+  --out-radius-pill: 10px;
+  --out-shadow: none;
+  --out-track: color-mix(in srgb, var(--out-ink) 16%, transparent);
+  --out-font: Bahnschrift, "Segoe UI Variable Display", "Segoe UI", sans-serif;
+  --out-font-title: var(--out-font);
+  --out-font-stretch: normal;
+  --out-name-size: 12px;
+  --out-name-weight: 600;
+  --out-name-transform: none;
+  --out-name-spacing: 0.01em;
+  --out-name-bg: transparent;
+  --out-name-ink: var(--out-muted);
+  --out-name-pad: 0;
+  --out-message-size: 15px;
+  --out-message-weight: 400;
+  --out-message-leading: 1.38;
+  --out-avatar-radius: 50%;
+  --out-avatar-border: 0px;
+  --out-stroke: 0px;
+  --out-stroke-color: transparent;
+  --out-enter-from: translateX(12px);
+  --out-clip-from: none;
+  --out-clip-to: none;
+  --out-enter-duration: 200ms;
+  --out-enter-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --out-exit-duration: 160ms;
+  --out-exit-ease: ease-in;
+}
+
+:root[data-output-background="light"] {
+  --out-surface: #ffffff;
+  --out-ink: #111110;
+  --out-muted: #66665f;
+  --out-line: #d6d6cf;
+}
+
+/* Paper: warm sheet, serif reading text, a slow settle. */
+:root[data-output-style="paper"] {
+  --out-surface: #1d1d1b;
+  --out-ink: #faf9f5;
+  --out-muted: #b0aea5;
+  --out-line: #5b5952;
+  --out-radius: 10px;
+  --out-radius-inner: 6px;
+  --out-radius-pill: 8px;
+  --out-font: Lora, Georgia, "Times New Roman", serif;
+  --out-font-title: "Relay Output Poppins", "Segoe UI", sans-serif;
+  --out-message-size: 15.5px;
+  --out-message-leading: 1.45;
+  --out-enter-from: translateY(4px);
+  --out-enter-duration: 260ms;
+  --out-enter-ease: ease-out;
+  --out-exit-duration: 200ms;
+  --out-exit-ease: ease;
+}
+
+:root[data-output-style="paper"][data-output-background="light"] {
+  --out-surface: #faf9f5;
+  --out-ink: #141413;
+  --out-muted: #5f5d57;
+  --out-line: #b0aea5;
+}
+
+/* Neo-brutalism: thick outline, opaque offset shadow, an abrupt arrival. */
+:root[data-output-style="neo-brutalism"] {
+  --out-surface: #251d18;
+  --out-ink: #fff4dc;
+  --out-muted: #d4bfa7;
+  --out-line: #f4cc78;
+  --out-border: 2px;
+  --out-radius: 8px;
+  --out-radius-inner: 4px;
+  --out-radius-pill: 6px;
+  --out-shadow: 4px 4px 0 #050403;
+  --out-font: "Relay Output Manrope", "Aptos Display", Bahnschrift, sans-serif;
+  --out-font-title: var(--out-font);
+  --out-name-size: 11px;
+  --out-name-weight: 800;
+  --out-name-transform: uppercase;
+  --out-name-spacing: 0.06em;
+  --out-name-bg: #ffc94c;
+  --out-name-ink: #15110f;
+  --out-name-pad: 2px 6px;
+  --out-message-weight: 600;
+  --out-avatar-radius: 6px;
+  --out-avatar-border: 2px;
+  --out-enter-from: translate(10px, -6px);
+  --out-enter-duration: 120ms;
+  --out-enter-ease: linear;
+  --out-exit-duration: 100ms;
+  --out-exit-ease: linear;
+}
+
+:root[data-output-style="neo-brutalism"][data-output-background="light"] {
+  --out-surface: #fff8e8;
+  --out-ink: #15110f;
+  --out-muted: #5f5147;
+  --out-line: #15110f;
+  --out-shadow: 4px 4px 0 #15110f;
+}
+
+/* Gridline: technical grid, monospace labels, a left-to-right wipe. */
+:root[data-output-style="gridline"] {
+  --out-surface: #122127;
+  --out-ink: #e7f0f3;
+  --out-muted: #a2b7bf;
+  --out-line: #49636d;
+  --out-surface-image:
+    linear-gradient(color-mix(in srgb, var(--out-line) 32%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--out-line) 32%, transparent) 1px, transparent 1px);
+  --out-surface-size: 12px 12px;
+  --out-radius: 4px;
+  --out-radius-inner: 3px;
+  --out-radius-pill: 4px;
+  --out-font: "Relay Output Inter", "Segoe UI", sans-serif;
+  --out-font-title: "Relay Output JetBrains Mono", Consolas, monospace;
+  --out-name-size: 11px;
+  --out-name-weight: 500;
+  --out-name-transform: uppercase;
+  --out-name-spacing: 0.04em;
+  --out-message-size: 14.5px;
+  --out-avatar-radius: 3px;
+  --out-enter-from: none;
+  --out-clip-from: inset(0 100% 0 0);
+  --out-clip-to: inset(0 0 0 0);
+  --out-enter-duration: 220ms;
+  --out-enter-ease: cubic-bezier(0.6, 0, 0.2, 1);
+}
+
+:root[data-output-style="gridline"][data-output-background="light"] {
+  --out-surface: #fbfdfd;
+  --out-ink: #132730;
+  --out-muted: #4d636e;
+  --out-line: #9bb0b9;
+}
+
+/* Lumen: accent-tinted gradient fill and border instead of a glow. */
+:root[data-output-style="lumen"] {
+  --out-surface: #101d2e;
+  --out-surface-image: linear-gradient(150deg, color-mix(in srgb, var(--accent) 22%, #101d2e), #101d2e 70%);
+  --out-ink: #eaf2ff;
+  --out-muted: #afc0d6;
+  --out-line: color-mix(in srgb, #2a3e59 70%, var(--accent));
+  --out-radius: 18px;
+  --out-radius-inner: 12px;
+  --out-radius-pill: 12px;
+  --out-font: "Relay Output DM Sans", "Segoe UI", sans-serif;
+  --out-font-title: "Relay Output Space Grotesk", "Relay Output DM Sans", sans-serif;
+  --out-enter-from: scale(0.97);
+  --out-enter-duration: 240ms;
+}
+
+:root[data-output-style="lumen"][data-output-background="light"] {
+  --out-surface: #f9fbff;
+  --out-surface-image: linear-gradient(150deg, color-mix(in srgb, var(--accent) 16%, #f9fbff), #f9fbff 70%);
+  --out-ink: #14243a;
+  --out-muted: #52647c;
+  --out-line: color-mix(in srgb, #c6d3e4 70%, var(--accent));
+}
+
+/* Signal: broadcast lower third, square corners, name on an accent block. */
+:root[data-output-style="signal"] {
+  --out-surface: #000000;
+  --out-ink: #ffffff;
+  --out-muted: #d4d4d4;
+  --out-line: #000000;
+  --out-border: 0px;
+  --out-radius: 0px;
+  --out-radius-inner: 0px;
+  --out-radius-pill: 0px;
+  --out-font: Bahnschrift, "Segoe UI", sans-serif;
+  --out-font-title: "Bahnschrift Condensed", Bahnschrift, "Arial Narrow", sans-serif;
+  --out-font-stretch: condensed;
+  --out-name-size: 13px;
+  --out-name-weight: 700;
+  --out-name-transform: uppercase;
+  --out-name-spacing: 0.05em;
+  --out-name-bg: var(--accent);
+  --out-name-ink: var(--accent-ink);
+  --out-name-pad: 1px 6px;
+  --out-message-size: 16px;
+  --out-avatar-radius: 0px;
+  --out-enter-from: none;
+  --out-clip-from: inset(0 0 0 100%);
+  --out-clip-to: inset(0 0 0 0);
+  --out-enter-duration: 160ms;
+  --out-enter-ease: cubic-bezier(0.7, 0, 0.2, 1);
+}
+
+:root[data-output-style="signal"][data-output-background="light"] {
+  --out-surface: #ffffff;
+  --out-ink: #000000;
+  --out-muted: #333333;
+  --out-line: #ffffff;
+}
+
+/* Subtitle: no card, outlined text over the game. */
+:root[data-output-style="subtitle"] {
+  --out-surface: transparent;
+  --out-line: transparent;
+  --out-border: 0px;
+  --out-ink: #ffffff;
+  --out-muted: #ffffff;
+  --out-stroke: 4px;
+  --out-stroke-color: #000000;
+  --out-name-ink: var(--out-ink);
+  --out-name-size: 13px;
+  --out-name-weight: 700;
+  --out-avatar-border: 2px;
+  --out-message-size: 18px;
+  --out-message-weight: 600;
+  --out-track: rgb(0 0 0 / 55%);
+  --out-enter-from: translateY(6px);
+  --out-enter-duration: 180ms;
+}
+
+:root[data-output-style="subtitle"][data-output-background="light"] {
+  --out-ink: #111111;
+  --out-muted: #111111;
+  --out-stroke-color: #ffffff;
+  --out-track: rgb(255 255 255 / 70%);
+}

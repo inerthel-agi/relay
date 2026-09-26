@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-moderate-pending"
+description = "Enables the moderate_pending command without any pre-configured scope."
+commands.allow = ["moderate_pending"]
+
+[[permission]]
+identifier = "deny-moderate-pending"
+description = "Denies the moderate_pending command without any pre-configured scope."
+commands.deny = ["moderate_pending"]

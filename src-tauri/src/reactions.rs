@@ -269,6 +269,9 @@ pub async fn trigger(
     if !settings.enabled {
         bail!("Reactions are disabled.");
     }
+    if core.outputs_paused() {
+        bail!("Relay is paused.");
+    }
     if let Some((_, channel, roles)) = &member
         && !settings.authorize(channel, roles)
     {

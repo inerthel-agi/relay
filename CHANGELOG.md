@@ -13,23 +13,30 @@ This changelog is maintained in English. Interface translations are maintained i
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-09-26
+
 ### English
 
 #### Added
 
+- Panic button in the top bar, in the tray and on a global shortcut (Ctrl+Alt+P by default, configurable under Media → Keyboard controls). It clears every output, stops music and reactions, hides the media widget and pauses Relay. While paused, new media, messages, music requests and reactions are ignored instead of queued, and a banner offers Resume. Media awaiting moderation are kept.
+- OBS & widgets can add Relay to OBS automatically through the OBS WebSocket server: connect with its password, pick a scene, and Relay creates or updates Relay Visual, Relay Audio and optionally Sounds and reactions, with audio routed to the OBS mixer. The password is stored in Windows Credential Manager and only 127.0.0.1 is contacted.
+- Moderation presets (Relaxed, Standard, Strict, Big event) set the moderation switches in one click. Relay summarizes what will change first, offers Undo for 30 seconds, and never touches channels, your own words, private data or exempt roles. Your own presets can be saved on this PC.
+- Built-in word lists in English and French (hate, scams, sexual content, harassment, verbal doxxing) matched like your own filter words, with per-word exceptions and hidden content unless you ask to see it.
+- Message tester on the Moderation page: paste a message to see whether Relay would show, hold or block it and why, without publishing anything.
+- Decision log: what Relay blocked, held, ignored, approved, expired or sanctioned over the last 7 days, with a last-24-hours summary and a filter by member. It stores the rule and the author's ID, never message content.
+- Spam and link protection: a delay between two messages per member, raid protection that holds every media above a per-minute limit, repeated media detection, notification spam detection, and blocking of Discord invites, link shorteners and fake Discord or Steam domains.
+- Trust settings: trusted roles and members skip manual review and spam checks, ignored members never reach the stream, and media from recent Discord accounts or recent arrivals can wait for review.
+- Safety delay: every media can wait a few seconds in the queue before going on stream, with a countdown and a Reject button.
+- Review queue actions: reject and delete the Discord message, reject and time out or ban the author, or approve and trust the author, plus keyboard shortcuts (A approve, R reject, arrows) and blurred previews of risky images.
+- Sanctions: an optional translated warning when a message is blocked, automatic timeouts after repeated blocks, and Discord AutoMod synchronization of your words and the enabled lists.
+- Live protection: an automatic live mode that applies a preset while OBS is streaming and restores your settings afterwards, a maximum length for videos and sounds on stream, and a loudness limiter for the audio card.
+- Advanced editor for the variants and regular expressions of your filter words, and a choice of which channels (media, notifications, music) the word filter applies to.
+- Personalization → Notification style chooses how notifications, the music card and media captions look on stream and in the widgets. Automatic follows the Relay design and theme; any design or the new Subtitle style (outlined text without a card) can be chosen instead, with a light, dark or automatic background, a live preview and a Back to automatic button.
+- Signal design for the panel, the tray and the outputs: black and white, square edges, condensed capitals and the accent color as an on-air marker.
+- Discord → Bot check reports whether Message Content Intent is enabled and which channel permissions each feature is missing (media, message notifications, music, security trap), with a button to re-invite the bot with the right permissions.
 - Added YouTube music entries to History, with replay preserving the selected playback range.
 - Added YouTube downloads from History through a Download menu in the panel offering MP3 audio or MP4 video, with automatic setup of missing download tools in Relay's per-user cache.
-
-#### Fixed
-
-- Fixed YouTube playback drift between OBS and the Windows widget by synchronizing both outputs to a shared server clock, including after delayed iframe readiness, buffering, and reconnects.
-
-## [1.3.7] - 2026-09-25
-
-### English
-
-#### Added
-
 - Help → Troubleshooting has a Copy diagnostic button. The report lists versions, Discord and output status, widgets, enabled features and recent panel errors, and never includes the bot token, private OBS links, Discord IDs or the Windows user name.
 - The tray shows a shortcut when media awaits moderation or Discord is not connected, and opens the control panel directly on the matching page.
 - Overview offers a trial mode until Discord is connected: show the media widget or connect OBS, then send sample images, GIFs, videos, audio or notifications locally.
@@ -43,6 +50,16 @@ This changelog is maintained in English. Interface translations are maintained i
 
 #### Changed
 
+- Reduced the README to installation, usage, configuration and limitations; removed promotional copy and decorative content.
+
+- The Moderation page now opens with presets, a last-24-hours summary and the tester, shows the review queue before the settings, and groups the settings into word filters, manual review, spam and links, anti-doxxing, sanctions and live protection, followed by the decision log.
+- The compromised account trap can time out instead of kicking or banning, ignores roles you choose, logs its actions and sends its notice in the interface language.
+- Unchecked media types in manual review can now be shown directly instead of being dropped.
+- Message notifications are more compact: the card follows its text between 220 and 340 px instead of a fixed 400 × 88 px, the message is the main text and the name a smaller label, the avatar is smaller, the always-on presence dot is gone, and long messages stop at three lines.
+- Notifications, the music card, media captions and the YouTube credit now share one style per design: same surfaces, borders, corners, fonts and motion. The YouTube equalizer and progress bar use the accent color instead of a fixed red. Edges stay opaque, so OBS draws no dark halo.
+- Redesigned tray: a Live / Paused / Problem state pill, readable Discord and local relay lines, a Panic or Resume button, real widget icons with switches, and a clear Start with Windows switch.
+- The bot invitation now also asks for Send Messages and Embed Links (music replies), plus Kick or Ban Members when the security trap is enabled.
+- Music requests made while Relay is paused get a translated reply in Discord instead of queuing.
 - Error messages from Relay are shown in the interface language by type (bot offline, invalid Discord ID, missing permission, file too large, network, and more). The original English message stays available as a tooltip.
 - Settings now save automatically: switches and menus at once, typed values when you leave the field or press Enter. Save buttons are gone except for the Discord token, the YouTube API key and custom commands.
 - Start with Windows is now also available under Personalization → System.
@@ -61,6 +78,22 @@ This changelog is maintained in English. Interface translations are maintained i
 
 #### Fixed
 
+- Bind Discord control commands to the server of the channel they control, including channel-lock restoration.
+- Apply member admission rules to deferred GIF updates and preserve rejected or held decisions without counting accepted updates twice.
+- Normalize URL authorities before checking invite, shortener and scam-domain filters.
+- Require review for animated images when OCR has inspected only the first frame, while retaining detected privacy blocks.
+
+- The bot invitation link opened from the panel was rejected as an unsupported link because its permission value no longer matched a fixed number. Any permission set is now accepted except Administrator.
+- Fixed YouTube playback drift between OBS and the Windows widget by synchronizing both outputs to a shared server clock, including after delayed iframe readiness, buffering, and reconnects.
+- A panic no longer empties the History list shown in the panel.
+- Message notifications now slide in without bouncing and fade out instead of disappearing at once.
+- Names shown on stream now go through the word filter; an offensive name appears as Anonymous.
+- Notification messages flagged for review now wait in the review queue instead of disappearing silently.
+- YouTube search results whose title or channel contains a filter word are no longer offered.
+- The Discord bot check now requires Manage Messages whenever blocked messages are deleted, including by filter words alone.
+- Filter words saved automatically no longer leave the Moderation page marked as unsaved.
+- OBS outputs and widgets now follow the light theme and the chosen design instead of always drawing dark cards.
+- Right-clicking Relay, its tray menu or a widget no longer opens the browser menu (Back, Refresh, Print). Text fields keep Copy and Paste.
 - Incomplete image privacy scans now enter moderation when scanning is enabled, including when intermediate-risk review is disabled.
 - Valid GIFs no longer enter moderation solely because the EXIF reader does not support GIF containers; image and OCR checks still apply.
 - The Sounds and reactions output backs off between reconnection attempts and checks a moved server before switching port.
@@ -424,7 +457,8 @@ This changelog is maintained in English. Interface translations are maintained i
 - Separate media, audio, TTS, and notification outputs.
 - Local moderation, playback controls, history, personalization, and multilingual interface.
 
-[Unreleased]: https://github.com/inerthel-agi/relay/compare/v1.3.7...HEAD
+[Unreleased]: https://github.com/inerthel-agi/relay/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/inerthel-agi/relay/compare/v1.3.7...v1.4.0
 [1.3.7]: https://github.com/inerthel-agi/relay/compare/v1.3.6...v1.3.7
 [1.3.6]: https://github.com/inerthel-agi/relay/compare/v1.3.3...v1.3.6
 [1.3.1]: https://github.com/inerthel-agi/relay/compare/v1.3.0...v1.3.1

@@ -11,11 +11,15 @@
   gap: 12px;
   align-items: center;
   padding: 14px;
-  border: 1px solid #2a2e36;
-  border-radius: 22px;
-  color: #fff;
-  background: #0a0c10;
-  box-shadow: none;
+  /* Shared stream style (outputs/theme.css); edges stay opaque for OBS. */
+  border: var(--out-border) solid var(--out-line);
+  border-radius: var(--out-radius);
+  color: var(--out-ink);
+  background-color: var(--out-surface);
+  background-image: var(--out-surface-image);
+  background-size: var(--out-surface-size);
+  box-shadow: var(--out-shadow);
+  font-family: var(--out-font);
   filter: none;
   isolation: isolate;
   visibility: hidden;
@@ -41,7 +45,7 @@
 .audio-card__artwork {
   width: 112px;
   height: 112px;
-  border-radius: 14px;
+  border-radius: var(--out-radius-inner);
   object-fit: cover;
   background: #050505;
 }
@@ -53,7 +57,9 @@
 }
 
 .audio-card__label {
-  color: rgb(255 255 255 / 55%);
+  color: var(--out-muted);
+  font-family: var(--out-font-title);
+  font-stretch: var(--out-font-stretch);
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.14em;
@@ -62,7 +68,9 @@
 
 .audio-card__title {
   overflow: hidden;
+  font-family: var(--out-font-title);
   font-size: clamp(16px, 3vw, 22px);
+  font-stretch: var(--out-font-stretch);
   font-weight: 600;
   letter-spacing: -0.03em;
   text-overflow: ellipsis;
@@ -71,7 +79,7 @@
 
 .audio-card__artist {
   overflow: hidden;
-  color: rgb(255 255 255 / 68%);
+  color: var(--out-muted);
   font-size: 14px;
   font-weight: 500;
   text-overflow: ellipsis;
@@ -84,7 +92,7 @@
   max-height: 2.8em;
   margin: 0;
   overflow: hidden;
-  color: rgb(255 255 255 / 78%);
+  color: var(--out-ink);
   font-size: calc(14px * var(--font-scale));
   font-weight: 500;
   line-height: 1.4;
@@ -122,7 +130,7 @@
   width: 3px;
   height: 8px;
   border-radius: 999px;
-  background: #fff;
+  background: var(--accent);
   animation: wave 900ms ease-in-out infinite alternate;
 }
 
@@ -141,7 +149,7 @@
   width: 100%;
   height: 4px;
   border-radius: 999px;
-  background: rgb(255 255 255 / 14%);
+  background: var(--out-track);
 }
 
 .audio-card__progress[hidden] {
@@ -158,7 +166,7 @@
 }
 
 .audio-card__time {
-  color: rgb(255 255 255 / 72%);
+  color: var(--out-muted);
   font-size: calc(12px * var(--font-scale));
   font-weight: 650;
   font-variant-numeric: tabular-nums;
@@ -174,4 +182,15 @@
     height: 22px;
     opacity: 0.45;
   }
+}
+
+/* Subtitle style: outlined text instead of a card (0px elsewhere). */
+.audio-card__label,
+.audio-card__title,
+.audio-card__artist,
+.audio-card__caption,
+.audio-card__author,
+.audio-card__time {
+  -webkit-text-stroke: var(--out-stroke) var(--out-stroke-color);
+  paint-order: stroke fill;
 }

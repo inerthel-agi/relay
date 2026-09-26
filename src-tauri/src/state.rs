@@ -2,6 +2,8 @@ mod media_cache;
 
 mod message_pin;
 
+mod moderation_queue;
+
 mod music_playback;
 
 pub use message_pin::MessagePinStatus;
@@ -32,8 +34,8 @@ use crate::{
     media_compat::{self, VideoCompatibility},
     model::{
         BotStatus, ChannelSummary, HistoryEntry, InterfacePreferences, MediaEvent, MediaKind,
-        MusicPlaybackEvent, MusicPlaybackMode, MusicStopEvent, PendingMedia, RelayEvent,
-        ServerStatus, StickerEvent, TtsEvent, VisualSegment,
+        MusicPlaybackEvent, MusicPlaybackMode, MusicStopEvent, PendingMedia, PendingText,
+        RelayEvent, ServerStatus, StickerEvent, TtsEvent, VisualSegment,
     },
     music::{MusicSelection, MusicState},
     privacy::{self, PrivacyAction, PrivacyReport},
@@ -112,6 +114,10 @@ pub struct AppCore {
     pub channels: RwLock<Vec<ChannelSummary>>,
     pub history: RwLock<VecDeque<HistoryEntry>>,
     pub pending_media: RwLock<VecDeque<PendingMedia>>,
+    /// Notification messages held for review (Moderation → review queue).
+    pub pending_texts: RwLock<VecDeque<PendingText>>,
+    pub moderation: std::sync::Mutex<crate::moderation::ModerationRuntime>,
+    pub moderation_log: std::sync::Mutex<crate::moderation::log::ModerationLog>,
     pub tts_audio: RwLock<VecDeque<TtsAudio>>,
     pub media_artwork: RwLock<VecDeque<MediaArtwork>>,
     pub media_audio: RwLock<VecDeque<MediaAudio>>,
@@ -149,6 +155,7 @@ impl AppCore {
         let config = config_store.load()?;
         let interface_preferences = config.interface_preferences.clone();
         let (relay_tx, _) = broadcast::channel(2_048);
+        let moderation_log_path = data_directory.join("moderation-log.json");
         let stage_scheduler = StageScheduler::new(relay_tx.clone());
         Ok(Arc::new(Self {
             media_library: Arc::new(crate::media_library::MediaLibrary::open_or_unavailable(
@@ -167,6 +174,12 @@ impl AppCore {
             channels: RwLock::new(Vec::new()),
             history: RwLock::new(VecDeque::with_capacity(HISTORY_LIMIT)),
             pending_media: RwLock::new(VecDeque::with_capacity(MODERATION_QUEUE_LIMIT)),
+            pending_texts: RwLock::new(VecDeque::new()),
+            moderation: std::sync::Mutex::new(crate::moderation::ModerationRuntime::default()),
+            moderation_log: std::sync::Mutex::new(crate::moderation::log::ModerationLog::open(
+                moderation_log_path,
+                crate::clock::now_ms(),
+            )),
             tts_audio: RwLock::new(VecDeque::new()),
             media_artwork: RwLock::new(VecDeque::with_capacity(ARTWORK_CACHE_LIMIT)),
             media_audio: RwLock::new(VecDeque::with_capacity(MEDIA_AUDIO_CACHE_LIMIT)),
@@ -196,6 +209,15 @@ impl AppCore {
 
     pub async fn set_media_delivery(&self, sender: mpsc::UnboundedSender<MediaDeliveryRequest>) {
         *self.media_delivery.write().await = Some(sender);
+    }
+
+    pub fn outputs_paused(&self) -> bool {
+        self.stage_scheduler.is_paused()
+    }
+
+    pub async fn set_outputs_paused(&self, paused: bool) {
+        self.stage_scheduler.set_paused(paused);
+        let _ = self.relay_tx.send(RelayEvent::OutputsPaused(paused));
     }
 
     pub async fn register_stage_output(
@@ -267,12 +289,14 @@ impl AppCore {
         if config.moderation_enabled {
             pending.retain(|item| {
                 item.privacy_classification.is_some()
+                    || item.hold_reason.is_some()
                     || media_type_allowed(&config, item.media.kind)
             });
         } else {
-            // A privacy Review item is independent from manual moderation and
-            // must remain actionable when the manual switch is turned off.
-            pending.retain(|item| item.privacy_classification.is_some());
+            // Privacy and moderation holds are independent from manual review
+            // and must remain actionable when the manual switch is turned off.
+            pending
+                .retain(|item| item.privacy_classification.is_some() || item.hold_reason.is_some());
         }
         drop(pending);
         let pending_ids = self
@@ -338,7 +362,10 @@ impl AppCore {
         role_ids: &[String],
     ) {
         let config = self.config.read().await.clone();
-        let scoped_config = privacy::scoped_config_for_roles(&config, role_ids);
+        let scoped_config = crate::moderation::scope_config(
+            privacy::scoped_config_for_roles(&config, role_ids),
+            crate::moderation::Lane::Media,
+        );
         let role_exempt = privacy::has_exempt_role(&config, role_ids);
         let analysis_text = privacy_media_text(&media, full_text);
         // Always classify the message text again at this boundary. The bot's
@@ -377,56 +404,38 @@ impl AppCore {
             PrivacyAction::Allow
         };
         privacy::log_decision(&authoritative_report, privacy_action);
+        let verdict = self.moderation_verdict(&media.message_id);
         if matches!(privacy_action, PrivacyAction::Block) {
+            self.record_moderation(
+                Some(crate::moderation::Lane::Media),
+                crate::moderation::log::LogAction::Blocked,
+                authoritative_report.primary_reason().unwrap_or("privacy"),
+                verdict.map(|verdict| verdict.author_id),
+            );
             self.cancel_stage_output(ticket).await;
             return;
         }
-        let manually_moderated = config.moderation_enabled;
-        let type_allowed = media_type_allowed(&config, media.kind);
-        let requires_review =
-            matches!(privacy_action, PrivacyAction::Review) || (manually_moderated && type_allowed);
-        if manually_moderated && !type_allowed {
+        let Some(route) = review_route(&config, media.kind, privacy_action, verdict.as_ref())
+        else {
             self.cancel_stage_output(ticket).await;
             return;
-        }
-        if !requires_review {
+        };
+        if let ReviewRoute::Publish = route {
             drop(config);
             self.publish_media_with_ticket(ticket, media).await;
             return;
         }
         self.cancel_stage_output(ticket).await;
-        let mut pending = self.pending_media.write().await;
-        // Evict the oldest unreviewed item instead of silently dropping new media.
-        let evicted_pending_id = if pending.len() >= MODERATION_QUEUE_LIMIT {
-            pending.pop_front().map(|item| item.id)
-        } else {
-            None
-        };
-        let pending_id = self.next_moderation_id.fetch_add(1, Ordering::Relaxed);
-        pending.push_back(PendingMedia {
-            id: pending_id,
+        self.enqueue_pending(moderation_queue::PendingEntry {
             media,
             sticker: None,
             sticker_bytes: None,
-            privacy_classification: (authoritative_report.classification
-                != privacy::PrivacyClassification::Safe)
-                .then_some(authoritative_report.classification),
-            privacy_categories: authoritative_report.categories.clone(),
-            privacy_reason: authoritative_report.primary_reason().map(str::to_owned),
-        });
-        drop(pending);
-        if let Some(evicted_pending_id) = evicted_pending_id {
-            self.pending_privacy_roles
-                .write()
-                .await
-                .remove(&evicted_pending_id);
-        }
-        if !role_ids.is_empty() {
-            self.pending_privacy_roles
-                .write()
-                .await
-                .insert(pending_id, role_ids.to_vec());
-        }
+            report: &authoritative_report,
+            hold_reason: route.hold_reason(),
+            release_at: route.release_at(),
+            role_ids,
+        })
+        .await;
     }
 
     #[cfg(test)]
@@ -471,8 +480,11 @@ impl AppCore {
         report: Option<PrivacyReport>,
         role_ids: &[String],
     ) {
-        let config = self.config.read().await;
-        let scoped_config = privacy::scoped_config_for_roles(&config, role_ids);
+        let config = self.config.read().await.clone();
+        let scoped_config = crate::moderation::scope_config(
+            privacy::scoped_config_for_roles(&config, role_ids),
+            crate::moderation::Lane::Media,
+        );
         let role_exempt = privacy::has_exempt_role(&config, role_ids);
         let analysis_text = format!("{}\n{}", text.unwrap_or_default(), sticker.name);
         let mut authoritative_report = privacy::classify_text(Some(&analysis_text), &scoped_config);
@@ -517,7 +529,14 @@ impl AppCore {
             PrivacyAction::Allow
         };
         privacy::log_decision(&authoritative_report, privacy_action);
+        let verdict = self.moderation_verdict(&sticker.message_id);
         if matches!(privacy_action, PrivacyAction::Block) {
+            self.record_moderation(
+                Some(crate::moderation::Lane::Media),
+                crate::moderation::log::LogAction::Blocked,
+                authoritative_report.primary_reason().unwrap_or("privacy"),
+                verdict.map(|verdict| verdict.author_id),
+            );
             self.cancel_stage_output(ticket).await;
             return;
         }
@@ -547,47 +566,23 @@ impl AppCore {
             timestamp: sticker.timestamp,
             message_id: sticker.message_id.clone(),
         };
-        let manually_moderated = config.moderation_enabled;
-        let type_allowed = media_type_allowed(&config, media.kind);
-        if manually_moderated && !type_allowed {
+        let Some(route) = review_route(&config, media.kind, privacy_action, verdict.as_ref())
+        else {
             self.cancel_stage_output(ticket).await;
             return;
-        }
-        let requires_review =
-            matches!(privacy_action, PrivacyAction::Review) || (manually_moderated && type_allowed);
-        if requires_review {
+        };
+        if !matches!(route, ReviewRoute::Publish) {
             self.cancel_stage_output(ticket).await;
-            let mut pending = self.pending_media.write().await;
-            let evicted_pending_id = if pending.len() >= MODERATION_QUEUE_LIMIT {
-                pending.pop_front().map(|item| item.id)
-            } else {
-                None
-            };
-            let pending_id = self.next_moderation_id.fetch_add(1, Ordering::Relaxed);
-            pending.push_back(PendingMedia {
-                id: pending_id,
+            self.enqueue_pending(moderation_queue::PendingEntry {
                 media,
                 sticker: Some(sticker),
                 sticker_bytes: bytes.map(Arc::new),
-                privacy_classification: (authoritative_report.classification
-                    != privacy::PrivacyClassification::Safe)
-                    .then_some(authoritative_report.classification),
-                privacy_categories: authoritative_report.categories.clone(),
-                privacy_reason: authoritative_report.primary_reason().map(str::to_owned),
-            });
-            drop(pending);
-            if let Some(evicted_pending_id) = evicted_pending_id {
-                self.pending_privacy_roles
-                    .write()
-                    .await
-                    .remove(&evicted_pending_id);
-            }
-            if !role_ids.is_empty() {
-                self.pending_privacy_roles
-                    .write()
-                    .await
-                    .insert(pending_id, role_ids.to_vec());
-            }
+                report: &authoritative_report,
+                hold_reason: route.hold_reason(),
+                release_at: route.release_at(),
+                role_ids,
+            })
+            .await;
             return;
         }
         if let Some(bytes) = bytes {
@@ -600,6 +595,20 @@ impl AppCore {
     }
 
     pub async fn approve_media(&self, id: u64) -> bool {
+        let approved = self.approve_media_checked(id, true).await;
+        if approved {
+            self.record_moderation(
+                Some(crate::moderation::Lane::Media),
+                crate::moderation::log::LogAction::Approved,
+                "manual_review",
+                None,
+            );
+        }
+        approved
+    }
+
+    /// `rescan` is false for safety-delayed items, which were already checked.
+    pub(crate) async fn approve_media_checked(&self, id: u64, rescan: bool) -> bool {
         let item = {
             let pending = self.pending_media.read().await;
             pending.iter().find(|item| item.id == id).cloned()
@@ -615,8 +624,11 @@ impl AppCore {
             .get(&item.id)
             .cloned()
             .unwrap_or_default();
-        let scoped_config = privacy::scoped_config_for_roles(&config, &role_ids);
-        if privacy::privacy_rules_enabled(&scoped_config) {
+        let scoped_config = crate::moderation::scope_config(
+            privacy::scoped_config_for_roles(&config, &role_ids),
+            crate::moderation::Lane::Media,
+        );
+        if rescan && privacy::privacy_rules_enabled(&scoped_config) {
             let analysis_text = privacy_media_text(&item.media, None);
             let mut report = if scoped_config.privacy_scan_enabled
                 && media_requires_image_scan(&item.media)
@@ -699,16 +711,37 @@ impl AppCore {
         let Some(index) = pending.iter().position(|item| item.id == id) else {
             return false;
         };
-        let pending_id = pending[index].id;
-        pending.remove(index);
+        let Some(item) = pending.remove(index) else {
+            return false;
+        };
         drop(pending);
-        self.pending_privacy_roles.write().await.remove(&pending_id);
+        self.pending_privacy_roles.write().await.remove(&item.id);
+        self.record_moderation(
+            Some(crate::moderation::Lane::Media),
+            crate::moderation::log::LogAction::Rejected,
+            item.hold_reason
+                .as_deref()
+                .or(item.privacy_reason.as_deref())
+                .unwrap_or("manual_review"),
+            item.author_id,
+        );
         true
     }
 
     pub async fn clear_pending_media(&self) {
+        let rejected =
+            self.pending_media.read().await.len() + self.pending_texts.read().await.len();
         self.pending_media.write().await.clear();
+        self.pending_texts.write().await.clear();
         self.pending_privacy_roles.write().await.clear();
+        for _ in 0..rejected {
+            self.record_moderation(
+                None,
+                crate::moderation::log::LogAction::Rejected,
+                "reject_all",
+                None,
+            );
+        }
     }
 
     pub async fn replay_media_event(&self, mut event: MediaEvent) -> Result<()> {
@@ -1060,19 +1093,45 @@ impl AppCore {
         segments: Vec<VisualSegment>,
         role_ids: &[String],
     ) -> bool {
-        let config = self.config.read().await;
-        let scoped_config = privacy::scoped_config_for_roles(&config, role_ids);
+        let config = self.config.read().await.clone();
+        let scoped_config = crate::moderation::scope_config(
+            privacy::scoped_config_for_roles(&config, role_ids),
+            crate::moderation::Lane::Notifications,
+        );
+        let verdict = self.moderation_verdict(&id);
+        let mut hold_reason = verdict
+            .as_ref()
+            .and_then(|verdict| verdict.hold)
+            .map(str::to_owned);
         if privacy::privacy_rules_enabled(&scoped_config) {
             let report = classify_tts_privacy(&text, &segments, &scoped_config);
             let action = privacy::action_for(&report, &scoped_config);
             if !matches!(action, PrivacyAction::Allow) {
                 privacy::log_decision(&report, action);
-                drop(config);
-                self.cancel_stage_output(ticket).await;
-                return false;
+                let reason = report.primary_reason().unwrap_or("privacy");
+                if matches!(action, PrivacyAction::Block) || !config.moderation.review_text {
+                    self.record_moderation(
+                        Some(crate::moderation::Lane::Notifications),
+                        if matches!(action, PrivacyAction::Block) {
+                            crate::moderation::log::LogAction::Blocked
+                        } else {
+                            crate::moderation::log::LogAction::Ignored
+                        },
+                        reason,
+                        verdict.map(|verdict| verdict.author_id),
+                    );
+                    self.cancel_stage_output(ticket).await;
+                    return false;
+                }
+                hold_reason = Some(reason.to_owned());
             }
         }
-        drop(config);
+        if let Some(reason) = hold_reason {
+            self.cancel_stage_output(ticket).await;
+            self.hold_text(id, text, author, guild_tag, timestamp, segments, &reason)
+                .await;
+            return false;
+        }
         self.publish_visual_tts_with_ticket(
             ticket, id, text, author, guild_tag, timestamp, segments,
         )
@@ -1197,6 +1256,60 @@ fn library_asset_id(media: &MediaEvent) -> Option<String> {
     }
     let path_id = url.path().strip_prefix("/library-asset/")?;
     (path_id == id).then_some(id.to_owned())
+}
+
+/// Where a media item goes after the privacy scan allowed or reviewed it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ReviewRoute {
+    Publish,
+    Review(Option<&'static str>),
+    Delay(u64),
+}
+
+impl ReviewRoute {
+    fn hold_reason(self) -> Option<String> {
+        match self {
+            Self::Review(reason) => reason.map(str::to_owned),
+            Self::Delay(_) => Some("safety_delay".into()),
+            Self::Publish => None,
+        }
+    }
+
+    fn release_at(self) -> Option<u64> {
+        match self {
+            Self::Delay(at) => Some(at),
+            _ => None,
+        }
+    }
+}
+
+/// `None` drops the item: manual review is on and its type is not reviewed.
+fn review_route(
+    config: &AppConfig,
+    kind: MediaKind,
+    privacy_action: PrivacyAction,
+    verdict: Option<&crate::moderation::MessageVerdict>,
+) -> Option<ReviewRoute> {
+    let trusted = verdict.is_some_and(|verdict| verdict.trusted);
+    let hold = verdict.and_then(|verdict| verdict.hold);
+    if matches!(privacy_action, PrivacyAction::Review) || hold.is_some() {
+        return Some(ReviewRoute::Review(hold));
+    }
+    let manually_moderated = config.moderation_enabled && !trusted;
+    let type_allowed = media_type_allowed(config, kind);
+    if manually_moderated && type_allowed {
+        return Some(ReviewRoute::Review(None));
+    }
+    if manually_moderated && !config.moderation.review_only_selected {
+        return None;
+    }
+    let delay = config.moderation.safety_delay_seconds;
+    if delay > 0 && !trusted {
+        return Some(ReviewRoute::Delay(
+            crate::clock::now_ms() + u64::from(delay) * 1_000,
+        ));
+    }
+    Some(ReviewRoute::Publish)
 }
 
 fn media_type_allowed(config: &AppConfig, kind: MediaKind) -> bool {

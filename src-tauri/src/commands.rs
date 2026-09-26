@@ -1,6 +1,7 @@
 use std::{path::Path, sync::Arc};
 pub mod media_library;
 pub mod message_pin;
+pub mod moderation;
 pub mod music_queue;
 pub mod reactions;
 
@@ -59,6 +60,7 @@ pub struct RuntimeStatus {
     notification_widget: NotificationWidgetState,
     pending_media: Vec<PendingMedia>,
     queue: Vec<crate::stage_scheduler::QueueItem>,
+    outputs_paused: bool,
 }
 
 #[derive(Deserialize)]
@@ -116,6 +118,9 @@ pub struct PanelConfig {
     privacy_auto_delete_blocked_messages: bool,
     privacy_allowlist: Vec<String>,
     privacy_custom_patterns: Vec<String>,
+    /// Absent from older panels: keep the saved moderation settings then.
+    #[serde(default)]
+    moderation: Option<crate::moderation::ModerationSettings>,
 }
 
 #[derive(Deserialize)]
@@ -163,7 +168,159 @@ pub async fn get_runtime_status(
         notification_widget: notification_widget::state(&app, &core).await,
         pending_media: core.pending_media.read().await.iter().cloned().collect(),
         queue: queue_snapshot(&core).await,
+        outputs_paused: core.outputs_paused(),
     })
+}
+
+/// Returns a newly typed OBS password (and whether it was typed), otherwise the stored one.
+fn obs_password(password: Option<String>) -> Result<(Option<String>, bool), String> {
+    match password.map(|value| value.trim().to_owned()) {
+        Some(password) if !password.is_empty() => Ok((Some(password), true)),
+        _ => Ok((
+            crate::credentials::load_obs_password().map_err(display_error)?,
+            false,
+        )),
+    }
+}
+
+/// Keeps a typed password only once OBS has accepted it.
+fn remember_obs_password(password: Option<&str>, typed: bool) -> Result<(), String> {
+    match password {
+        Some(password) if typed => {
+            crate::credentials::save_obs_password(password).map_err(display_error)
+        }
+        _ => Ok(()),
+    }
+}
+
+#[tauri::command]
+pub async fn obs_list_scenes(
+    port: Option<u16>,
+    password: Option<String>,
+) -> Result<crate::obs::ObsScenes, String> {
+    let (password, typed) = obs_password(password)?;
+    let scenes = crate::obs::list_scenes(
+        port.unwrap_or(crate::obs::DEFAULT_OBS_PORT),
+        password.as_deref(),
+    )
+    .await
+    .map_err(|error| format!("{error:#}"))?;
+    remember_obs_password(password.as_deref(), typed)?;
+    Ok(scenes)
+}
+
+#[tauri::command]
+pub async fn obs_install_sources(
+    core: State<'_, Arc<AppCore>>,
+    port: Option<u16>,
+    password: Option<String>,
+    scene: String,
+    include_reactions: bool,
+) -> Result<Vec<crate::obs::InstalledSource>, String> {
+    let scene = scene.trim();
+    if scene.is_empty() || scene.chars().count() > 256 {
+        return Err("Choose an OBS scene.".into());
+    }
+    let (password, typed) = obs_password(password)?;
+    let relay_port = core.config.read().await.port;
+    let sources = crate::obs::relay_sources(relay_port, include_reactions);
+    let installed = crate::obs::install_sources(
+        port.unwrap_or(crate::obs::DEFAULT_OBS_PORT),
+        password.as_deref(),
+        scene,
+        &sources,
+    )
+    .await
+    .map_err(|error| format!("{error:#}"))?;
+    remember_obs_password(password.as_deref(), typed)?;
+    Ok(installed)
+}
+
+#[tauri::command]
+pub async fn forget_obs_password() -> Result<crate::credentials::CredentialStatus, String> {
+    crate::credentials::save_obs_password("").map_err(display_error)?;
+    crate::credentials::credential_status().map_err(display_error)
+}
+
+#[tauri::command]
+pub async fn check_discord_setup(
+    core: State<'_, Arc<AppCore>>,
+) -> Result<crate::discord_check::DiscordSetupReport, String> {
+    crate::discord_check::check(core.inner())
+        .await
+        .map_err(|error| format!("{error:#}"))
+}
+
+#[tauri::command]
+pub async fn panic_stop(app: AppHandle, core: State<'_, Arc<AppCore>>) -> Result<(), String> {
+    crate::panic::trigger(&app, core.inner()).await;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn resume_outputs(core: State<'_, Arc<AppCore>>) -> Result<(), String> {
+    crate::panic::resume(core.inner()).await;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn set_panic_shortcut(
+    app: AppHandle,
+    core: State<'_, Arc<AppCore>>,
+    shortcut: String,
+) -> Result<AppConfig, String> {
+    let shortcut = shortcut.trim().parse::<Shortcut>().map_err(|_| {
+        "Invalid shortcut. Capture a key with at least one supported key combination.".to_string()
+    })?;
+    let previous = core.config.read().await.clone();
+    let previous_shortcut = previous
+        .panic_shortcut
+        .parse::<Shortcut>()
+        .or_else(|_| crate::config::DEFAULT_PANIC_SHORTCUT.parse::<Shortcut>())
+        .map_err(|_| "The configured panic shortcut is invalid.".to_string())?;
+    if shortcut == previous_shortcut {
+        return Ok(previous);
+    }
+    let skip_shortcut = previous.skip_shortcut.parse::<Shortcut>().ok();
+    if skip_shortcut == Some(shortcut) {
+        return Err("The selected shortcut is already in use.".into());
+    }
+
+    let manager = app.global_shortcut();
+    let _ = manager.unregister(previous_shortcut);
+    if let Err(error) = register_panic_handler(manager, shortcut, core.inner().clone()) {
+        let _ = register_panic_handler(manager, previous_shortcut, core.inner().clone());
+        return Err(error);
+    }
+    match core
+        .update_config(|config| config.panic_shortcut = shortcut.to_string())
+        .await
+    {
+        Ok(config) => Ok(config),
+        Err(_) => {
+            let _ = manager.unregister(shortcut);
+            let _ = register_panic_handler(manager, previous_shortcut, core.inner().clone());
+            Err("The panic shortcut could not be saved.".into())
+        }
+    }
+}
+
+pub(crate) fn register_panic_handler(
+    manager: &tauri_plugin_global_shortcut::GlobalShortcut<tauri::Wry>,
+    shortcut: Shortcut,
+    core: Arc<AppCore>,
+) -> Result<(), String> {
+    manager
+        .on_shortcut(shortcut, move |app, _shortcut, event| {
+            if event.state() == ShortcutState::Pressed {
+                let app = app.clone();
+                let core = core.clone();
+                tauri::async_runtime::spawn(async move {
+                    crate::panic::trigger(&app, &core).await;
+                });
+            }
+        })
+        .map_err(|_| "The selected shortcut is already in use.".to_string())
 }
 
 async fn queue_snapshot(core: &AppCore) -> Vec<crate::stage_scheduler::QueueItem> {
@@ -224,29 +381,9 @@ pub async fn refresh_channels(
 #[tauri::command]
 pub async fn set_interface_preferences(
     core: State<'_, Arc<AppCore>>,
-    language: String,
-    theme: String,
-    accent_rgb: [u8; 3],
-    font_scale: u8,
+    preferences: InterfacePreferences,
 ) -> Result<(), String> {
-    if !matches!(
-        language.as_str(),
-        "en" | "fr" | "es" | "de" | "ru" | "zh" | "ko" | "ja" | "id"
-    ) {
-        return Err("unsupported interface language".into());
-    }
-    if !matches!(theme.as_str(), "light" | "dark") {
-        return Err("unsupported interface theme".into());
-    }
-    if !(80..=140).contains(&font_scale) {
-        return Err("font scale must be between 80 and 140".into());
-    }
-    let preferences = InterfacePreferences {
-        language,
-        theme,
-        accent_rgb,
-        font_scale,
-    };
+    crate::config::validate_interface_preferences(&preferences).map_err(display_error)?;
     core.update_config(|config| config.interface_preferences = preferences.clone())
         .await
         .map_err(display_error)?;
@@ -483,6 +620,12 @@ pub async fn apply_config(
                 config.privacy_auto_delete_blocked_messages;
             current.privacy_allowlist = config.privacy_allowlist;
             current.privacy_custom_patterns = config.privacy_custom_patterns;
+            if let Some(moderation) = config.moderation {
+                // The live-mode snapshot belongs to Relay, never to the panel.
+                let live_restore = current.moderation.live_restore.take();
+                current.moderation = moderation;
+                current.moderation.live_restore = live_restore;
+            }
         })
         .await
         .map_err(display_error)?;

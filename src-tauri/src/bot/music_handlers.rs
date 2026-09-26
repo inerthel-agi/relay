@@ -67,7 +67,7 @@ pub(super) async fn handle_music_message(
         music.mark_search_attempt(user_id, now);
     }
 
-    let results = match youtube::search(query, &api_key).await {
+    let mut results = match youtube::search(query, &api_key).await {
         Ok(results) => results,
         Err(error) => {
             let detail = error.to_string();
@@ -81,6 +81,19 @@ pub(super) async fn handle_music_message(
             return;
         }
     };
+    // Titles and channel names end up on the music card: keep only clean results.
+    if scoped_config.moderation.filter_music_titles {
+        results.retain(|track| {
+            !privacy::filter_words_match(
+                &format!(
+                    "{}
+{}",
+                    track.title, track.channel_title
+                ),
+                scoped_config,
+            )
+        });
+    }
     if results.is_empty() {
         music_notice(core, http, message.channel_id, strings.no_results).await;
         return;
@@ -352,6 +365,15 @@ pub(super) async fn handle_music_component(
                 return;
             }
         };
+        if core.outputs_paused() {
+            core.music
+                .lock()
+                .await
+                .restore_selection(selection_id, selection.clone());
+            respond_music_component(core, context, component, strings.relay_paused, Vec::new())
+                .await;
+            return;
+        }
         let result = core
             .start_music(selection.clone(), mode, now_ms(), &component.id.to_string())
             .await;
@@ -653,6 +675,10 @@ pub(super) async fn handle_music_custom_modal(
         }
     };
 
+    if core.outputs_paused() {
+        respond_music_modal(core, context, modal, strings.relay_paused).await;
+        return;
+    }
     let result = match core
         .start_music_custom(
             selection.clone(),

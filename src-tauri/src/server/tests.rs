@@ -487,6 +487,49 @@ async fn serves_authenticated_overlay_and_broadcasts_under_load() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn serves_the_shared_output_style_and_only_bundled_fonts() {
+    let port = free_local_port();
+    let directory = tempfile::tempdir().unwrap();
+    let core = AppCore::load(directory.path().join("config.json")).unwrap();
+    core.set_config(AppConfig {
+        port,
+        ..AppConfig::default()
+    })
+    .await
+    .unwrap();
+    start_server(core.clone()).await.unwrap();
+
+    let css = http_response(port, "/output-theme.css");
+    assert!(css.starts_with("HTTP/1.1 200"));
+    assert!(css.contains("data-output-style=\"signal\""));
+    // Fonts come from Relay itself; the policy allows no other font host.
+    assert!(
+        css.to_ascii_lowercase()
+            .contains("font-src 'self'; img-src")
+    );
+    assert!(http_response(port, "/output-theme.js").contains("relayOutputTheme"));
+    // Font bodies are binary, so read raw bytes instead of a UTF-8 string.
+    let mut stream = std::net::TcpStream::connect((HOST, port)).unwrap();
+    write!(
+        stream,
+        "GET /output-fonts/Inter.woff2 HTTP/1.1\r\nHost: {HOST}:{port}\r\nConnection: close\r\n\r\n"
+    )
+    .unwrap();
+    let mut bytes = Vec::new();
+    stream.read_to_end(&mut bytes).unwrap();
+    let font = String::from_utf8_lossy(&bytes);
+    assert!(font.starts_with("HTTP/1.1 200"), "{font}");
+    assert!(
+        font.to_ascii_lowercase()
+            .contains("content-type: font/woff2")
+    );
+    assert!(http_status(port, "/output-fonts/OFL-1.1.txt").starts_with("HTTP/1.1 404"));
+    assert!(http_status(port, "/output-fonts/..%2Fconfig.json").starts_with("HTTP/1.1 404"));
+
+    stop_server(&core).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn reaction_and_library_routes_keep_assets_private() {
     let port = free_local_port();
     let directory = tempfile::tempdir().unwrap();

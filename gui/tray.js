@@ -61,6 +61,17 @@ Object.assign(trayTranslations.ko, { pendingReview: "검토 대기 미디어 {co
 Object.assign(trayTranslations.ja, { pendingReview: "モデレーション待ちのメディア {count} 件", reviewNow: "今すぐ確認", discordNotReady: "Discord に接続されていません", openDiscordSettings: "Discord 設定を開く" });
 Object.assign(trayTranslations.id, { pendingReview: "{count} media menunggu moderasi", reviewNow: "Tinjau sekarang", discordNotReady: "Discord tidak terhubung", openDiscordSettings: "Buka pengaturan Discord" });
 
+// 1.4.0: panic button and the header state pill.
+Object.assign(trayTranslations.en, {"panic": "Panic", "resume": "Resume", "live": "Live", "paused": "Paused", "problem": "Problem"});
+Object.assign(trayTranslations.fr, {"panic": "Panique", "resume": "Reprendre", "live": "En direct", "paused": "En pause", "problem": "Problème"});
+Object.assign(trayTranslations.es, {"panic": "Pánico", "resume": "Reanudar", "live": "En directo", "paused": "En pausa", "problem": "Problema"});
+Object.assign(trayTranslations.de, {"panic": "Panik", "resume": "Fortsetzen", "live": "Live", "paused": "Pausiert", "problem": "Problem"});
+Object.assign(trayTranslations.ru, {"panic": "Паника", "resume": "Возобновить", "live": "В эфире", "paused": "Пауза", "problem": "Ошибка"});
+Object.assign(trayTranslations.zh, {"panic": "紧急", "resume": "恢复", "live": "运行中", "paused": "已暂停", "problem": "异常"});
+Object.assign(trayTranslations.ko, {"panic": "긴급", "resume": "다시 시작", "live": "작동 중", "paused": "일시 중지", "problem": "문제"});
+Object.assign(trayTranslations.ja, {"panic": "緊急停止", "resume": "再開", "live": "稼働中", "paused": "一時停止", "problem": "問題あり"});
+Object.assign(trayTranslations.id, {"panic": "Panik", "resume": "Lanjutkan", "live": "Aktif", "paused": "Dijeda", "problem": "Masalah"});
+
 const trayRegionalTranslations = {
   "en-US": {
     displayWidgets: "Display widgets",
@@ -113,7 +124,7 @@ function applyTrayLanguage() {
     ? storedLocale
     : language === "en" ? "en-US" : language;
   document.documentElement.lang = locale;
-  document.documentElement.dataset.design = ["paper", "neo-brutalism", "gridline", "lumen"].includes(storedDesign)
+  document.documentElement.dataset.design = ["paper", "neo-brutalism", "gridline", "lumen", "signal"].includes(storedDesign)
     ? storedDesign
     : "graphite";
   document.documentElement.dataset.theme = storedTheme === "light" ? "light" : "dark";
@@ -132,6 +143,13 @@ function applyTrayLanguage() {
 
 const elements = {
   indicator: document.querySelector("#relay-indicator"),
+  stateLabel: document.querySelector("#relay-state-label"),
+  discordDot: document.querySelector("#discord-dot"),
+  serverDot: document.querySelector("#server-dot"),
+  panic: document.querySelector("#panic-toggle"),
+  panicLabel: document.querySelector("#panic-label"),
+  panicIcon: document.querySelector("#panic-icon"),
+  resumeIcon: document.querySelector("#resume-icon"),
   discordStatus: document.querySelector("#discord-status"),
   discordDetail: document.querySelector("#discord-detail"),
   serverStatus: document.querySelector("#server-status"),
@@ -151,17 +169,29 @@ function renderWidget(state, stateElement, toggleButton, lockButton, name) {
   stateElement.textContent = state.visible
     ? translate(state.locked ? "visibleLocked" : "visibleMovable")
     : translate("hidden");
-  toggleButton.textContent = translate(state.visible ? "hide" : "show");
-  toggleButton.setAttribute("aria-pressed", String(state.visible));
+  toggleButton.setAttribute("aria-checked", String(state.visible));
+  toggleButton.setAttribute("aria-label", `${translate(state.visible ? "hide" : "show")} ${translate(name)}`);
   lockButton.classList.toggle("is-unlocked", !state.locked);
   lockButton.setAttribute("aria-label", `${translate(state.locked ? "unlock" : "lock")} ${translate(name)}`);
   lockButton.setAttribute("aria-pressed", String(state.locked));
 }
 
+let outputsPaused = false;
+
 function render(status) {
   const relayOnline = status.bot.connected && status.server.connected;
+  outputsPaused = Boolean(status.outputsPaused);
+  const state = outputsPaused ? "paused" : relayOnline ? "live" : status.server.connected ? "offline" : "problem";
+  elements.indicator.dataset.state = state;
   elements.indicator.classList.toggle("is-online", relayOnline);
   elements.indicator.classList.toggle("is-error", !status.server.connected || Boolean(status.bot.error));
+  elements.stateLabel.textContent = translate(state);
+  elements.discordDot.dataset.state = status.bot.connected ? "on" : "off";
+  elements.serverDot.dataset.state = status.server.connected ? "on" : "off";
+  elements.panic.dataset.state = outputsPaused ? "paused" : "ready";
+  elements.panicLabel.textContent = translate(outputsPaused ? "resume" : "panic");
+  elements.panicIcon.toggleAttribute("hidden", outputsPaused);
+  elements.resumeIcon.toggleAttribute("hidden", !outputsPaused);
 
   elements.discordStatus.textContent = translate(status.bot.connected ? "online" : "offline");
   elements.discordDetail.textContent = status.bot.username || status.bot.error || translate("waitingDiscord");
@@ -206,7 +236,7 @@ async function refreshTray() {
     ]);
     render(status);
     elements.startup.setAttribute("aria-pressed", String(startupEnabled));
-    elements.startup.textContent = `${startupEnabled ? "✓ " : ""}${translate("startWithWindows")}`;
+    elements.startup.setAttribute("aria-checked", String(startupEnabled));
   } catch {
     elements.indicator.classList.remove("is-online");
     elements.indicator.classList.add("is-error");
@@ -237,9 +267,14 @@ elements.startup.addEventListener("click", () => {
   const enabled = elements.startup.getAttribute("aria-pressed") !== "true";
   return runAction(elements.startup, "set_start_with_windows", { enabled });
 });
+elements.panic.addEventListener("click", () => runAction(elements.panic, outputsPaused ? "resume_outputs" : "panic_stop"));
 elements.quit.addEventListener("click", () => invoke("tray_quit"));
 
 window.refreshTray = refreshTray;
+// No browser menu (Back, Refresh, Print…) on right click; text fields keep Copy and Paste.
+window.addEventListener("contextmenu", (event) => {
+  if (!event.target?.closest?.("input, textarea, [contenteditable='true']")) event.preventDefault();
+});
 window.addEventListener("focus", refreshTray);
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) refreshTray();

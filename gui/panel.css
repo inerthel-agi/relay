@@ -1380,6 +1380,36 @@ textarea:focus {
   box-shadow: 0 5px 16px color-mix(in srgb, var(--accent) 55%, transparent);
 }
 
+.design-choice--signal .design-choice__preview {
+  border-color: #000;
+  border-radius: 0;
+  background: #000;
+}
+
+.design-choice--signal .design-choice__preview i:first-child {
+  top: 12px;
+  left: 12px;
+  width: 30%;
+  height: 14px;
+  background: var(--accent);
+}
+
+.design-choice--signal .design-choice__preview i:nth-child(2) {
+  top: 34px;
+  left: 12px;
+  width: 58%;
+  height: 5px;
+  background: #fff;
+}
+
+.design-choice--signal .design-choice__preview i:last-child {
+  top: 45px;
+  left: 12px;
+  width: 40%;
+  height: 5px;
+  background: #8a8a86;
+}
+
 .design-choice__copy {
   display: grid;
   gap: 4px;
@@ -1471,6 +1501,114 @@ textarea:focus {
 .personalization-preview p {
   margin: 0;
   color: var(--muted);
+}
+
+/* Personalization → Notification style: chips on the left, live notification on the right. */
+.stream-style {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.9fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.stream-style__controls {
+  display: grid;
+  gap: 16px;
+  justify-items: start;
+}
+
+.stream-style__group {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.stream-style__group legend {
+  margin-bottom: 8px;
+  padding: 0;
+  font-size: calc(13px * var(--text-scale));
+  font-weight: 650;
+}
+
+.choice-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.choice-chip {
+  position: relative;
+}
+
+.choice-chip input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.choice-chip span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  color: var(--muted);
+  background: var(--surface);
+  font-size: calc(13px * var(--text-scale));
+  cursor: pointer;
+}
+
+.choice-chip input:hover + span {
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+
+.choice-chip input:checked + span {
+  border-color: var(--accent);
+  color: var(--ink);
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+  font-weight: 650;
+}
+
+.choice-chip input:focus-visible + span {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.stream-style__status {
+  margin: 0;
+  color: var(--muted);
+  font-size: calc(13px * var(--text-scale));
+}
+
+.stream-style__preview {
+  display: grid;
+  gap: 8px;
+}
+
+/* A stream-like backdrop so light and dark notifications both read as they would on air. */
+.stream-style__preview iframe {
+  width: 100%;
+  height: 132px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background:
+    radial-gradient(60% 55% at 20% 30%, rgb(255 255 255 / 30%), transparent 70%),
+    linear-gradient(160deg, #24557f, #1b3f63 55%, #2c6b7a);
+}
+
+@media (max-width: 980px) {
+  .stream-style {
+    grid-template-columns: 1fr;
+  }
 }
 
 .button--quiet {
@@ -2591,6 +2729,335 @@ input[type="range"] {
   font-size: calc(11px * var(--text-scale));
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+
+/* Moderation toolbar: presets on the left, last-day summary and tester on the right. */
+.moderation-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(280px, 1fr);
+  gap: 22px;
+  margin-bottom: 22px;
+}
+
+.moderation-toolbar__presets,
+.moderation-toolbar__side,
+.moderation-tester {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
+.moderation-toolbar h3 {
+  margin: 0;
+  font-size: calc(15px * var(--text-scale));
+}
+
+button.choice-chip {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+button.choice-chip.is-active span {
+  border-color: var(--accent);
+  color: var(--ink);
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+  font-weight: 650;
+}
+
+button.choice-chip:focus-visible span {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.moderation-preset-custom {
+  align-self: center;
+  color: var(--muted);
+  font-size: calc(12px * var(--text-scale));
+}
+
+.moderation-confirm {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+}
+
+.moderation-confirm p {
+  margin: 0;
+}
+
+.moderation-own-presets {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+  align-items: end;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.moderation-own-presets .section-actions {
+  grid-column: 1 / -1;
+}
+
+.moderation-summary {
+  display: grid;
+  gap: 8px;
+}
+
+.moderation-summary dl {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.moderation-summary dl div {
+  display: grid;
+  gap: 2px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-subtle);
+}
+
+.moderation-summary dt {
+  color: var(--muted);
+  font-size: calc(11px * var(--text-scale));
+}
+
+.moderation-summary dd {
+  margin: 0;
+  font-size: calc(20px * var(--text-scale));
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.moderation-live-state {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, var(--surface));
+  font-size: calc(12px * var(--text-scale));
+}
+
+.moderation-test-result {
+  min-height: 1.4em;
+  margin: 0;
+  color: var(--muted);
+}
+
+.moderation-test-result[data-action="block"] {
+  color: var(--danger);
+}
+
+.moderation-test-result[data-action="allow"] {
+  color: var(--success);
+}
+
+.moderation-shortcuts {
+  margin: 0 auto 0 0;
+  color: var(--muted);
+  font-size: calc(12px * var(--text-scale));
+}
+
+.moderation-list:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 4px;
+}
+
+.moderation-item.is-selected {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+/* Risky images stay blurred until hovered or selected. */
+.moderation-item.is-sensitive .history-item__thumb {
+  filter: blur(10px);
+  transition: filter 160ms ease;
+}
+
+.moderation-item.is-sensitive:hover .history-item__thumb,
+.moderation-item.is-sensitive.is-selected .history-item__thumb,
+.moderation-item.is-sensitive:focus-within .history-item__thumb {
+  filter: none;
+}
+
+.history-item.moderation-item--text {
+  grid-template-columns: minmax(0, 1fr) 90px auto;
+}
+
+.moderation-item--text .history-item__filename {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.moderation-item__more {
+  max-width: 190px;
+}
+
+.moderation-item__countdown {
+  color: var(--accent);
+  font-size: calc(12px * var(--text-scale));
+  font-variant-numeric: tabular-nums;
+}
+
+.number-with-unit {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.number-with-unit input {
+  width: 96px;
+}
+
+.number-with-unit span {
+  color: var(--muted);
+  font-size: calc(12px * var(--text-scale));
+}
+
+.moderation-packs {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.moderation-packs legend {
+  padding: 0;
+  font-weight: 650;
+}
+
+.moderation-pack-list {
+  display: grid;
+  gap: 6px;
+}
+
+.moderation-pack {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+
+.moderation-pack label {
+  display: inline-flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.moderation-pack input[type="checkbox"],
+.moderation-scopes input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  min-height: 16px;
+  flex: none;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.moderation-pack-words {
+  padding: 10px 12px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-md);
+}
+
+.moderation-pack-words p {
+  margin: 0;
+}
+
+.moderation-pack-words__list {
+  margin-top: 6px !important;
+  color: var(--muted);
+  font-family: Consolas, monospace;
+  font-size: calc(12px * var(--text-scale));
+  overflow-wrap: anywhere;
+}
+
+.moderation-advanced {
+  display: grid;
+  gap: 10px;
+}
+
+.moderation-advanced > summary {
+  display: list-item;
+  width: auto;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font-weight: 650;
+  grid-template-columns: none;
+}
+
+.moderation-advanced__list {
+  display: grid;
+  gap: 10px;
+}
+
+.moderation-advanced__row {
+  display: grid;
+  grid-template-columns: minmax(90px, 0.6fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+
+.moderation-log__list {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.moderation-log__entry {
+  display: grid;
+  grid-template-columns: 150px 120px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: baseline;
+  padding: 9px 2px;
+  border-bottom: 1px solid var(--line);
+  font-size: calc(13px * var(--text-scale));
+}
+
+.moderation-log__entry time {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.moderation-log__entry[data-action="blocked"] strong,
+.moderation-log__entry[data-action="banned"] strong,
+.moderation-log__entry[data-action="timedOut"] strong {
+  color: var(--danger);
+}
+
+.moderation-log__author {
+  font-family: Consolas, monospace;
+  font-size: calc(12px * var(--text-scale));
+}
+
+@media (max-width: 980px) {
+  .moderation-toolbar,
+  .moderation-advanced__row {
+    grid-template-columns: 1fr;
+  }
+
+  .moderation-log__entry {
+    grid-template-columns: 1fr auto;
+  }
 }
 
 .history-header .page-intro {
@@ -3943,6 +4410,119 @@ video.history-item__thumb:not([src]) {
   box-shadow: 0 0 0 1px var(--accent), 0 11px 22px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
+/* Signal: broadcast control room. Black and white, square edges, the accent as a tally light. */
+:root[data-design="signal"] {
+  --canvas: #ececea;
+  --surface: #ffffff;
+  --surface-subtle: #e2e2df;
+  --ink: #000000;
+  --muted: #4a4a47;
+  --faint: #7a7a76;
+  --line: #cfcfcb;
+  --line-strong: #000000;
+  --inverse: #000000;
+  --inverse-ink: #ffffff;
+  --success: #0f7b45;
+  --danger: #d0021b;
+  --focus: #000000;
+  --titlebar-bg: #000000;
+  --titlebar-ink: #ffffff;
+  --titlebar-border: #000000;
+  --sidebar-width: 236px;
+  font-family: Bahnschrift, "Segoe UI", sans-serif;
+}
+
+:root[data-design="signal"][data-theme="dark"] {
+  --canvas: #000000;
+  --surface: #0b0b0b;
+  --surface-subtle: #161616;
+  --ink: #ffffff;
+  --muted: #b5b5b0;
+  --faint: #7c7c78;
+  --line: #2b2b2b;
+  --line-strong: #ffffff;
+  --inverse: #ffffff;
+  --inverse-ink: #000000;
+  --success: #3ddc84;
+  --danger: #ff5a5a;
+  --focus: #ffffff;
+}
+
+:root[data-design="signal"] h1,
+:root[data-design="signal"] h2,
+:root[data-design="signal"] h3,
+:root[data-design="signal"] .brand__copy strong {
+  font-family: "Bahnschrift Condensed", Bahnschrift, "Arial Narrow", sans-serif;
+  font-stretch: condensed;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+:root[data-design="signal"] .kicker,
+:root[data-design="signal"] .section-number,
+:root[data-design="signal"] .navigation__group {
+  font-family: "Bahnschrift Condensed", Bahnschrift, sans-serif;
+  font-stretch: condensed;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+:root[data-design="signal"] .sidebar {
+  border-right: 2px solid var(--line-strong);
+  background: var(--surface);
+}
+
+:root[data-design="signal"] .topbar {
+  border-bottom: 2px solid var(--line-strong);
+}
+
+:root[data-design="signal"] .brand__logo,
+:root[data-design="signal"] .panel-section,
+:root[data-design="signal"] .history-list,
+:root[data-design="signal"] .help-accordions,
+:root[data-design="signal"] .about-card,
+:root[data-design="signal"] .privacy-card,
+:root[data-design="signal"] .personalization-preview,
+:root[data-design="signal"] .design-choice {
+  border-radius: 0;
+  box-shadow: none;
+}
+
+:root[data-design="signal"] .button,
+:root[data-design="signal"] input,
+:root[data-design="signal"] select,
+:root[data-design="signal"] textarea,
+:root[data-design="signal"] .personalization-fieldset,
+:root[data-design="signal"] .navigation__item {
+  border-radius: 2px;
+}
+
+/* The active page lights up like an on-air tally. */
+:root[data-design="signal"] .navigation__item.is-active {
+  color: var(--accent-ink);
+  background: var(--accent);
+}
+
+:root[data-design="signal"] .navigation__item.is-active::before {
+  display: none;
+}
+
+:root[data-design="signal"] .button--primary {
+  color: var(--accent-ink);
+  background: var(--accent);
+  font-family: "Bahnschrift Condensed", Bahnschrift, sans-serif;
+  font-stretch: condensed;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+:root[data-design="signal"] .design-choice:has(input:checked) {
+  border-color: var(--ink);
+  box-shadow: inset 0 0 0 2px var(--ink);
+}
+
 :root[data-interface-font="bricolage"] {
   font-family: "Relay Bricolage Grotesque", Bahnschrift, sans-serif;
 }
@@ -4953,4 +5533,237 @@ button.status:hover {
 
 #diagnostic-state:empty {
   display: none;
+}
+
+/* 1.4.0 — Panic button in the top bar and the paused banner. */
+.panic-button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 5px 11px;
+  border: 1px solid color-mix(in oklch, var(--danger) 55%, transparent);
+  border-radius: var(--radius-pill);
+  color: var(--danger);
+  background: color-mix(in oklch, var(--danger) 10%, transparent);
+  font: inherit;
+  font-size: calc(12px * var(--text-scale));
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.panic-button svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentcolor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.panic-button:hover,
+.panic-button.is-active {
+  color: #fff;
+  background: var(--danger);
+}
+
+.paused-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 26px;
+  border-bottom: 1px solid color-mix(in oklch, var(--danger) 45%, transparent);
+  color: var(--ink);
+  background: color-mix(in oklch, var(--danger) 14%, var(--canvas));
+}
+
+.paused-banner[hidden] {
+  display: none;
+}
+
+.paused-banner__copy {
+  display: grid;
+  gap: 2px;
+  font-size: calc(12px * var(--text-scale));
+}
+
+.paused-banner__copy strong {
+  font-size: calc(14px * var(--text-scale));
+}
+
+/* Discord page → bot check. */
+.check-intent {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  margin: 12px 0;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in oklch, var(--danger) 45%, transparent);
+  border-radius: var(--radius-lg);
+  font-size: calc(13px * var(--text-scale));
+}
+
+.check-intent[hidden],
+#discord-check-reinvite[hidden] {
+  display: none;
+}
+
+.check-results {
+  display: grid;
+  gap: 0;
+  margin: 12px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.check-result {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 16px;
+  padding: 11px 0;
+  border-top: 1px solid var(--line);
+  font-size: calc(13px * var(--text-scale));
+}
+
+.check-result:first-child {
+  border-top: 0;
+}
+
+.check-result span {
+  color: var(--muted);
+}
+
+.check-result[data-state="saved"] span {
+  color: var(--success);
+}
+
+.check-result[data-state="error"] span {
+  color: var(--danger);
+}
+
+/* OBS & widgets → automatic setup. */
+.obs-auto {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface-subtle);
+}
+
+.obs-auto h4,
+.obs-manual-title {
+  margin: 0;
+  font-size: calc(14px * var(--text-scale));
+}
+
+.obs-manual-title {
+  margin-bottom: 10px;
+}
+
+.obs-auto .section-copy {
+  margin: 0;
+}
+
+.obs-auto__grid {
+  display: grid;
+  align-items: start;
+  grid-template-columns: minmax(0, 160px) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.obs-auto__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.obs-auto__install {
+  display: grid;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.obs-auto__install[hidden],
+#obs-forget[hidden] {
+  display: none;
+}
+
+#obs-password-state {
+  color: var(--success);
+}
+
+#obs-auto-state:empty,
+#discord-check-state:empty {
+  display: none;
+}
+
+/* The paused banner sits between the top bar and the pages without taking space when hidden. */
+.workspace {
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+.workspace > .topbar {
+  grid-row: 1;
+}
+
+.workspace > .paused-banner {
+  grid-row: 2;
+}
+
+.workspace > .pages {
+  grid-row: 3;
+}
+
+/* Keep the top bar on one line at the default window size once the panic button is added. */
+@media (max-width: 1320px) {
+  .topbar {
+    gap: 14px;
+  }
+
+  .panic-button {
+    padding: 5px 8px;
+  }
+
+  .panic-button span,
+  .status--count span[data-i18n] {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+#discord-check-state,
+#obs-auto-state {
+  display: block;
+  max-width: none;
+  margin: 8px 0 0;
+  text-align: left;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.button--small {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: calc(12px * var(--text-scale));
 }

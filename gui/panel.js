@@ -7,6 +7,11 @@ import { initializeCustomCommands } from "./custom-commands.mjs";
 import { initializeOverview, readStorage } from "./overview.mjs";
 import { initializeSettingsSearch } from "./settings-search.mjs";
 import { initializeAutosave, initializeStartWithWindows } from "./autosave.mjs";
+import { initializePanic } from "./panic.mjs";
+import { initializeDiscordCheck } from "./discord-check.mjs";
+import { initializeObsSetup } from "./obs-setup.mjs";
+import { initializeModerationUi } from "./moderation-ui.mjs";
+import { initializeStreamStyle, normalizeStreamBackground, normalizeStreamStyle } from "./stream-style.mjs";
 const { invoke } = window.__TAURI__.core;
 let moduleControls;
 
@@ -187,6 +192,8 @@ const skipMediaButton = $("#skip-media");
 const skipShortcutKeyElement = $("#skip-shortcut-key");
 const skipShortcutCaptureButton = $("#skip-shortcut-capture");
 const skipShortcutValueElement = $("#skip-shortcut-value");
+const panicShortcutCaptureButton = $("#panic-shortcut-capture");
+const panicShortcutValueElement = $("#panic-shortcut-value");
 const languageToggleButton = $("#language-toggle");
 const languageValueElement = $("#language-value");
 const languageFlagElement = $("#language-flag");
@@ -244,7 +251,7 @@ const defaultLocaleByLanguage = {
   en: "en-US", fr: "fr-FR", es: "es-ES", de: "de-DE", ru: "ru-RU",
   zh: "zh-CN", ko: "ko-KR", ja: "ja-JP", id: "id-ID",
 };
-const supportedDesigns = ["graphite", "paper", "neo-brutalism", "gridline", "lumen"];
+const supportedDesigns = ["graphite", "paper", "neo-brutalism", "gridline", "lumen", "signal"];
 // Earlier releases stored brand-named design identifiers.
 const legacyDesignNames = { openai: "graphite", anthropic: "paper" };
 const supportedSidebarLayouts = ["fixed", "compact", "dynamic"];
@@ -276,7 +283,7 @@ const audioPlaybackTargets = new Map();
 let currentAudioPlayback;
 let nowPlayingArtworkRequest = 0;
 const artworkCache = new Map();
-let currentAppVersion = "1.3.7";
+let currentAppVersion = "1.4.0";
 let bundledChangelogMarkdown = "";
 let latestUpdate;
 let updateUiState = { kind: "idle" };
@@ -481,6 +488,12 @@ function applyLanguage() {
   renderNowPlaying();
   renderChangelog();
   customCommandsUi?.applyLanguage();
+  panicUi?.applyLanguage();
+  discordCheck?.render();
+  obsSetup?.applyLanguage();
+  streamStyleUi?.applyLanguage();
+  moderationUi?.applyLanguage();
+  if (bootstrap?.config?.port) streamStyleUi?.setPreviewPort(bootstrap.config.port, language);
   if (bootstrap) {
     setBotStatus(bootstrap.bot);
     setServerStatus(bootstrap.server);
@@ -528,6 +541,7 @@ function applyTheme() {
   localStorage.setItem("relay-theme", theme);
   themeValueElement.textContent = t(theme);
   syncWindowTheme();
+  streamStyleUi?.render();
 }
 
 function applyDesign() {
@@ -540,6 +554,7 @@ function applyDesign() {
     ?.querySelector(".design-choice__copy strong")
     ?.textContent || design;
   syncWindowTheme();
+  streamStyleUi?.render();
 }
 
 function applySidebarLayout() {
@@ -903,8 +918,13 @@ function syncInterfacePreferences() {
   window.clearTimeout(personalizationTimer);
   personalizationTimer = window.setTimeout(async () => {
     try {
+      // Outputs follow the design unless a notification style is chosen.
+      const streamPreferences = streamStyleUi?.preferences() ?? {
+        outputStyle: normalizeStreamStyle(readStorage("relay-output-style")),
+        outputBackground: normalizeStreamBackground(readStorage("relay-output-background")),
+      };
       await invoke("set_interface_preferences", {
-        language, theme, accentRgb, fontScale,
+        preferences: { language, theme, accentRgb, fontScale, design, ...streamPreferences },
       });
       personalizationStateElement.textContent = t("personalizationSaved");
     } catch (error) {
@@ -964,6 +984,7 @@ function showPage(page, { recordHistory = true, moveFocus = false } = {}) {
   if (page === "history") {
     window.requestAnimationFrame(loadHistoryVideoThumbnails);
   }
+  if (page === "discord") discordCheck?.runIfStale();
   updatePageHeading();
   updateNavigationControls();
   try { localStorage.setItem("relay-last-page", page); } catch { /* Storage is optional. */ }
@@ -1207,6 +1228,7 @@ function applyConfig(config) {
   privacyAllowlistElement.value = privacyListToInput(config.privacyAllowlist);
   privacyConceptsElement.value = filterConceptsToLines(config.privacyConcepts);
   privacyExemptRoleIdsElement.value = filterRoleIdsToInput(config.privacyFilterExemptRoleIds);
+  moderationUi?.fillForm(config);
   populateChannels(channelElement, bootstrap?.channels || [], config.watchedChannelId, t("selectChannel"));
   populateChannels(ttsChannelElement, bootstrap?.channels || [], config.ttsChannelId, t("ttsDisabled"));
   musicWelcomeElement.value = config.musicWelcomeMessageId || "";
@@ -1229,6 +1251,7 @@ function applyConfig(config) {
   customCommandsUi?.syncFromConfig(config);
   applyOutputGeometryConfig(config);
   updateSkipShortcutDisplay(config.skipShortcut);
+  updatePanicShortcutDisplay(config.panicShortcut);
   drafts.forEach(restoreFormDraft);
   mediaVolumeValueElement.value = `${mediaVolumeElement.value}%`;
   mediaVolumeValueElement.textContent = `${mediaVolumeElement.value}%`;
@@ -1242,6 +1265,7 @@ function setCredentials(status) {
     : t("notConfigured"));
   if (!clientIdElement.value) clientIdElement.value = status.clientId || "";
   updateYoutubeKeyStatus(status);
+  obsSetup?.updateCredentials(status);
 }
 
 function updateYoutubeKeyStatus(status = bootstrap?.credentials) {
@@ -1283,32 +1307,59 @@ function shortcutTokenFromEvent(event) {
   return supportedCode.test(event.code) ? event.code : "";
 }
 
-function beginShortcutCapture() {
+// Both global shortcuts share one capture flow; each target keeps its own save command.
+const shortcutTargets = {
+  skip: {
+    button: skipShortcutCaptureButton,
+    value: skipShortcutValueElement,
+    configKey: "skipShortcut",
+    save: (shortcut) => invoke("set_skip_shortcut", { shortcut }),
+  },
+  panic: {
+    button: panicShortcutCaptureButton,
+    value: panicShortcutValueElement,
+    configKey: "panicShortcut",
+    save: (shortcut) => invoke("set_panic_shortcut", { shortcut }),
+  },
+};
+let shortcutCaptureTarget = "skip";
+
+function updatePanicShortcutDisplay(shortcut) {
+  panicShortcutValueElement.textContent = formatShortcutLabel(shortcut || "control+alt+KeyP");
+  panicUi?.applyLanguage();
+}
+
+function beginShortcutCapture(target = "skip") {
+  shortcutCaptureTarget = target;
   shortcutCaptureActive = true;
-  skipShortcutCaptureButton.setAttribute("aria-pressed", "true");
-  skipShortcutValueElement.textContent = t("pressShortcut");
-  skipShortcutCaptureButton.focus();
+  const { button, value } = shortcutTargets[target];
+  button.setAttribute("aria-pressed", "true");
+  value.textContent = t("pressShortcut");
+  button.focus();
 }
 
 function cancelShortcutCapture() {
   shortcutCaptureActive = false;
-  skipShortcutCaptureButton.setAttribute("aria-pressed", "false");
+  for (const { button } of Object.values(shortcutTargets)) button.setAttribute("aria-pressed", "false");
   updateSkipShortcutDisplay(bootstrap?.config?.skipShortcut);
+  updatePanicShortcutDisplay(bootstrap?.config?.panicShortcut);
 }
 
 async function saveCapturedShortcut(shortcut) {
-  const previousLabel = formatShortcutLabel(bootstrap?.config?.skipShortcut);
+  const target = shortcutTargets[shortcutCaptureTarget];
+  const previous = bootstrap?.config?.[target.configKey];
   shortcutCaptureActive = false;
-  skipShortcutCaptureButton.setAttribute("aria-pressed", "false");
-  skipShortcutValueElement.textContent = formatShortcutLabel(shortcut);
+  target.button.setAttribute("aria-pressed", "false");
+  target.value.textContent = formatShortcutLabel(shortcut);
   setSaveState(mediaSaveStateElement, "saving");
   try {
-    const config = await invoke("set_skip_shortcut", { shortcut });
+    const config = await target.save(shortcut);
     bootstrap.config = config;
     updateSkipShortcutDisplay(config.skipShortcut);
+    updatePanicShortcutDisplay(config.panicShortcut);
     setSaveState(mediaSaveStateElement, "saved", t("shortcutSaved"));
   } catch (error) {
-    skipShortcutValueElement.textContent = previousLabel;
+    target.value.textContent = formatShortcutLabel(previous);
     setSaveState(mediaSaveStateElement, "error", String(error) || t("shortcutInvalid"));
   }
 }
@@ -1574,9 +1625,10 @@ function rememberMedia(mediaEvent) {
 
 function renderModeration() {
   const pending = bootstrap?.pendingMedia || [];
+  const pendingTexts = moderationUi?.pendingTextCount() || 0;
   moderationListElement.replaceChildren();
-  moderationCountElement.textContent = `${pending.length} / 50`;
-  moderationEmptyElement.hidden = pending.length > 0;
+  moderationCountElement.textContent = `${pending.length + pendingTexts} / 50`;
+  moderationEmptyElement.hidden = pending.length + pendingTexts > 0;
   const config = bootstrap?.config;
   const filterWordsActive = Array.isArray(config?.privacyConcepts)
     && config.privacyConcepts.length > 0;
@@ -1588,7 +1640,7 @@ function renderModeration() {
         ? "privacyReviewQueueEmpty"
         : "moderationDisabled",
   );
-  clearPendingMediaButton.disabled = pending.length === 0;
+  clearPendingMediaButton.disabled = pending.length + pendingTexts === 0;
 
   for (const pendingItem of pending) {
     const mediaEvent = pendingItem.media;
@@ -1634,8 +1686,10 @@ function renderModeration() {
     };
     approveButton.addEventListener("click", () => decide("approve_pending_media"));
     rejectButton.addEventListener("click", () => decide("reject_pending_media"));
+    moderationUi?.decorateQueueItem(item, pendingItem);
     moderationListElement.append(item);
   }
+  moderationUi?.renderTexts(moderationListElement, moderationItemTemplate);
 }
 
 function populateChannels(element, channels, selectedChannelId, placeholderText) {
@@ -1689,7 +1743,10 @@ function handleServerMessage(event) {
     if (message.payload) rememberMedia(message.payload);
   } else if (message.type === "audioPlayback") {
     if (message.payload?.media?.kind === "audio") updateAudioPlayback(message.payload);
+  } else if (message.type === "outputsPaused") {
+    panicUi?.setPaused(message.payload);
   } else if (message.type === "clear") {
+    if (panicUi?.isPaused()) return;
     history.length = 0;
     renderHistory();
   }
@@ -1748,6 +1805,7 @@ function applyBootstrap(nextBootstrap, reconnect = false) {
     previewElement.src = previewUrl.href;
   }
   setOutputGeometryPreviewUrls();
+  streamStyleUi?.setPreviewPort(bootstrap.config.port, language);
   if (reconnect) {
     connectPanelSocket();
   }
@@ -1761,7 +1819,7 @@ function setupStatus() { return overviewUi.setupStatus(); }
 
 function readConfigDraft(form, filterOnly = false) {
   if (filterOnly) {
-    return { privacyConcepts: filterWordsToConcepts(privacyConceptsElement.value, bootstrap.config.privacyConcepts) };
+    return { privacyConcepts: moderationUi.applyAdvancedEdits(filterWordsToConcepts(privacyConceptsElement.value, bootstrap.config.privacyConcepts)) };
   }
   if (form === messagesForm) {
     return {
@@ -1800,7 +1858,7 @@ function readConfigDraft(form, filterOnly = false) {
       moderationAllowVideos: moderationAllowVideosElement.checked,
       moderationAllowAudio: moderationAllowAudioElement.checked,
       privacyScanEnabled: privacyScanEnabledElement.checked,
-      privacyConcepts: filterWordsToConcepts(privacyConceptsElement.value, bootstrap.config.privacyConcepts),
+      privacyConcepts: moderationUi.applyAdvancedEdits(filterWordsToConcepts(privacyConceptsElement.value, bootstrap.config.privacyConcepts)),
       privacyFilterExemptRoleIds: filterRoleIds(privacyExemptRoleIdsElement.value),
       privacyProtectionLevel: privacyProtectionLevelElement.value,
       privacyEnabledCategories: privacyCategoryElements.filter((input) => input.checked).map((input) => input.value),
@@ -1809,6 +1867,7 @@ function readConfigDraft(form, filterOnly = false) {
       privacyAutoDeleteBlockedMessages: privacyAutoDeleteBlockedMessagesElement.checked,
       privacyAllowlist: privacyListFromInput(privacyAllowlistElement.value),
       privacyCustomPatterns: privacyListFromInput(privacyCustomPatternsElement.value),
+      moderation: moderationUi.readDraft(bootstrap.config.moderation),
     };
   }
   if (form === mediaForm) {
@@ -1833,6 +1892,13 @@ function readConfigDraft(form, filterOnly = false) {
   throw new Error("Unknown settings form");
 }
 
+/** JSON with sorted object keys, so field order never makes two settings differ. */
+function stableJson(value) {
+  return JSON.stringify(value, (_, item) => (item && typeof item === "object" && !Array.isArray(item)
+    ? Object.fromEntries(Object.keys(item).sort().map((key) => [key, item[key]]))
+    : item));
+}
+
 async function saveConfig(stateElement, form, filterOnly = false) {
   const revision = formRevisions.get(form) || 0;
   setSaveState(stateElement, "saving");
@@ -1848,7 +1914,7 @@ async function saveConfig(stateElement, form, filterOnly = false) {
       if (filterOnly) {
         try {
           complete = Object.entries(readConfigDraft(form)).every(([key, value]) =>
-            JSON.stringify(value) === JSON.stringify(nextBootstrap.config[key]));
+            stableJson(value) === stableJson(nextBootstrap.config[key]));
         } catch { /* An unfinished field remains a draft. */ }
       }
       if (complete) finishFormSave(form, revision, stateElement);
@@ -1933,6 +1999,7 @@ async function refreshRuntimeStatus() {
     bootstrap.notificationWidget = status.notificationWidget;
     bootstrap.channels = status.channels;
     bootstrap.pendingMedia = status.pendingMedia;
+    panicUi?.setPaused(status.outputsPaused);
     renderQueue(status.queue || []);
     setBotStatus(status.bot);
     setServerStatus(status.server);
@@ -2144,6 +2211,7 @@ resetPersonalizationButton.addEventListener("click", () => {
   sidebarExpanded = false;
   accentRgb = [88, 185, 137];
   fontScale = 100;
+  streamStyleUi?.reset();
   applyLanguage();
   applyTheme();
   applyDesign();
@@ -2319,6 +2387,31 @@ commandsForm.addEventListener("submit", async (event) => {
 });
 
 // Page modules: each owns its DOM and receives the shared panel helpers it needs.
+const panicUi = initializePanic({
+  $, t, invoke, notify,
+  getShortcutLabel: () => formatShortcutLabel(bootstrap?.config?.panicShortcut || "control+alt+KeyP"),
+});
+const discordCheck = initializeDiscordCheck({
+  $, t, formatTranslation, invoke, setSaveState, getBootstrap: () => bootstrap,
+});
+const moderationUi = initializeModerationUi({
+  $, $$, t, formatTranslation, invoke, setSaveState, readStorage,
+  getBootstrap: () => bootstrap,
+  getLocale: () => locale,
+  applyConfig,
+  saveModeration: () => saveConfig(moderationSaveStateElement, moderationForm),
+  onQueueChanged: () => renderModeration(),
+});
+const streamStyleUi = initializeStreamStyle({
+  $, $$, t, formatTranslation, readStorage,
+  getDesign: () => design, getTheme: () => theme,
+  onChange: () => syncInterfacePreferences(),
+});
+const obsSetup = initializeObsSetup({
+  $, t, formatTranslation, invoke, setSaveState, readStorage,
+  onInstalled: () => void refreshRuntimeStatus(),
+});
+
 const settingsSearch = initializeSettingsSearch({
   $, $$, t, pageMetadata, showPage, getLocale: () => locale,
 });
@@ -2532,7 +2625,12 @@ skipMediaButton.addEventListener("click", async () => {
   }
 });
 
-skipShortcutCaptureButton.addEventListener("click", beginShortcutCapture);
+skipShortcutCaptureButton.addEventListener("click", () => beginShortcutCapture("skip"));
+panicShortcutCaptureButton.addEventListener("click", () => beginShortcutCapture("panic"));
+// No browser menu (Back, Refresh, Print…) on right click; text fields keep Copy and Paste.
+window.addEventListener("contextmenu", (event) => {
+  if (!event.target?.closest?.("input, textarea, [contenteditable='true']")) event.preventDefault();
+});
 window.addEventListener("keydown", (event) => {
   if (!shortcutCaptureActive) return;
   event.preventDefault();

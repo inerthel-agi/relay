@@ -279,6 +279,9 @@ impl PrivacyReport {
                         | "forbidden_regex"
                         | "forbidden_similarity"
                         | "similarity_score"
+                        | "discord_invite"
+                        | "link_shortener"
+                        | "scam_domain"
                 )
             });
         if !has_filter_signal {
@@ -291,6 +294,9 @@ impl PrivacyReport {
                     | "forbidden_regex"
                     | "forbidden_similarity"
                     | "similarity_score"
+                    | "discord_invite"
+                    | "link_shortener"
+                    | "scam_domain"
             )
         });
         self.classification = if self.reasons.is_empty() {
@@ -373,9 +379,13 @@ fn reason_category(reason: &str) -> Option<PrivacyCategory> {
         "license_plate" => PrivacyCategory::LicensePlate,
         "sensitive_url" => PrivacyCategory::SensitiveUrl,
         "custom_pattern" => PrivacyCategory::CustomPattern,
-        "forbidden_concept" | "forbidden_regex" | "forbidden_similarity" | "similarity_score" => {
-            PrivacyCategory::ContentFilter
-        }
+        "forbidden_concept"
+        | "forbidden_regex"
+        | "forbidden_similarity"
+        | "similarity_score"
+        | "discord_invite"
+        | "link_shortener"
+        | "scam_domain" => PrivacyCategory::ContentFilter,
         "exif_metadata" => PrivacyCategory::ImageMetadata,
         "document" => PrivacyCategory::Document,
         "image_limits" | "mime_mismatch" => PrivacyCategory::MediaSafety,
@@ -439,7 +449,17 @@ pub fn classify_text(text: Option<&str>, config: &AppConfig) -> PrivacyReport {
         config_signature,
         ..PrivacyReport::safe()
     };
-    let concept_matches = forbidden_concept_match(&masked, &normalized, &config.privacy_concepts);
+    let concepts = crate::moderation::effective_concepts(config);
+    let concept_matches = forbidden_concept_match(&masked, &normalized, &concepts);
+    if let Some(reason) = crate::moderation::link_violation(&cleaned, &config.moderation) {
+        report.add_signal(
+            PrivacyCategory::ContentFilter,
+            100,
+            PrivacyClassification::Critical,
+            reason,
+            config,
+        );
+    }
     if concept_matches.regex {
         report.add_signal(
             PrivacyCategory::ContentFilter,
@@ -769,7 +789,12 @@ pub fn analyze_image_bytes(bytes: &[u8], text: Option<&str>, config: &AppConfig)
             config,
         );
     }
-    if exif.incomplete || signals.exif_incomplete || signals.ocr_truncated {
+    // OCR inspects only frame zero; later animation frames still need review.
+    if exif.incomplete
+        || signals.exif_incomplete
+        || signals.ocr_truncated
+        || (ocr_requested && signals.frame_count > 1)
+    {
         report.merge(PrivacyReport::low("scan_incomplete"));
     }
     if !signals.dimensions_valid
@@ -2056,7 +2081,24 @@ pub fn log_decision(report: &PrivacyReport, action: PrivacyAction) {
 /// is disabled. The latter is deliberately kept separate so filter-only
 /// configurations do not make ordinary images incomplete by default.
 pub fn privacy_rules_enabled(config: &AppConfig) -> bool {
-    config.privacy_scan_enabled || !config.privacy_concepts.is_empty()
+    config.privacy_scan_enabled
+        || !config.privacy_concepts.is_empty()
+        || crate::moderation::content_rules_enabled(config)
+}
+
+/// True when filter words (custom or built-in lists) match, used for names
+/// and titles shown on stream where only the word filter applies.
+pub fn filter_words_match(text: &str, config: &AppConfig) -> bool {
+    let concepts = crate::moderation::effective_concepts(config);
+    if concepts.is_empty() || text.trim().is_empty() {
+        return false;
+    }
+    let (text, _) = cap_text(text);
+    let cleaned = strip_invisible_characters(text);
+    let masked = mask_allowlisted_values(&cleaned, &config.privacy_allowlist);
+    let normalized = normalize_words(&masked);
+    let matches = forbidden_concept_match(&masked, &normalized, &concepts);
+    matches.exact || matches.regex
 }
 
 pub fn has_exempt_role(config: &AppConfig, message_role_ids: &[String]) -> bool {
@@ -2072,7 +2114,7 @@ pub fn scoped_config_for_roles(config: &AppConfig, message_role_ids: &[String]) 
         return config.clone();
     }
     let mut scoped = config.clone();
-    scoped.privacy_concepts.clear();
+    crate::moderation::clear_content_rules(&mut scoped);
     scoped
 }
 
@@ -2095,6 +2137,14 @@ pub fn config_signature(config: &AppConfig) -> u64 {
     for role_id in &config.privacy_filter_exempt_role_ids {
         role_id.hash(&mut hasher);
     }
+    let moderation = &config.moderation;
+    for pack in &moderation.word_packs {
+        pack.hash(&mut hasher);
+    }
+    moderation.pack_exclusions.hash(&mut hasher);
+    moderation.block_invites.hash(&mut hasher);
+    moderation.block_shorteners.hash(&mut hasher);
+    moderation.block_scam_domains.hash(&mut hasher);
     for concept in &config.privacy_concepts {
         concept.canonical.hash(&mut hasher);
         for alias in &concept.aliases {

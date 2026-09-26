@@ -4,7 +4,9 @@ const path = require("node:path");
 const test = require("node:test");
 const read = file => fs.readFileSync(path.join(__dirname, "..", file), "utf8");
 test("every module action is registered and permitted only in the bundled control panel", () => {
-  const commands = new Set([...(read("gui/modules.mjs") + read("gui/reaction-trim.mjs")).matchAll(/invoke\("([a-z_]+)"/g)].map(match => match[1]));
+  const sources = ["modules.mjs", "reaction-trim.mjs", "panic.mjs", "discord-check.mjs", "obs-setup.mjs", "moderation-ui.mjs", "stream-style.mjs", "autosave.mjs", "overview.mjs", "panel.js", "tray.js"]
+    .map((file) => read(`gui/${file}`)).join("\n");
+  const commands = new Set([...sources.matchAll(/invoke\("([a-z_]+)"/g)].map(match => match[1]));
   const handlers = read("src-tauri/src/lib.rs");
   const manifest = read("src-tauri/build.rs");
   const permissions = read("src-tauri/permissions/relay.toml");

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-moderation-pack-words"
+description = "Enables the moderation_pack_words command without any pre-configured scope."
+commands.allow = ["moderation_pack_words"]
+
+[[permission]]
+identifier = "deny-moderation-pack-words"
+description = "Denies the moderation_pack_words command without any pre-configured scope."
+commands.deny = ["moderation_pack_words"]

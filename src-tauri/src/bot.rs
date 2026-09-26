@@ -73,17 +73,6 @@ fn honeypot_action_for_channel(config: &AppConfig, channel_id: &str) -> Option<H
         .then_some(config.honeypot_action)
 }
 
-fn honeypot_notice(action: HoneypotAction) -> &'static str {
-    match action {
-        HoneypotAction::Kick => {
-            "A message from your Discord account was posted in a protected honeypot channel used to identify compromised accounts. Your account may have been compromised, including by token-grabbing malware or a malicious application. As a precaution, you will be kicked from the server. Change your Discord password, enable two-factor authentication, and review Authorized Apps before rejoining."
-        }
-        HoneypotAction::Ban => {
-            "A message from your Discord account was posted in a protected honeypot channel used to identify compromised accounts. Your account may have been compromised, including by token-grabbing malware or a malicious application. As a precaution, you will be banned from the server. Change your Discord password, enable two-factor authentication, and review Authorized Apps before contacting the server moderators."
-        }
-    }
-}
-
 async fn enforce_honeypot_action(
     core: &AppCore,
     context: &Context,
@@ -96,11 +85,24 @@ async fn enforce_honeypot_action(
         return;
     };
 
+    let config = core.config.read().await.clone();
+    let role_ids = message_role_ids(message);
+    // Exempt roles (moderators testing the trap) only get their message removed.
+    if role_ids
+        .iter()
+        .any(|role| config.moderation.honeypot_exempt_role_ids.contains(role))
+    {
+        let _ = message.delete(&context.http).await;
+        return;
+    }
+    let language = core.interface_preferences.read().await.language.clone();
     let dm_delivered = message
         .author
         .direct_message(
             &context.http,
-            CreateMessage::new().content(honeypot_notice(action)),
+            CreateMessage::new().content(crate::moderation::messages::honeypot_notice(
+                action, &language,
+            )),
         )
         .await
         .is_ok();
@@ -115,11 +117,54 @@ async fn enforce_honeypot_action(
                 .ban_with_reason(&context.http, message.author.id, 0, HONEYPOT_AUDIT_REASON)
                 .await
         }
+        HoneypotAction::Timeout => timeout_member(
+            &context.http,
+            guild_id,
+            message.author.id,
+            config.moderation.honeypot_timeout_minutes,
+        )
+        .await
+        .map(|_| ()),
     };
+    if action_result.is_ok() {
+        core.record_moderation(
+            None,
+            match action {
+                HoneypotAction::Kick => crate::moderation::log::LogAction::Kicked,
+                HoneypotAction::Ban => crate::moderation::log::LogAction::Banned,
+                HoneypotAction::Timeout => crate::moderation::log::LogAction::TimedOut,
+            },
+            "honeypot",
+            Some(message.author.id.to_string()),
+        );
+    }
 
     let deletion_failed = message.delete(&context.http).await.is_err();
     core.bot_status.write().await.error =
         honeypot_outcome_error(dm_delivered, action_result.is_err(), deletion_failed);
+}
+
+/// Discord timeout ("exclusion temporaire"), capped at the 28-day maximum.
+pub(crate) async fn timeout_member(
+    http: &Http,
+    guild_id: serenity::model::id::GuildId,
+    user_id: serenity::model::id::UserId,
+    minutes: u16,
+) -> serenity::Result<serenity::model::guild::Member> {
+    let seconds = i64::from(minutes.clamp(1, 40_320)) * 60;
+    let until = serenity::model::Timestamp::from_unix_timestamp(
+        serenity::model::Timestamp::now().unix_timestamp() + seconds,
+    )
+    .unwrap_or_else(|_| serenity::model::Timestamp::now());
+    guild_id
+        .edit_member(
+            http,
+            user_id,
+            serenity::builder::EditMember::new()
+                .disable_communication_until_datetime(until)
+                .audit_log_reason("Relay moderation"),
+        )
+        .await
 }
 
 fn honeypot_outcome_error(
@@ -132,7 +177,7 @@ fn honeypot_outcome_error(
         errors.push("Discord DM could not be delivered.");
     }
     if action_failed {
-        errors.push("Kick or ban failed; check the bot's permissions and role position.");
+        errors.push("Kick, ban or timeout failed; check the bot's permissions and role position.");
     }
     if deletion_failed {
         errors.push("Message deletion failed; check the bot's Manage Messages permission.");
@@ -185,7 +230,16 @@ impl EventHandler for Handler {
         }
 
         let role_ids = message_role_ids(&message);
-        let scoped_config = privacy::scoped_config_for_roles(&config, &role_ids);
+        let Some(lane) = lane_for_channel(&config, &channel_id) else {
+            return;
+        };
+        if !apply_moderation_gate(&self.core, &message, &role_ids, lane, &config) {
+            return;
+        }
+        let scoped_config = crate::moderation::scope_config(
+            privacy::scoped_config_for_roles(&config, &role_ids),
+            lane,
+        );
 
         if !config.music_channel_id.is_empty() && channel_id == config.music_channel_id {
             if message.id.to_string() == config.music_welcome_message_id {
@@ -215,10 +269,18 @@ impl EventHandler for Handler {
             {
                 return;
             }
-            if privacy::privacy_rules_enabled(&scoped_config) {
+            if privacy::privacy_rules_enabled(&scoped_config)
+                && !scoped_config.moderation.review_text
+            {
                 let action = privacy::action_for(&text_report, &scoped_config);
                 if matches!(action, privacy::PrivacyAction::Review) {
                     privacy::log_decision(&text_report, action);
+                    self.core.record_moderation(
+                        Some(crate::moderation::Lane::Notifications),
+                        crate::moderation::log::LogAction::Ignored,
+                        text_report.primary_reason().unwrap_or("privacy"),
+                        Some(message.author.id.to_string()),
+                    );
                     return;
                 }
             }
@@ -237,7 +299,7 @@ impl EventHandler for Handler {
                 } else {
                     None
                 };
-            let author = message_author(&message);
+            let author = message_author(&message, &config);
             let guild_tag = guild_tag_from_user(&message.author);
             let mut sticker_segments = Vec::new();
             for sticker in message.sticker_items.iter().take(3) {
@@ -431,7 +493,7 @@ impl EventHandler for Handler {
                         format: format.into(),
                         url,
                         cached_media_id: None,
-                        author: message_author(&message),
+                        author: message_author(&message, &config),
                         timestamp: message_timestamp(&message),
                         message_id: message.id.to_string(),
                     },
@@ -473,13 +535,7 @@ impl EventHandler for Handler {
                     .as_ref()
                     .and_then(|metadata| metadata.artist.clone()),
                 text: media_text.clone(),
-                author: AuthorIdentity {
-                    username: message.author.name.clone(),
-                    display_avatar_url: message
-                        .author
-                        .avatar_url()
-                        .unwrap_or_else(|| message.author.default_avatar_url()),
-                },
+                author: message_author(&message, &config),
                 timestamp: message.timestamp.unix_timestamp().max(0) as u64 * 1_000,
                 message_id: message.id.to_string(),
             };
@@ -582,9 +638,9 @@ impl EventHandler for Handler {
             submit_embedded_gifs(&self.core, &context.http, &message).await;
             return;
         }
-        let Some(embeds) = event.embeds else {
+        if event.embeds.is_none() {
             return;
-        };
+        }
         let watched_channel_id = self.core.config.read().await.watched_channel_id.clone();
         if watched_channel_id.is_empty() || event.channel_id.to_string() != watched_channel_id {
             return;
@@ -593,22 +649,7 @@ impl EventHandler for Handler {
             submit_embedded_gifs(&self.core, &context.http, &message).await;
             return;
         }
-        if let Some(author) = event.author {
-            let message = DeferredEmbedMessage {
-                channel_id: event.channel_id.to_string(),
-                message_id: event.id.to_string(),
-                author,
-                timestamp: event
-                    .timestamp
-                    .map(|timestamp| timestamp.unix_timestamp().max(0) as u64 * 1_000)
-                    .unwrap_or_else(now_ms),
-                content: event.content.unwrap_or_default(),
-                embeds,
-                role_ids: Vec::new(),
-            };
-            submit_deferred_embeds(&self.core, &context.http, message).await;
-            return;
-        }
+        // A partial update cannot establish the member's moderation context.
     }
 
     async fn interaction_create(&self, context: Context, interaction: Interaction) {
@@ -848,17 +889,187 @@ async fn block_and_delete_message_if_needed(
         core.bot_status.write().await.error =
             Some("Privacy deletion failed. Verify Manage Messages in this channel.".into());
     }
+    follow_up_block(core, http, message, report, config).await;
     true
 }
 
-fn message_author(message: &Message) -> AuthorIdentity {
-    AuthorIdentity {
-        username: message.author.name.clone(),
-        display_avatar_url: message
+/// Logs a block, then warns or times out the author when those options are on.
+async fn follow_up_block(
+    core: &Arc<AppCore>,
+    http: &Http,
+    message: &Message,
+    report: &privacy::PrivacyReport,
+    config: &AppConfig,
+) {
+    use crate::moderation::log::LogAction;
+    let lane = lane_for_channel(config, &message.channel_id.to_string());
+    let author_id = message.author.id.to_string();
+    core.record_moderation(
+        lane,
+        LogAction::Blocked,
+        report.primary_reason().unwrap_or("privacy"),
+        Some(author_id.clone()),
+    );
+    let follow_up = match core.moderation.lock() {
+        Ok(mut runtime) => {
+            runtime.record_block(message.author.id.get(), &config.moderation, now_ms())
+        }
+        Err(_) => return,
+    };
+    if follow_up.warn {
+        let language = core.interface_preferences.read().await.language.clone();
+        if message
             .author
-            .avatar_url()
-            .unwrap_or_else(|| message.author.default_avatar_url()),
+            .direct_message(
+                http,
+                CreateMessage::new().content(crate::moderation::messages::block_warning(&language)),
+            )
+            .await
+            .is_ok()
+        {
+            core.record_moderation(
+                lane,
+                LogAction::Warned,
+                "block_warning",
+                Some(author_id.clone()),
+            );
+        }
     }
+    if let (Some(minutes), Some(guild_id)) = (follow_up.timeout_minutes, message.guild_id) {
+        match timeout_member(http, guild_id, message.author.id, minutes).await {
+            Ok(_) => {
+                core.record_moderation(lane, LogAction::TimedOut, "escalation", Some(author_id))
+            }
+            Err(_) => {
+                core.bot_status.write().await.error = Some(
+                    "Automatic timeout failed. Verify Moderate Members and the bot's role position."
+                        .into(),
+                );
+            }
+        }
+    }
+}
+
+/// Names shown on stream go through the word filter ("Anonymous" when they match).
+fn message_author(message: &Message, config: &AppConfig) -> AuthorIdentity {
+    crate::moderation::anonymous_author(
+        AuthorIdentity {
+            username: message.author.name.clone(),
+            display_avatar_url: message
+                .author
+                .avatar_url()
+                .unwrap_or_else(|| message.author.default_avatar_url()),
+        },
+        config,
+    )
+}
+
+fn lane_for_channel(config: &AppConfig, channel_id: &str) -> Option<crate::moderation::Lane> {
+    use crate::moderation::Lane;
+    [
+        (&config.music_channel_id, Lane::Music),
+        (&config.tts_channel_id, Lane::Notifications),
+        (&config.watched_channel_id, Lane::Media),
+    ]
+    .into_iter()
+    .find_map(|(id, lane)| (!id.is_empty() && id == channel_id).then_some(lane))
+}
+
+/// Runs the spam, trust and account checks. Returns false when the message is ignored.
+fn apply_moderation_gate(
+    core: &AppCore,
+    message: &Message,
+    role_ids: &[String],
+    lane: crate::moderation::Lane,
+    config: &AppConfig,
+) -> bool {
+    use crate::moderation::{GateDecision, GateInput, Lane, MessageVerdict};
+    if let Some(verdict) = core.moderation_verdict(&message.id.to_string()) {
+        return !verdict.rejected
+            && !config
+                .moderation
+                .blocked_user_ids
+                .contains(&message.author.id.to_string());
+    }
+    let mut media_keys = message
+        .attachments
+        .iter()
+        .map(|attachment| {
+            format!(
+                "a:{}:{}",
+                attachment.filename.to_lowercase(),
+                attachment.size
+            )
+        })
+        .collect::<Vec<_>>();
+    media_keys.extend(
+        message
+            .sticker_items
+            .iter()
+            .map(|sticker| format!("s:{}", sticker.id)),
+    );
+    media_keys.extend(
+        message
+            .embeds
+            .iter()
+            .filter_map(|embed| embed.url.as_ref().map(|url| format!("e:{url}"))),
+    );
+    let mention_count = message.mentions.len()
+        + message.mention_roles.len()
+        + if message.mention_everyone { 10 } else { 0 };
+    let input = GateInput {
+        lane,
+        user_id: message.author.id.get(),
+        role_ids,
+        member_joined_ms: message
+            .member
+            .as_ref()
+            .and_then(|member| member.joined_at)
+            .map(|joined| joined.unix_timestamp().max(0) as u64 * 1_000),
+        mention_count,
+        text: &message.content,
+        media_keys,
+        now_ms: now_ms(),
+    };
+    let decision = match core.moderation.lock() {
+        Ok(mut runtime) => runtime.evaluate(&input, &config.moderation),
+        Err(_) => return false,
+    };
+    let (hold, trusted) = match decision {
+        GateDecision::Drop(reason) => {
+            core.remember_moderation_verdict(
+                &message.id.to_string(),
+                MessageVerdict {
+                    rejected: true,
+                    author_id: message.author.id.to_string(),
+                    channel_id: message.channel_id.to_string(),
+                    ..MessageVerdict::default()
+                },
+            );
+            core.record_moderation(
+                Some(lane),
+                crate::moderation::log::LogAction::Ignored,
+                reason,
+                Some(message.author.id.to_string()),
+            );
+            return false;
+        }
+        // Music has no review queue: holds only apply to media and notifications.
+        GateDecision::Hold(_) if lane == Lane::Music => (None, false),
+        GateDecision::Hold(reason) => (Some(reason), false),
+        GateDecision::Pass { trusted } => (None, trusted),
+    };
+    core.remember_moderation_verdict(
+        &message.id.to_string(),
+        MessageVerdict {
+            hold,
+            trusted,
+            author_id: message.author.id.to_string(),
+            channel_id: message.channel_id.to_string(),
+            ..MessageVerdict::default()
+        },
+    );
+    true
 }
 
 fn guild_tag_from_user(user: &User) -> Option<GuildTagIdentity> {
@@ -1207,8 +1418,22 @@ pub async fn stop_bot(core: &Arc<AppCore>) {
 }
 
 pub fn invite_url(client_id: &str, config: &AppConfig) -> String {
+    let honeypot = if config.honeypot_channel_id.is_empty() {
+        Permissions::empty()
+    } else {
+        crate::discord_check::required_permissions("honeypot", config)
+    };
     let permissions = (Permissions::VIEW_CHANNEL
         | Permissions::READ_MESSAGE_HISTORY
+        | Permissions::SEND_MESSAGES
+        | Permissions::EMBED_LINKS
+        | honeypot
+        // Automatic timeouts after repeated blocks (Moderation → sanctions).
+        | if config.moderation.escalation_blocks > 0 {
+            Permissions::MODERATE_MEMBERS
+        } else {
+            Permissions::empty()
+        }
         | Permissions::MANAGE_CHANNELS
         | Permissions::MANAGE_ROLES
         | Permissions::MANAGE_MESSAGES
@@ -1448,6 +1673,27 @@ async fn handle_relay(
             option.name
         ));
     }
+    let guild_id = command
+        .guild_id
+        .context("Relay commands require a server.")?;
+    // Lock validates its actual target below, including a previous channel's snapshot.
+    if !matches!(
+        option.name.as_str(),
+        "clear" | "nuke" | "changelog" | "lock"
+    ) && !config.watched_channel_id.is_empty()
+    {
+        channel_in_guild(
+            http,
+            ChannelId::new(config.watched_channel_id.parse()?),
+            guild_id,
+        )
+        .await?;
+    }
+    for argument in arguments {
+        if let CommandDataOptionValue::Channel(channel_id) = argument.value {
+            channel_in_guild(http, channel_id, guild_id).await?;
+        }
+    }
 
     match option.name.as_str() {
         "channel" => {
@@ -1524,7 +1770,7 @@ async fn handle_relay(
                 .context("a channel is required")?;
             nuke_selected_channel(core, http, channel_id).await
         }
-        "lock" => toggle_channel_lock(core, http).await,
+        "lock" => toggle_channel_lock(core, http, guild_id).await,
         "changelog" => {
             let channel_id = arguments
                 .iter()
@@ -2144,9 +2390,33 @@ fn output_test_label(target: OutputTestTarget) -> &'static str {
     }
 }
 
-async fn toggle_channel_lock(core: &Arc<AppCore>, http: &Http) -> Result<String> {
+fn require_same_guild(target: GuildId, invoking: GuildId) -> Result<()> {
+    if target != invoking {
+        bail!("This Relay command cannot control a channel in another Discord server.");
+    }
+    Ok(())
+}
+
+async fn channel_in_guild(
+    http: &Http,
+    channel_id: ChannelId,
+    guild_id: GuildId,
+) -> Result<serenity::all::GuildChannel> {
+    let Channel::Guild(channel) = channel_id.to_channel(http).await? else {
+        bail!("Relay commands require a server channel.");
+    };
+    require_same_guild(channel.guild_id, guild_id)?;
+    Ok(channel)
+}
+
+async fn toggle_channel_lock(
+    core: &Arc<AppCore>,
+    http: &Http,
+    guild_id: GuildId,
+) -> Result<String> {
     let config = core.config.read().await.clone();
     if let Some(snapshot) = config.channel_lock.clone() {
+        channel_in_guild(http, ChannelId::new(snapshot.channel_id.parse()?), guild_id).await?;
         restore_channel_permissions(http, &snapshot).await?;
         core.update_config(|next| next.channel_lock = None).await?;
         return Ok(format!("<#{0}> is unlocked.", snapshot.channel_id));
@@ -2156,9 +2426,7 @@ async fn toggle_channel_lock(core: &Arc<AppCore>, http: &Http) -> Result<String>
     }
 
     let channel_id = ChannelId::new(config.watched_channel_id.parse()?);
-    let Channel::Guild(channel) = channel_id.to_channel(http).await? else {
-        bail!("the configured media channel is not a server text channel");
-    };
+    let channel = channel_in_guild(http, channel_id, guild_id).await?;
     let roles = channel.guild_id.roles(http).await?;
     let everyone = channel.guild_id.everyone_role();
     let mut targets = vec![PermissionOverwriteType::Role(everyone)];
@@ -2307,6 +2575,30 @@ struct DeferredEmbedMessage {
 }
 
 async fn submit_embedded_gifs(core: &Arc<AppCore>, http: &Http, message: &Message) {
+    let config = core.config.read().await.clone();
+    if message.author.bot || message.channel_id.to_string() != config.watched_channel_id {
+        return;
+    }
+    let role_ids = message_role_ids(message);
+    if core.moderation_verdict(&message.id.to_string()).is_none()
+        && config.moderation.min_member_age_days > 0
+        && message
+            .member
+            .as_ref()
+            .and_then(|member| member.joined_at)
+            .is_none()
+    {
+        return;
+    }
+    if !apply_moderation_gate(
+        core,
+        message,
+        &role_ids,
+        crate::moderation::Lane::Media,
+        &config,
+    ) {
+        return;
+    }
     submit_deferred_embeds(
         core,
         http,
@@ -2328,7 +2620,10 @@ async fn submit_deferred_embeds(core: &Arc<AppCore>, http: &Http, message: Defer
         return;
     }
     let config = core.config.read().await.clone();
-    let scoped_config = privacy::scoped_config_for_roles(&config, &message.role_ids);
+    let scoped_config = crate::moderation::scope_config(
+        privacy::scoped_config_for_roles(&config, &message.role_ids),
+        crate::moderation::Lane::Media,
+    );
     if config.watched_channel_id.is_empty() || message.channel_id != config.watched_channel_id {
         return;
     }

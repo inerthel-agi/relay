@@ -30,6 +30,7 @@ fn creates_and_round_trips_default_config() {
         notification_duration_ms: 9_000,
         media_volume: 65,
         skip_shortcut: "control+shift+KeyK".into(),
+        panic_shortcut: "control+shift+KeyP".into(),
         tts_character_limit: 280,
         tts_queue_limit: 24,
         tts_notifications_obs_enabled: true,
@@ -54,6 +55,7 @@ fn creates_and_round_trips_default_config() {
         privacy_auto_delete_blocked_messages: false,
         privacy_allowlist: vec!["public@example.com".into()],
         privacy_custom_patterns: vec!["private alias".into()],
+        moderation: crate::moderation::ModerationSettings::default(),
         command_channel_enabled: true,
         command_url_enabled: false,
         command_show_enabled: true,
@@ -79,6 +81,7 @@ fn creates_and_round_trips_default_config() {
             theme: "light".into(),
             accent_rgb: [21, 126, 88],
             font_scale: 110,
+            ..InterfacePreferences::default()
         },
         widget_x: Some(-640),
         widget_y: Some(120),
@@ -135,6 +138,9 @@ fn interface_preferences_survive_a_config_round_trip() {
             theme: "light".into(),
             accent_rgb: [12, 34, 56],
             font_scale: 125,
+            design: "signal".into(),
+            output_style: "subtitle".into(),
+            output_background: "light".into(),
         },
         ..AppConfig::default()
     };
@@ -143,6 +149,47 @@ fn interface_preferences_survive_a_config_round_trip() {
     let loaded = ConfigStore::new(path).load().unwrap();
 
     assert_eq!(loaded.interface_preferences, config.interface_preferences);
+}
+
+#[test]
+fn preferences_saved_before_output_styles_follow_the_design() {
+    let preferences: InterfacePreferences = serde_json::from_value(serde_json::json!({
+        "language": "fr",
+        "theme": "light",
+        "accentRgb": [1, 2, 3],
+        "fontScale": 100
+    }))
+    .unwrap();
+
+    assert_eq!(preferences.design, "graphite");
+    assert_eq!(preferences.output_style, "auto");
+    assert_eq!(preferences.output_background, "auto");
+    assert!(validate_interface_preferences(&preferences).is_ok());
+}
+
+#[test]
+fn rejects_unknown_designs_and_output_styles() {
+    let valid = InterfacePreferences::default();
+    for (design, style, background) in [
+        ("openai", "auto", "auto"),
+        ("graphite", "psn", "auto"),
+        ("graphite", "auto", "grey"),
+    ] {
+        let preferences = InterfacePreferences {
+            design: design.into(),
+            output_style: style.into(),
+            output_background: background.into(),
+            ..valid.clone()
+        };
+        assert!(validate_interface_preferences(&preferences).is_err());
+    }
+    for style in ["auto", "signal", "subtitle", "paper"] {
+        let preferences = InterfacePreferences {
+            output_style: style.into(),
+            ..valid.clone()
+        };
+        assert!(validate_interface_preferences(&preferences).is_ok());
+    }
 }
 
 #[test]

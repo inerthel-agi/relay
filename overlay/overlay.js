@@ -1124,7 +1124,39 @@ function revealMedia({ timed = false } = {}) {
       ? config.gifDurationMs
       : config.displayDurationMs;
     displayTimer = window.setTimeout(hideCurrentMedia, durationMs);
+  } else if (Number(config.maxMediaSeconds) > 0) {
+    // Moderation → live protection: long videos and sounds are cut on stream.
+    displayTimer = window.setTimeout(hideCurrentMedia, Number(config.maxMediaSeconds) * 1000);
   }
+}
+
+// Loudness limiter (Moderation → live protection). Web Audio can only process
+// same-origin audio, which is what the audio card plays (/media-audio, /media-cache).
+let loudness;
+function applyLoudnessLimiter(playbackElement, source) {
+  if (playbackElement !== audioElement || typeof AudioContext !== "function") return;
+  const local = String(source).startsWith("/");
+  if (!loudness) {
+    if (!config.loudnessLimiter || !local) return;
+    try {
+      const context = new AudioContext();
+      const compressor = context.createDynamicsCompressor();
+      context.createMediaElementSource(playbackElement).connect(compressor).connect(context.destination);
+      loudness = { context, compressor };
+    } catch {
+      return;
+    }
+  }
+  // Once routed, remote audio needs CORS to stay audible through the graph.
+  if (local) playbackElement.removeAttribute("crossorigin");
+  else playbackElement.crossOrigin = "anonymous";
+  const on = Boolean(config.loudnessLimiter);
+  loudness.compressor.threshold.value = on ? -20 : 0;
+  loudness.compressor.knee.value = on ? 6 : 0;
+  loudness.compressor.ratio.value = on ? 12 : 1;
+  loudness.compressor.attack.value = 0.003;
+  loudness.compressor.release.value = 0.25;
+  loudness.context.resume().catch(() => {});
 }
 
 function finishCurrentMedia(expectedGeneration = playbackGeneration) {
@@ -1308,6 +1340,7 @@ function loadPlayback(media, playbackElement, visualElement, generation) {
   const trySource = () => {
     playbackElement.addEventListener("loadeddata", onLoaded, { once: true });
     playbackElement.addEventListener("error", onError, { once: true });
+    applyLoudnessLimiter(playbackElement, sources[sourceIndex]);
     playbackElement.src = sources[sourceIndex];
     playbackElement.load();
   };
@@ -1587,6 +1620,7 @@ function applyAppearance(preferences = {}) {
   const rgb = Array.isArray(preferences.accentRgb) ? preferences.accentRgb : [88, 185, 137];
   document.documentElement.style.setProperty("--accent", `rgb(${rgb.join(" ")})`);
   document.documentElement.style.setProperty("--font-scale", String((preferences.fontScale || 100) / 100));
+  globalThis.relayOutputTheme?.applyOutputTheme(document.documentElement, preferences);
   if (moveLabelElement) moveLabelElement.textContent = moveLabels[interfaceLanguage] || moveLabels.en;
   updateYoutubeCreditAuthor();
   if (isPreview) showPreview();
@@ -1696,6 +1730,8 @@ window.setWidgetVisible = (visible) => {
 
 window.addEventListener("resize", positionMediaText);
 
+// Widget windows are not web pages: no browser menu on right click.
+window.addEventListener("contextmenu", (event) => event.preventDefault());
 window.addEventListener("beforeunload", () => {
   isUnloading = true;
   stopYoutubePlayback();

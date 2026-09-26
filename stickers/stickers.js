@@ -262,6 +262,8 @@ function connect() {
   socket.addEventListener("error", () => socket.close());
 }
 
+// Widget windows are not web pages: no browser menu on right click.
+window.addEventListener("contextmenu", (event) => event.preventDefault());
 window.addEventListener("beforeunload", () => {
   isUnloading = true;
   clearStickers();

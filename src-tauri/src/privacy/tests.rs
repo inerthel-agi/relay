@@ -694,3 +694,20 @@ fn gif_without_exif_does_not_claim_an_incomplete_scan() {
     assert!(!report.reasons.contains(&"scan_incomplete"));
     assert_eq!(action_for(&report, &config), PrivacyAction::Allow);
 }
+
+#[cfg(target_os = "windows")]
+#[test]
+fn animated_image_requires_review_even_when_first_frame_ocr_succeeds() {
+    let gif = include_bytes!("../../../outputs/samples/motion.gif");
+    let signals = inspect_image_windows(gif, true).expect("valid animated GIF fixture");
+    assert!(signals.frame_count > 1);
+    // Missing optional Windows OCR language packs must also keep the image in review.
+    let mut config = config();
+    config.privacy_review_intermediate = false;
+    let report = analyze_image_bytes(gif, None, &config);
+    assert!(report.reasons.contains(&"scan_incomplete"));
+    assert_eq!(action_for(&report, &config), PrivacyAction::Review);
+
+    let blocked = analyze_image_bytes(gif, Some("hitler"), &config);
+    assert_eq!(action_for(&blocked, &config), PrivacyAction::Block);
+}

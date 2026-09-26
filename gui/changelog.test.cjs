@@ -41,7 +41,7 @@ test("parses published changelog sections and skips Unreleased", () => {
   const pending = changelogMarkdown.split("## [Unreleased]")[1]?.split(/\n## \[/)[0];
   const target = pending?.match(/Target version: (\d+\.\d+\.\d+)\./)?.[1];
   assert.equal(target || releases[0].version, version);
-  assert.equal((panelHtml.match(/data-app-version>1\.3\.7</g) || []).length, 2);
+  assert.equal((panelHtml.match(/data-app-version>1\.4\.0</g) || []).length, 2);
   assert.match(releases[0].date, /^\d{4}-\d{2}-\d{2}$/);
   assert.match(releases[0].body, /### English/);
   assert.ok([...changelogMarkdown.matchAll(/^### (.+)$/gm)]

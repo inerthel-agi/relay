@@ -36,7 +36,7 @@ fn compares_numeric_release_versions() {
     assert!(is_newer_version("1.3.7", "1.3.6g").unwrap());
     assert!(!is_newer_version("1.3.6", "1.3.6g").unwrap());
     assert!(is_newer_version("1.3.6gg", "1.3.6g").is_err());
-    assert_eq!(CURRENT_VERSION, "1.3.7");
+    assert_eq!(CURRENT_VERSION, "1.4.0");
 }
 
 #[test]

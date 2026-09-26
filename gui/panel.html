@@ -126,7 +126,7 @@
               aria-expanded="false"
               aria-controls="update-menu"
             >
-              <span><span class="version__platform">Windows · </span>v<span data-app-version>1.3.7</span></span>
+              <span><span class="version__platform">Windows · </span>v<span data-app-version>1.4.0</span></span>
               <span id="update-available-dot" class="update-available-dot" hidden></span>
               <svg class="update-check__icon" viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M20 6v5h-5M4 18v-5h5M6.1 9a7 7 0 0 1 11.3-2.1L20 11M4 13l2.6 4.1A7 7 0 0 0 17.9 15"/>
@@ -210,6 +210,10 @@
               </button>
             </div>
           </section>
+          <button id="panic-button" class="panic-button" type="button" data-i18n-title="panicTitle">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 2.5 20h19L12 3Z"/><path d="M12 9v5M12 17.2h.01"/></svg>
+            <span data-i18n="panic">Panic</span>
+          </button>
           <div class="status-strip" aria-label="Relay status" data-i18n-aria-label="relayStatusLabel">
             <button class="status" id="bot-status" type="button" data-go-to-page="discord" data-i18n-title="statusBotTitle">
               <span class="status__light"></span>
@@ -226,6 +230,14 @@
             </button>
           </div>
         </header>
+
+        <div id="paused-banner" class="paused-banner" role="status" hidden>
+          <span class="paused-banner__copy">
+            <strong data-i18n="pausedTitle">Relay is paused</strong>
+            <span data-i18n="pausedCopy">Outputs were cleared. New media, messages, music and reactions are ignored until you resume.</span>
+          </span>
+          <button id="resume-button" class="button button--primary" type="button" data-i18n="resume">Resume</button>
+        </div>
 
         <main class="pages">
           <section class="page is-active" data-page="overview">
@@ -562,8 +574,9 @@
                     <select id="honeypot-action" name="honeypotAction">
                       <option value="kick" data-i18n="honeypotKick">Kick</option>
                       <option value="ban" data-i18n="honeypotBan">Ban</option>
+                      <option value="timeout" data-i18n="honeypotTimeout">Timeout</option>
                     </select>
-                    <small data-i18n="honeypotActionHelp">Relay sends an English security notice, then applies the selected action. The bot needs the matching Discord permission and role position.</small>
+                    <small data-i18n="honeypotActionHelp">Relay sends a security notice in the interface language, then applies the selected action. The bot needs the matching Discord permission and role position.</small>
                   </label>
                 </fieldset>
                 <div class="settings-actions">
@@ -578,6 +591,24 @@
                   <button id="music-cleanup-cancel" class="button button--quiet" type="button" data-i18n="musicCleanupCancel">Cancel</button>
                 </div>
               </div>
+            </section>
+
+            <section class="panel-section panel-section--wide discord-check" id="discord-check">
+              <div class="section-heading">
+                <div>
+                  <span class="section-number">03</span>
+                  <h3 data-i18n="checkTitle">Bot check</h3>
+                </div>
+                <button id="run-discord-check" class="button button--quiet" type="button" data-i18n="checkRun">Check now</button>
+              </div>
+              <p class="section-copy" data-i18n="checkCopy">Relay checks the Discord setting and the channel permissions each feature needs.</p>
+              <p id="discord-check-state" class="save-state" role="status"></p>
+              <div id="discord-check-intent" class="check-intent" hidden>
+                <span id="discord-check-intent-text"></span>
+                <button class="button button--quiet" type="button" data-help-link="discord" data-i18n="openDiscordPortal">Open Discord Developer Portal</button>
+              </div>
+              <ul id="discord-check-results" class="check-results"></ul>
+              <button id="discord-check-reinvite" class="button button--primary" type="button" data-i18n="checkFixInvite" hidden>Re-invite the bot with the right permissions</button>
             </section>
           </section>
 
@@ -913,6 +944,15 @@
                         <kbd id="skip-shortcut-value">Ctrl Alt S</kbd>
                       </button>
                     </div>
+                    <div class="setting-row">
+                      <span>
+                        <strong data-i18n="panicShortcut">Panic button</strong>
+                        <small data-i18n="panicShortcutHelp">Clears every output, stops sound and pauses Relay from anywhere in Windows.</small>
+                      </span>
+                      <button id="panic-shortcut-capture" class="button button--quiet shortcut-capture" type="button" aria-pressed="false">
+                        <kbd id="panic-shortcut-value">Ctrl Alt P</kbd>
+                      </button>
+                    </div>
                   </div>
                 </details>
                 <details class="settings-disclosure">
@@ -1040,6 +1080,43 @@
                     <h3 data-i18n="browserSource">OBS Browser Sources</h3>
                   </div>
                 </summary>
+                <div class="obs-auto" id="obs-auto">
+                  <h4 data-i18n="obsAutoTitle">Add Relay to OBS automatically</h4>
+                  <p class="section-copy" data-i18n="obsAutoCopy">In OBS, open Tools → WebSocket Server Settings, enable the server, then click Show Connect Info and copy the password here.</p>
+                  <div class="obs-auto__grid">
+                    <label class="field">
+                      <span data-i18n="obsPort">OBS WebSocket port</span>
+                      <input id="obs-port" type="number" min="1" max="65535" step="1" value="4455">
+                    </label>
+                    <label class="field">
+                      <span data-i18n="obsPassword">OBS WebSocket password</span>
+                      <input id="obs-password" type="password" autocomplete="off" spellcheck="false">
+                      <small id="obs-password-state"></small>
+                    </label>
+                  </div>
+                  <div class="obs-auto__actions">
+                    <button id="obs-connect" class="button button--quiet" type="button" data-i18n="obsConnect">Connect to OBS</button>
+                    <button id="obs-forget" class="button button--quiet" type="button" data-i18n="obsForget" hidden>Forget password</button>
+                  </div>
+                  <div id="obs-install" class="obs-auto__install" hidden>
+                    <label class="field">
+                      <span data-i18n="obsScene">Scene</span>
+                      <select id="obs-scene"></select>
+                    </label>
+                    <label class="setting-row setting-row--switch">
+                      <span>
+                        <strong data-i18n="obsIncludeReactions">Also add Sounds and reactions</strong>
+                      </span>
+                      <span class="switch">
+                        <input id="obs-include-reactions" type="checkbox">
+                        <span class="switch__track" aria-hidden="true"></span>
+                      </span>
+                    </label>
+                    <button id="obs-install-button" class="button button--primary" type="button" data-i18n="obsInstall">Add to OBS</button>
+                  </div>
+                  <p id="obs-auto-state" class="save-state" role="status"></p>
+                </div>
+                <h4 class="obs-manual-title" data-i18n="obsManualTitle">Or add the links yourself</h4>
                 <ol class="obs-steps">
                   <li data-i18n="obsStep1">In OBS, click + under Sources and choose Browser.</li>
                   <li data-i18n="obsStep2">Paste one link below into URL, set 1920 × 1080, then confirm.</li>
@@ -1166,6 +1243,86 @@
               <p data-i18n="moderationCopy">Optionally hold incoming media until you approve it locally.</p>
             </div>
 
+            <section class="panel-section panel-section--wide moderation-toolbar" aria-labelledby="moderation-presets-title">
+              <div class="moderation-toolbar__presets">
+                <h3 id="moderation-presets-title" data-i18n="moderationPresets">Presets</h3>
+                <div id="moderation-preset-bar" class="choice-chips" role="group" aria-labelledby="moderation-presets-title">
+                  <button class="choice-chip" type="button" data-moderation-preset="relaxed"><span data-i18n="presetRelaxed">Relaxed</span></button>
+                  <button class="choice-chip" type="button" data-moderation-preset="standard"><span data-i18n="presetStandard">Standard</span></button>
+                  <button class="choice-chip" type="button" data-moderation-preset="strict"><span data-i18n="presetStrict">Strict</span></button>
+                  <button class="choice-chip" type="button" data-moderation-preset="event"><span data-i18n="presetEvent">Big event</span></button>
+                  <span id="moderation-preset-custom" class="moderation-preset-custom" data-i18n="presetCustom" hidden>Custom</span>
+                </div>
+                <p id="moderation-preset-help" class="section-copy" data-i18n="presetHelp">One click sets the switches below. Channels, your own words, private data and exempt roles are never changed.</p>
+                <div id="moderation-preset-confirm" class="moderation-confirm" hidden>
+                  <p id="moderation-preset-changes"></p>
+                  <div class="section-actions">
+                    <button id="moderation-preset-cancel" class="button button--quiet" type="button" data-i18n="cancel">Cancel</button>
+                    <button id="moderation-preset-apply" class="button button--primary" type="button" data-i18n="presetApply">Apply</button>
+                  </div>
+                </div>
+                <div id="moderation-preset-undo" class="moderation-confirm" hidden>
+                  <p id="moderation-preset-applied"></p>
+                  <button id="moderation-preset-undo-button" class="button button--quiet" type="button" data-i18n="presetUndo">Undo</button>
+                </div>
+                <div class="moderation-own-presets">
+                  <label class="field">
+                    <span data-i18n="ownPresets">My presets</span>
+                    <select id="moderation-own-preset"></select>
+                  </label>
+                  <label class="field">
+                    <span data-i18n="presetName">Preset name</span>
+                    <input id="moderation-own-preset-name" maxlength="64" autocomplete="off">
+                  </label>
+                  <div class="section-actions">
+                    <button id="moderation-own-preset-save" class="button button--quiet" type="button" data-i18n="savePreset">Save preset</button>
+                    <button id="moderation-own-preset-apply" class="button button--quiet" type="button" data-i18n="applyPreset">Apply</button>
+                    <button id="moderation-own-preset-delete" class="button button--quiet" type="button" data-i18n="deletePreset">Delete</button>
+                  </div>
+                </div>
+              </div>
+              <div class="moderation-toolbar__side">
+                <div class="moderation-summary" aria-live="polite">
+                  <span class="kicker" data-i18n="moderationLastDay">Last 24 hours</span>
+                  <dl>
+                    <div><dt data-i18n="summaryBlocked">Blocked</dt><dd id="moderation-summary-blocked">0</dd></div>
+                    <div><dt data-i18n="summaryHeld">Held</dt><dd id="moderation-summary-held">0</dd></div>
+                    <div><dt data-i18n="summaryIgnored">Ignored</dt><dd id="moderation-summary-ignored">0</dd></div>
+                    <div><dt data-i18n="summaryFlagged">Members flagged</dt><dd id="moderation-summary-flagged">0</dd></div>
+                  </dl>
+                  <p id="moderation-live-state" class="moderation-live-state" hidden data-i18n="liveModeActive">Live mode is on: the live preset applies until the stream ends.</p>
+                  <p id="moderation-raid-state" class="moderation-live-state" hidden data-i18n="raidActive">Raid protection is holding every media for review.</p>
+                </div>
+                <div class="moderation-tester">
+                  <label class="field field--full">
+                    <span data-i18n="testMessage">Test a message</span>
+                    <textarea id="moderation-test-text" rows="2" maxlength="4096" spellcheck="false" data-i18n-placeholder="testMessagePlaceholder" placeholder="Paste a message to see what Relay would do"></textarea>
+                  </label>
+                  <div class="section-actions">
+                    <select id="moderation-test-lane" aria-label="Channel" data-i18n-aria-label="testChannel">
+                      <option value="media" data-i18n="laneMedia">Media</option>
+                      <option value="notifications" data-i18n="laneNotifications">Notifications</option>
+                      <option value="music" data-i18n="laneMusic">Music</option>
+                    </select>
+                    <button id="moderation-test-button" class="button button--quiet" type="button" data-i18n="testRun">Test</button>
+                  </div>
+                  <p id="moderation-test-result" class="moderation-test-result" role="status"></p>
+                </div>
+              </div>
+            </section>
+
+            <div class="moderation-header">
+              <div>
+                <span class="kicker" data-i18n="pendingMedia">Pending media</span>
+                <strong id="moderation-count">0 / 50</strong>
+              </div>
+              <p class="moderation-shortcuts" data-i18n="moderationShortcuts">Keyboard: A approve, R reject, arrows to move.</p>
+              <button id="clear-pending-media" class="button button--quiet" type="button" data-i18n="clearPending">Reject all</button>
+            </div>
+            <p id="moderation-empty" class="empty-state" data-i18n="moderationEmpty">No media is waiting for approval.</p>
+            <ol id="moderation-list" class="history-list moderation-list" tabindex="0" aria-describedby="moderation-shortcuts-help"></ol>
+            <span id="moderation-shortcuts-help" class="visually-hidden" data-i18n="moderationShortcuts">Keyboard: A approve, R reject, arrows to move.</span>
+
             <section class="panel-section panel-section--wide moderation-settings">
               <div class="section-heading">
                 <div>
@@ -1190,16 +1347,56 @@
                       <input id="privacy-concepts" type="text" autocomplete="off" spellcheck="false" placeholder="fdp, hitler, ...">
                       <small data-i18n="privacyConceptsHelp">Enter comma-separated words or phrases, for example: fdp, hitler. Relay handles case, punctuation and separators, leetspeak, supported homoglyphs, repeated letters, and cautious similarity. Existing aliases and regexes are preserved when the same canonical form remains.</small>
                     </label>
+                    <fieldset class="moderation-packs">
+                      <legend data-i18n="wordPacks">Built-in word lists</legend>
+                      <p class="section-copy" data-i18n="wordPacksHelp">Ready-made lists in English and French, matched with the same tolerance as your own words. Their content stays hidden unless you ask to see it.</p>
+                      <div id="moderation-pack-list" class="moderation-pack-list"></div>
+                      <div id="moderation-pack-words" class="moderation-pack-words" hidden>
+                        <p id="moderation-pack-words-title"></p>
+                        <p id="moderation-pack-words-list" class="moderation-pack-words__list"></p>
+                      </div>
+                    </fieldset>
+                    <label class="field field--full">
+                      <span data-i18n="packExclusions">Words to allow from the lists</span>
+                      <input id="moderation-pack-exclusions" type="text" autocomplete="off" spellcheck="false">
+                      <small data-i18n="packExclusionsHelp">Comma-separated words from a list that cause false positives on your server.</small>
+                    </label>
+                    <details id="moderation-advanced-words" class="moderation-advanced">
+                      <summary data-i18n="advancedWords">Variants and regular expressions (advanced)</summary>
+                      <p class="section-copy" data-i18n="advancedWordsHelp">For each of your words: extra spellings, one per line, and regular expressions, one per line. Changes are saved with the form.</p>
+                      <div id="moderation-advanced-list" class="moderation-advanced__list"></div>
+                    </details>
+                    <fieldset class="privacy-categories moderation-scopes">
+                      <legend data-i18n="filterScopes">Apply the word filter to</legend>
+                      <label><input id="moderation-scope-media" type="checkbox"><span data-i18n="laneMedia">Media</span></label>
+                      <label><input id="moderation-scope-notifications" type="checkbox"><span data-i18n="laneNotifications">Notifications</span></label>
+                      <label><input id="moderation-scope-music" type="checkbox"><span data-i18n="laneMusic">Music</span></label>
+                    </fieldset>
+                    <label class="setting-row setting-row--switch">
+                      <span>
+                        <strong data-i18n="filterUsernames">Hide offensive names</strong>
+                        <small data-i18n="filterUsernamesHelp">Names that contain a filter word appear as Anonymous on stream.</small>
+                      </span>
+                      <span class="switch">
+                        <input id="moderation-filter-usernames" type="checkbox">
+                        <span class="switch__track" aria-hidden="true"></span>
+                      </span>
+                    </label>
+                    <label class="setting-row setting-row--switch">
+                      <span>
+                        <strong data-i18n="filterMusicTitles">Filter YouTube titles</strong>
+                        <small data-i18n="filterMusicTitlesHelp">Search results whose title or channel contains a filter word are not offered.</small>
+                      </span>
+                      <span class="switch">
+                        <input id="moderation-filter-music-titles" type="checkbox">
+                        <span class="switch__track" aria-hidden="true"></span>
+                      </span>
+                    </label>
                     <label class="field field--full">
                       <span data-i18n="privacyExemptRoles">Exempt Discord roles</span>
                       <input id="privacy-exempt-role-ids" type="text" autocomplete="off" spellcheck="false" placeholder="&lt;@&amp;123456789012345678&gt;, 123456789012345678">
                       <small data-i18n="privacyExemptRolesHelp">Enter role IDs or Discord role mentions separated by commas or new lines. These roles bypass filter words only; local privacy signals and manual moderation still apply.</small>
                     </label>
-                    <p class="channel-link">
-                      <span data-i18n="honeypotChannel">Compromised account trap</span>
-                      <strong data-channel-name="honeypot-channel"></strong>
-                      <button class="text-link" type="button" data-go-to-page="discord" data-go-to-target="honeypot-channel" data-i18n="channelChange">Change</button>
-                    </p>
                   </div>
                 </details>
 
@@ -1252,6 +1449,81 @@
                         <input id="moderation-allow-audio" type="checkbox">
                         <span class="switch__track" aria-hidden="true"></span>
                       </span>
+                    </label>
+                    <label class="setting-row">
+                      <span>
+                        <strong data-i18n="unreviewedTypes">Unchecked types</strong>
+                        <small data-i18n="unreviewedTypesHelp">What happens to media types that are not reviewed.</small>
+                      </span>
+                      <select id="moderation-review-only-selected">
+                        <option value="drop" data-i18n="unreviewedDrop">Not shown</option>
+                        <option value="pass" data-i18n="unreviewedPass">Shown directly</option>
+                      </select>
+                    </label>
+                    <label class="setting-row setting-row--switch">
+                      <span>
+                        <strong data-i18n="reviewText">Review flagged messages</strong>
+                        <small data-i18n="reviewTextHelp">Notification messages flagged for review wait in the queue instead of disappearing.</small>
+                      </span>
+                      <span class="switch">
+                        <input id="moderation-review-text" type="checkbox">
+                        <span class="switch__track" aria-hidden="true"></span>
+                      </span>
+                    </label>
+                    <label class="setting-row">
+                      <span>
+                        <strong data-i18n="minAccountAge">Recent Discord accounts</strong>
+                        <small data-i18n="minAccountAgeHelp">Media from accounts created less than this many days ago wait for review. 0 turns it off.</small>
+                      </span>
+                      <span class="number-with-unit">
+                        <input id="moderation-min-account-age" type="number" min="0" max="365" step="1" inputmode="numeric">
+                        <span data-i18n="unitDays">days</span>
+                      </span>
+                    </label>
+                    <label class="setting-row">
+                      <span>
+                        <strong data-i18n="minMemberAge">Recent arrivals</strong>
+                        <small data-i18n="minMemberAgeHelp">Media from members who joined less than this many days ago wait for review. 0 turns it off.</small>
+                      </span>
+                      <span class="number-with-unit">
+                        <input id="moderation-min-member-age" type="number" min="0" max="365" step="1" inputmode="numeric">
+                        <span data-i18n="unitDays">days</span>
+                      </span>
+                    </label>
+                    <label class="setting-row">
+                      <span>
+                        <strong data-i18n="pendingExpiry">Expire waiting items</strong>
+                        <small data-i18n="pendingExpiryHelp">Items left in the queue longer than this are removed and logged. 0 keeps them.</small>
+                      </span>
+                      <span class="number-with-unit">
+                        <input id="moderation-pending-expiry" type="number" min="0" max="1440" step="1" inputmode="numeric">
+                        <span data-i18n="unitMinutes">min</span>
+                      </span>
+                    </label>
+                    <label class="setting-row">
+                      <span>
+                        <strong data-i18n="safetyDelay">Safety delay</strong>
+                        <small data-i18n="safetyDelayHelp">Every media waits this long before going on stream, with a Reject button in the queue meanwhile. 0 turns it off.</small>
+                      </span>
+                      <span class="number-with-unit">
+                        <input id="moderation-safety-delay" type="number" min="0" max="30" step="1" inputmode="numeric">
+                        <span data-i18n="unitSeconds">s</span>
+                      </span>
+                    </label>
+                    <label class="field field--full">
+                      <span data-i18n="trustedRoles">Trusted roles</span>
+                      <input id="moderation-trusted-roles" type="text" autocomplete="off" spellcheck="false" placeholder="123456789012345678">
+                      <small data-i18n="trustedRolesHelp">These roles skip manual review, cooldowns and spam checks. Blocking rules still apply.</small>
+                    </label>
+                    <label class="field field--full">
+                      <span data-i18n="trustedUsers">Trusted members</span>
+                      <input id="moderation-trusted-users" type="text" autocomplete="off" spellcheck="false" placeholder="123456789012345678">
+                      <small data-i18n="trustedUsersHelp">Member IDs, separated by commas. “Approve and trust” in the queue adds to this list.</small>
+                    </label>
+                    <label class="field field--full">
+                      <span data-i18n="blockedUsers">Ignored members</span>
+                      <input id="moderation-blocked-users" type="text" autocomplete="off" spellcheck="false" placeholder="123456789012345678">
+                      <small data-i18n="blockedUsersHelp">Nothing from these member IDs is shown on stream. They are not sanctioned on Discord.</small>
                     </label>
                   </div>
                 </details>
@@ -1344,21 +1616,247 @@
                     </label>
                   </div>
                 </details>
+                <details id="moderation-spam" class="settings-disclosure moderation-disclosure">
+                  <summary>
+                    <span class="moderation-disclosure__number">D</span>
+                    <span class="moderation-disclosure__summary">
+                      <strong data-i18n="spamAndLinks">Spam and links</strong>
+                      <small data-i18n="spamAndLinksHelp">Limits per member, raid protection, repeated media and dangerous links.</small>
+                    </span>
+                    <i aria-hidden="true"></i>
+                  </summary>
+                  <div class="settings-disclosure__content moderation-disclosure__content">
+                    <label class="setting-row">
+                      <span>
+                        <strong data-i18n="userCooldown">Delay between two messages</strong>
+                        <small data-i18n="userCooldownHelp">Minimum time between two media or two notifications from the same member. 0 turns it off.</small>
+                      </span>
+                      <span class="number-with-unit">
+                        <input id="moderation-cooldown" type="number" min="0" max="3600" step="1" inputmode="numeric">
+                        <span data-i18n="unitSeconds">s</span>
+                      </span>
+                    </label>
+                    <label class="setting-row">
+                      <span>
+                        <strong data-i18n="raidLimit">Raid protection</strong>
+                        <small data-i18n="raidLimitHelp">Above this many media per minute, everything waits for review until things calm down. 0 turns it off.</small>
+                      </span>
+                      <span class="number-with-unit">
+                        <input id="moderation-raid-limit" type="number" min="0" max="120" step="1" inputmode="numeric">
+                        <span data-i18n="unitPerMinute">/ min</span>
+                      </span>
+                    </label>
+                    <label class="setting-row setting-row--switch">
+                      <span>
+                        <strong data-i18n="blockDuplicates">Ignore repeated media</strong>
+                        <small data-i18n="blockDuplicatesHelp">The same file, sticker or link posted again within 10 minutes is shown once.</small>
+                      </span>
+                      <span class="switch">
+                        <input id="moderation-duplicates" type="checkbox">
+                        <span class="switch__track" aria-hidden="true"></span>
+                      </span>
+                    </label>
+                    <label class="setting-row setting-row--switch">
+                      <span>
+                        <strong data-i18n="blockTextSpam">Block notification spam</strong>
+                        <small data-i18n="blockTextSpamHelp">Messages with many mentions, mostly capitals, lots of emoji or long repeated characters are not read on stream.</small>
+                      </span>
+                      <span class="switch">
+                        <input id="moderation-text-spam" type="checkbox">
+                        <span class="switch__track" aria-hidden="true"></span>
+                      </span>
+                    </label>
+                    <label class="setting-row setting-row--switch">
+                      <span>
+                        <strong data-i18n="blockInvites">Block Discord invites</strong>
+                        <small data-i18n="blockInvitesHelp">Messages with discord.gg or discord.com/invite links are blocked.</small>
+                      </span>
+                      <span class="switch">
+                        <input id="moderation-block-invites" type="checkbox">
+                        <span class="switch__track" aria-hidden="true"></span>
+                      </span>
+                    </label>
+                    <label class="setting-row setting-row--switch">
+                      <span>
+                        <strong data-i18n="blockShorteners">Block link shorteners</strong>
+                        <small data-i18n="blockShortenersHelp">bit.ly, tinyurl and similar links hide their destination.</small>
+                      </span>
+                      <span class="switch">
+                        <input id="moderation-block-shorteners" type="checkbox">
+                        <span class="switch__track" aria-hidden="true"></span>
+                      </span>
+                    </label>
+                    <label class="setting-row setting-row--switch">
+                      <span>
+                        <strong data-i18n="blockScams">Block fake Discord and Steam links</strong>
+                        <small data-i18n="blockScamsHelp">Look-alike domains used by fake Nitro and gift scams.</small>
+                      </span>
+                      <span class="switch">
+                        <input id="moderation-block-scams" type="checkbox">
+                        <span class="switch__track" aria-hidden="true"></span>
+                      </span>
+                    </label>
+                  </div>
+                </details>
+                <details id="moderation-sanctions" class="settings-disclosure moderation-disclosure">
+                  <summary>
+                    <span class="moderation-disclosure__number">E</span>
+                    <span class="moderation-disclosure__summary">
+                      <strong data-i18n="sanctionsAndTrap">Sanctions and trap</strong>
+                      <small data-i18n="sanctionsAndTrapHelp">Warnings, automatic timeouts, the compromised account trap and Discord AutoMod.</small>
+                    </span>
+                    <i aria-hidden="true"></i>
+                  </summary>
+                  <div class="settings-disclosure__content moderation-disclosure__content">
+                    <label class="setting-row setting-row--switch">
+                      <span>
+                        <strong data-i18n="warnOnBlock">Warn the member</strong>
+                        <small data-i18n="warnOnBlockHelp">A private message explains that the message was not shown, at most once every 10 minutes.</small>
+                      </span>
+                      <span class="switch">
+                        <input id="moderation-warn" type="checkbox">
+                        <span class="switch__track" aria-hidden="true"></span>
+                      </span>
+                    </label>
+                    <label class="setting-row">
+                      <span>
+                        <strong data-i18n="escalationBlocks">Automatic timeout after</strong>
+                        <small data-i18n="escalationBlocksHelp">Number of blocked messages before a timeout. 0 turns it off. Needs Moderate Members.</small>
+                      </span>
+                      <span class="number-with-unit">
+                        <input id="moderation-escalation-blocks" type="number" min="0" max="20" step="1" inputmode="numeric">
+                        <span data-i18n="unitBlocks">blocks</span>
+                      </span>
+                    </label>
+                    <label class="setting-row">
+                      <span>
+                        <strong data-i18n="escalationWindow">Within</strong>
+                        <small data-i18n="escalationWindowHelp">Time window for counting blocked messages.</small>
+                      </span>
+                      <span class="number-with-unit">
+                        <input id="moderation-escalation-window" type="number" min="1" max="1440" step="1" inputmode="numeric">
+                        <span data-i18n="unitMinutes">min</span>
+                      </span>
+                    </label>
+                    <label class="setting-row">
+                      <span>
+                        <strong data-i18n="escalationTimeout">Timeout length</strong>
+                        <small data-i18n="escalationTimeoutHelp">Also used by the Timeout action in the queue.</small>
+                      </span>
+                      <span class="number-with-unit">
+                        <input id="moderation-escalation-timeout" type="number" min="1" max="40320" step="1" inputmode="numeric">
+                        <span data-i18n="unitMinutes">min</span>
+                      </span>
+                    </label>
+                    <p class="channel-link">
+                      <span data-i18n="honeypotChannel">Compromised account trap</span>
+                      <strong data-channel-name="honeypot-channel"></strong>
+                      <button class="text-link" type="button" data-go-to-page="discord" data-go-to-target="honeypot-channel" data-i18n="channelChange">Change</button>
+                    </p>
+                    <label class="field field--full">
+                      <span data-i18n="honeypotExempt">Roles the trap ignores</span>
+                      <input id="moderation-honeypot-exempt" type="text" autocomplete="off" spellcheck="false" placeholder="123456789012345678">
+                      <small data-i18n="honeypotExemptHelp">Moderators with these roles only get their message removed.</small>
+                    </label>
+                    <label class="setting-row">
+                      <span>
+                        <strong data-i18n="honeypotTimeoutLength">Trap timeout length</strong>
+                        <small data-i18n="honeypotTimeoutLengthHelp">Used when the trap action is Timeout.</small>
+                      </span>
+                      <span class="number-with-unit">
+                        <input id="moderation-honeypot-timeout" type="number" min="1" max="40320" step="1" inputmode="numeric">
+                        <span data-i18n="unitMinutes">min</span>
+                      </span>
+                    </label>
+                    <div class="setting-row">
+                      <span>
+                        <strong data-i18n="automodSync">Discord AutoMod</strong>
+                        <small data-i18n="automodSyncHelp">Copy your words and the enabled lists into an AutoMod rule, so Discord blocks them before anyone sees them. Needs Manage Server.</small>
+                      </span>
+                      <span class="section-actions">
+                        <button id="moderation-automod-sync" class="button button--quiet" type="button" data-i18n="automodSyncButton">Sync</button>
+                        <button id="moderation-automod-remove" class="button button--quiet" type="button" data-i18n="automodRemoveButton">Remove</button>
+                      </span>
+                    </div>
+                    <p id="moderation-automod-state" class="save-state" role="status"></p>
+                  </div>
+                </details>
+                <details id="moderation-live" class="settings-disclosure moderation-disclosure">
+                  <summary>
+                    <span class="moderation-disclosure__number">F</span>
+                    <span class="moderation-disclosure__summary">
+                      <strong data-i18n="liveProtection">Live protection</strong>
+                      <small data-i18n="liveProtectionHelp">Automatic live mode, maximum media length and loudness limiter.</small>
+                    </span>
+                    <i aria-hidden="true"></i>
+                  </summary>
+                  <div class="settings-disclosure__content moderation-disclosure__content">
+                    <label class="setting-row">
+                      <span>
+                        <strong data-i18n="livePreset">Automatic live mode</strong>
+                        <small data-i18n="livePresetHelp">When OBS starts streaming, apply this preset. Your settings come back when the stream ends. Uses the OBS password saved on the OBS page.</small>
+                      </span>
+                      <select id="moderation-live-preset">
+                        <option value="" data-i18n="liveOff">Off</option>
+                        <option value="relaxed" data-i18n="presetRelaxed">Relaxed</option>
+                        <option value="standard" data-i18n="presetStandard">Standard</option>
+                        <option value="strict" data-i18n="presetStrict">Strict</option>
+                        <option value="event" data-i18n="presetEvent">Big event</option>
+                      </select>
+                    </label>
+                    <label class="setting-row">
+                      <span>
+                        <strong data-i18n="liveObsPort">OBS WebSocket port</strong>
+                        <small data-i18n="liveObsPortHelp">The port shown in OBS under Tools, WebSocket Server Settings.</small>
+                      </span>
+                      <span class="number-with-unit">
+                        <input id="moderation-live-port" type="number" min="1" max="65535" step="1" inputmode="numeric">
+                      </span>
+                    </label>
+                    <label class="setting-row">
+                      <span>
+                        <strong data-i18n="maxMediaSeconds">Maximum media length</strong>
+                        <small data-i18n="maxMediaSecondsHelp">Videos and sounds longer than this are cut on stream. 0 turns it off.</small>
+                      </span>
+                      <span class="number-with-unit">
+                        <input id="moderation-max-media" type="number" min="0" max="600" step="1" inputmode="numeric">
+                        <span data-i18n="unitSeconds">s</span>
+                      </span>
+                    </label>
+                    <label class="setting-row setting-row--switch">
+                      <span>
+                        <strong data-i18n="loudnessLimiter">Loudness limiter</strong>
+                        <small data-i18n="loudnessLimiterHelp">Softens very loud sounds and ear-rape clips played by the audio card before they reach the stream.</small>
+                      </span>
+                      <span class="switch">
+                        <input id="moderation-loudness" type="checkbox">
+                        <span class="switch__track" aria-hidden="true"></span>
+                      </span>
+                    </label>
+                  </div>
+                </details>
                 <div class="settings-actions">
                   <p data-i18n="moderationLocalOnly">Decisions stay local and never notify Discord users.</p>
                 </div>
               </form>
             </section>
 
-            <div class="moderation-header">
-              <div>
-                <span class="kicker" data-i18n="pendingMedia">Pending media</span>
-                <strong id="moderation-count">0 / 50</strong>
+            <section class="panel-section panel-section--wide moderation-log" aria-labelledby="moderation-log-title">
+              <div class="section-heading">
+                <div>
+                  <span class="section-number">02</span>
+                  <h3 id="moderation-log-title" data-i18n="moderationLog">Decision log</h3>
+                </div>
+                <button id="moderation-log-clear" class="button button--quiet" type="button" data-i18n="moderationLogClear">Clear log</button>
               </div>
-              <button id="clear-pending-media" class="button button--quiet" type="button" data-i18n="clearPending">Reject all</button>
-            </div>
-            <p id="moderation-empty" class="empty-state" data-i18n="moderationEmpty">No media is waiting for approval.</p>
-            <ol id="moderation-list" class="history-list moderation-list"></ol>
+              <p class="section-copy" data-i18n="moderationLogHelp">What Relay blocked, held, ignored or approved over the last 7 days. Message content is never saved, only the rule and the author's ID.</p>
+              <label class="field">
+                <span data-i18n="moderationLogFilter">Filter by member ID</span>
+                <input id="moderation-log-filter" inputmode="numeric" autocomplete="off" placeholder="123456789012345678">
+              </label>
+              <p id="moderation-log-empty" class="empty-state" data-i18n="moderationLogEmpty">No decision yet.</p>
+              <ol id="moderation-log-list" class="moderation-log__list"></ol>
+            </section>
           </section>
 
           <section class="page" data-page="commands" hidden>
@@ -1749,7 +2247,7 @@
                     <option value="poppins">Poppins</option>
                     <option value="space-grotesk">Space Grotesk</option>
                   </select>
-                  <small data-i18n="fontFamilyHelp">Applies to Relay and its tray menu. OBS output typography remains unchanged.</small>
+                  <small data-i18n="fontFamilyHelp">Applies to Relay and its tray menu. Notifications and OBS cards use the fonts of their style.</small>
                 </label>
                 <label class="source-field sidebar-layout-field">
                   <span data-i18n="sidebarLayout">Sidebar layout</span>
@@ -1809,6 +2307,14 @@
                       <small data-i18n="lumenDesignCopy">Layered, luminous and atmospheric.</small>
                     </span>
                   </label>
+                  <label class="design-choice design-choice--signal">
+                    <input type="radio" name="interface-design" value="signal">
+                    <span class="design-choice__preview" aria-hidden="true"><i></i><i></i><i></i></span>
+                    <span class="design-choice__copy">
+                      <strong>Signal</strong>
+                      <small data-i18n="signalDesignCopy">High contrast, broadcast and direct.</small>
+                    </span>
+                  </label>
                   </div>
                 </div>
               </details>
@@ -1834,6 +2340,41 @@
               <div class="settings-actions">
                 <p id="personalization-state" role="status"></p>
                 <button id="reset-personalization" class="button button--quiet" type="button" data-i18n="resetDefaults">Restore defaults</button>
+              </div>
+            </section>
+            <section class="panel-section personalization-card" id="stream-style">
+              <h3 data-i18n="streamStyleTitle">Notification style</h3>
+              <p class="section-copy" data-i18n="streamStyleCopy">Applies to notifications, the music card and media captions on your stream and widgets. Automatic follows the Relay design and theme.</p>
+              <div class="stream-style">
+                <div class="stream-style__controls">
+                  <fieldset class="stream-style__group">
+                    <legend data-i18n="streamStyleLabel">Style</legend>
+                    <div class="choice-chips">
+                      <label class="choice-chip"><input type="radio" name="stream-style" value="auto" checked><span data-i18n="streamStyleAuto">Automatic</span></label>
+                      <label class="choice-chip"><input type="radio" name="stream-style" value="graphite"><span>Graphite</span></label>
+                      <label class="choice-chip"><input type="radio" name="stream-style" value="paper"><span>Paper</span></label>
+                      <label class="choice-chip"><input type="radio" name="stream-style" value="neo-brutalism"><span>Neo-Brutalism</span></label>
+                      <label class="choice-chip"><input type="radio" name="stream-style" value="gridline"><span>Gridline</span></label>
+                      <label class="choice-chip"><input type="radio" name="stream-style" value="lumen"><span>Lumen</span></label>
+                      <label class="choice-chip"><input type="radio" name="stream-style" value="signal"><span>Signal</span></label>
+                      <label class="choice-chip"><input type="radio" name="stream-style" value="subtitle"><span data-i18n="streamStyleSubtitle">Subtitle</span></label>
+                    </div>
+                  </fieldset>
+                  <fieldset class="stream-style__group">
+                    <legend data-i18n="streamBackgroundLabel">Background</legend>
+                    <div class="choice-chips">
+                      <label class="choice-chip"><input type="radio" name="stream-background" value="auto" checked><span data-i18n="streamBackgroundAuto">Automatic</span></label>
+                      <label class="choice-chip"><input type="radio" name="stream-background" value="light"><span data-i18n="light">Light</span></label>
+                      <label class="choice-chip"><input type="radio" name="stream-background" value="dark"><span data-i18n="dark">Dark</span></label>
+                    </div>
+                  </fieldset>
+                  <p id="stream-style-status" class="stream-style__status" role="status"></p>
+                  <button id="stream-style-reset" class="button button--quiet" type="button" data-i18n="streamStyleReset" hidden>Back to automatic</button>
+                </div>
+                <div class="stream-style__preview">
+                  <span class="kicker" data-i18n="livePreview">Live preview</span>
+                  <iframe id="stream-style-preview" title="Notification preview" data-i18n-title="streamStyleTitle"></iframe>
+                </div>
               </div>
             </section>
             <section class="panel-section personalization-card" id="system-settings">
@@ -1890,7 +2431,7 @@
                 <div>
                   <span class="kicker">Relay</span>
                   <strong>Relay</strong>
-                  <small>Windows · v<span data-app-version>1.3.7</span></small>
+                  <small>Windows · v<span data-app-version>1.4.0</span></small>
                 </div>
               </div>
               <div class="about-card__statement">
@@ -1968,9 +2509,17 @@
           <strong class="history-item__filename"></strong>
           <span class="history-item__author"></span>
           <span class="moderation-item__privacy"></span>
+          <span class="moderation-item__countdown" hidden></span>
         </div>
         <time class="history-item__time"></time>
         <div class="moderation-item__actions">
+          <select class="moderation-item__more" aria-label="More actions" data-i18n-aria-label="moreActions">
+            <option value="" data-i18n="moreActions">More…</option>
+            <option value="delete" data-i18n="actionDelete">Reject and delete the message</option>
+            <option value="timeout" data-i18n="actionTimeout">Reject and time out the author</option>
+            <option value="ban" data-i18n="actionBan">Reject and ban the author</option>
+            <option value="trust" data-i18n="actionTrust">Approve and trust the author</option>
+          </select>
           <button class="button button--quiet moderation-item__reject" type="button" data-i18n="reject">Reject</button>
           <button class="button button--primary moderation-item__approve" type="button" data-i18n="approve">Approve</button>
         </div>

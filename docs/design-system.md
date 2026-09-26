@@ -34,7 +34,18 @@ Default graphite palette:
 
 ## Designs
 
-`graphite` (default), `paper`, `neo-brutalism`, `gridline` and `lumen`, each with light and dark variants. The choice is stored in `localStorage` under `relay-design` and shared with the tray panel. Earlier identifiers `openai` and `anthropic` migrate to `graphite` and `paper` on load.
+`graphite` (default), `paper`, `neo-brutalism`, `gridline`, `lumen` and `signal`, each with light and dark variants. The choice is stored in `localStorage` under `relay-design`, shared with the tray panel and sent to Rust with the interface preferences so outputs can follow it. Earlier identifiers `openai` and `anthropic` migrate to `graphite` and `paper` on load.
+
+## Stream styles
+
+Notifications, the music card, media captions and the YouTube credit read `--out-*` tokens from `outputs/theme.css`. `outputs/theme.js` sets `data-output-style` and `data-output-background` on each output page from the `appearance` message.
+
+- Style: `auto` (follows the design) or one of the six designs, or `subtitle` (outlined text, no card). Background: `auto` (follows the theme), `light` or `dark`. Both live under Personalization → Notification style.
+- Edges stay opaque. Shadows are either `none` or a hard offset with an opaque color; blur, glass and glows leave a black halo in OBS and are not allowed.
+- Message notifications: 220 to 340 px wide, 56 px minimum height, 32 px avatar, name 11 to 13 px as a label, message 14.5 to 18 px, three lines at most. In the Windows widget, text cards fill the window width.
+- Motion: entry and exit are defined per style (`--out-enter-*`, `--out-exit-*`), without overshoot. The exit uses a discrete `display` transition and the entry `@starting-style`. Reduced motion shortens every transition to 1 ms.
+- Output fonts are the bundled files served at `/output-fonts/`; Signal and Graphite use Bahnschrift from Windows.
+- Message and name text keep at least 4.5:1 contrast on every card, checked by `overlay/output-theme.test.cjs`.
 
 ## Interface
 
@@ -45,6 +56,8 @@ Default graphite palette:
 - Sidebar items may carry a `.navigation__badge`; top bar status pills are buttons that open their page.
 - The tray attention row opens the panel on a page through `tray_open_control_panel({ page })`; Rust accepts only `overview`, `discord`, `moderation` and `overlay`, then emits `relay-open-page` to the main window.
 - Until the bot is connected, Overview shows a trial block (`#trial-mode`) that tests the media widget or OBS without Discord.
+- The panic button sits in the top bar before the status pills; below 1320px it shows only its icon. While paused, `#paused-banner` occupies the second row of `.workspace`.
+- The tray uses only `--tray-*` tokens: a state pill (`live`, `paused`, `offline`, `problem`), a two-line status card, Panic/Resume, and widget rows with switches.
 - Backend errors are English. `setSaveState(..., "error", message)` shows a translated category from `gui/diagnostics.mjs` in other languages and keeps the original as `title`.
 - The diagnostic report (`buildDiagnosticReport`) is plain English and passes every free-form value through `sanitizeDiagnosticText`.
 - Sections are numbered from 01 within each page.

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-test-moderation-text"
+description = "Enables the test_moderation_text command without any pre-configured scope."
+commands.allow = ["test_moderation_text"]
+
+[[permission]]
+identifier = "deny-test-moderation-text"
+description = "Denies the test_moderation_text command without any pre-configured scope."
+commands.deny = ["test_moderation_text"]

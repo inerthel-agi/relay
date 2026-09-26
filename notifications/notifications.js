@@ -596,6 +596,7 @@ function applyAppearance(preferences = {}) {
   const rgb = Array.isArray(preferences.accentRgb) ? preferences.accentRgb : [88, 185, 137];
   document.documentElement.style.setProperty("--accent", `rgb(${rgb.join(" ")})`);
   document.documentElement.style.setProperty("--font-scale", String((preferences.fontScale || 100) / 100));
+  globalThis.relayOutputTheme?.applyOutputTheme(document.documentElement, preferences);
   if (moveLabelElement) moveLabelElement.textContent = moveLabels[interfaceLanguage] || moveLabels.en;
   if (isPreview) showPreview();
   else if (currentNotification) setCardIdentity(currentNotification);
@@ -695,6 +696,8 @@ if (target === "widget") {
   });
 }
 
+// Widget windows are not web pages: no browser menu on right click.
+window.addEventListener("contextmenu", (event) => event.preventDefault());
 window.addEventListener("beforeunload", () => {
   isUnloading = true;
   window.clearTimeout(reconnectTimer);

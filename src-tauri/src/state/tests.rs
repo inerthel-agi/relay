@@ -129,6 +129,7 @@ async fn app_core_restores_persisted_interface_preferences() {
             theme: "light".into(),
             accent_rgb: [42, 84, 126],
             font_scale: 120,
+            ..InterfacePreferences::default()
         },
         ..AppConfig::default()
     };
@@ -575,6 +576,11 @@ async fn approval_rechecks_sensitive_pending_entries() {
         privacy_classification: Some(privacy::PrivacyClassification::Sensitive),
         privacy_categories: vec![privacy::PrivacyCategory::GpsLocation],
         privacy_reason: Some("gps".into()),
+        hold_reason: None,
+        release_at: None,
+        author_id: None,
+        channel_id: None,
+        queued_at: 0,
     });
     let mut events = core.relay_tx.subscribe();
     assert!(!core.approve_media(99).await);
@@ -610,6 +616,11 @@ async fn approval_rechecks_cached_audio_artwork_before_publication() {
         privacy_classification: Some(privacy::PrivacyClassification::Medium),
         privacy_categories: vec![privacy::PrivacyCategory::Ocr],
         privacy_reason: Some("ocr_text".into()),
+        hold_reason: None,
+        release_at: None,
+        author_id: None,
+        channel_id: None,
+        queued_at: 0,
     });
     let mut events = core.relay_tx.subscribe();
 
@@ -1029,4 +1040,140 @@ async fn explicit_stage_tickets_keep_delayed_text_ahead_of_newer_ready_media() {
     assert!(
         matches!(events.recv().await.unwrap(), RelayEvent::Media(event) if event.message_id == "image")
     );
+}
+
+fn verdict(hold: Option<&'static str>, trusted: bool) -> crate::moderation::MessageVerdict {
+    crate::moderation::MessageVerdict {
+        hold,
+        trusted,
+        author_id: "123456789012345678".into(),
+        channel_id: "223456789012345678".into(),
+        ..crate::moderation::MessageVerdict::default()
+    }
+}
+
+#[tokio::test]
+async fn gate_holds_wait_in_the_queue_with_their_reason_and_author() {
+    let directory = tempfile::tempdir().unwrap();
+    let core = AppCore::load(directory.path().join("config.json")).unwrap();
+    core.remember_moderation_verdict("held", verdict(Some("new_account"), false));
+    core.submit_media(media(MediaKind::Image, "held")).await;
+    let pending = core.pending_media.read().await.clone();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].hold_reason.as_deref(), Some("new_account"));
+    assert_eq!(pending[0].author_id.as_deref(), Some("123456789012345678"));
+    assert!(core.history.read().await.is_empty());
+    // A hold survives turning manual review off, like privacy reviews.
+    core.set_config(AppConfig::default()).await.unwrap();
+    assert_eq!(core.pending_media.read().await.len(), 1);
+    let (entries, summary) = core.moderation_entries();
+    assert_eq!(summary.held, 1);
+    assert_eq!(entries[0].reason, "new_account");
+}
+
+#[tokio::test]
+async fn trusted_members_skip_manual_review() {
+    let directory = tempfile::tempdir().unwrap();
+    let core = AppCore::load(directory.path().join("config.json")).unwrap();
+    core.set_config(AppConfig {
+        moderation_enabled: true,
+        ..AppConfig::default()
+    })
+    .await
+    .unwrap();
+    core.remember_moderation_verdict("trusted", verdict(None, true));
+    core.submit_media(media(MediaKind::Image, "trusted")).await;
+    assert!(core.pending_media.read().await.is_empty());
+    assert_eq!(core.history.read().await.len(), 1);
+}
+
+#[tokio::test]
+async fn unchecked_types_can_pass_instead_of_being_dropped() {
+    let directory = tempfile::tempdir().unwrap();
+    let core = AppCore::load(directory.path().join("config.json")).unwrap();
+    let mut config = AppConfig {
+        moderation_enabled: true,
+        moderation_allow_images: false,
+        ..AppConfig::default()
+    };
+    core.set_config(config.clone()).await.unwrap();
+    core.submit_media(media(MediaKind::Image, "dropped")).await;
+    assert!(core.history.read().await.is_empty());
+    config.moderation.review_only_selected = true;
+    core.set_config(config).await.unwrap();
+    core.submit_media(media(MediaKind::Image, "shown")).await;
+    assert!(core.pending_media.read().await.is_empty());
+    assert_eq!(core.history.read().await.len(), 1);
+}
+
+#[tokio::test]
+async fn safety_delay_publishes_unless_rejected_and_expiry_cleans_the_queue() {
+    let directory = tempfile::tempdir().unwrap();
+    let core = AppCore::load(directory.path().join("config.json")).unwrap();
+    let mut config = AppConfig::default();
+    config.moderation.safety_delay_seconds = 5;
+    core.set_config(config.clone()).await.unwrap();
+    core.submit_media(media(MediaKind::Image, "delayed")).await;
+    {
+        let mut pending = core.pending_media.write().await;
+        assert_eq!(pending[0].hold_reason.as_deref(), Some("safety_delay"));
+        assert!(pending[0].release_at.is_some());
+        pending[0].release_at = Some(1);
+    }
+    core.moderation_tick().await;
+    assert!(core.pending_media.read().await.is_empty());
+    assert_eq!(core.history.read().await.len(), 1);
+
+    config.moderation.safety_delay_seconds = 0;
+    config.moderation.pending_expiry_minutes = 1;
+    core.set_config(config).await.unwrap();
+    core.remember_moderation_verdict("old", verdict(Some("raid"), false));
+    core.submit_media(media(MediaKind::Image, "old")).await;
+    core.pending_media.write().await[0].queued_at = 1;
+    core.moderation_tick().await;
+    assert!(core.pending_media.read().await.is_empty());
+    assert!(
+        core.moderation_entries()
+            .0
+            .iter()
+            .any(|entry| entry.reason == "expired")
+    );
+}
+
+#[tokio::test]
+async fn flagged_notifications_wait_for_review_instead_of_disappearing() {
+    let directory = tempfile::tempdir().unwrap();
+    let core = AppCore::load(directory.path().join("config.json")).unwrap();
+    core.set_config(AppConfig {
+        privacy_scan_enabled: true,
+        ..AppConfig::default()
+    })
+    .await
+    .unwrap();
+    let text = "Contact: someone@example.com, +33 6 12 34 56 78".to_owned();
+    let ticket = core
+        .register_stage_output(42, "flagged", 0, StageLane::Tts)
+        .await;
+    let published = core
+        .publish_visual_tts_if_allowed_with_ticket_and_roles(
+            ticket,
+            "flagged".into(),
+            text.clone(),
+            crate::model::AuthorIdentity {
+                username: "Viewer".into(),
+                display_avatar_url: String::new(),
+            },
+            None,
+            42,
+            vec![],
+            &[],
+        )
+        .await;
+    assert!(!published);
+    let held = core.pending_texts.read().await.clone();
+    assert_eq!(held.len(), 1);
+    assert_eq!(held[0].text, text);
+    let id = held[0].id;
+    assert!(core.reject_text(id).await.is_some());
+    assert!(core.pending_texts.read().await.is_empty());
 }

@@ -14,6 +14,7 @@ const LEGACY_SERVICE: &str = "eu.stealthylabs.discord-obs-relay";
 const DISCORD_ACCOUNT: &str = "discord-credentials";
 const YOUTUBE_API_KEY_ACCOUNT: &str = "youtube-api-key";
 const RELAY_SECRET_ACCOUNT: &str = "relay-secret";
+const OBS_WEBSOCKET_ACCOUNT: &str = "obs-websocket-password";
 static KEYRING_READY: OnceLock<Result<(), String>> = OnceLock::new();
 static RELAY_SECRET_CACHE: OnceLock<Mutex<Option<String>>> = OnceLock::new();
 
@@ -31,6 +32,7 @@ pub struct CredentialStatus {
     pub source: Option<&'static str>,
     pub client_id: Option<String>,
     pub youtube_configured: bool,
+    pub obs_password_configured: bool,
 }
 
 pub fn initialize_keyring() -> Result<()> {
@@ -99,21 +101,51 @@ pub fn load_youtube_api_key() -> Result<Option<String>> {
     }
 }
 
+/// OBS WebSocket password; an empty value removes the saved one.
+pub fn save_obs_password(password: &str) -> Result<()> {
+    initialize_keyring()?;
+    let entry = Entry::new(SERVICE, OBS_WEBSOCKET_ACCOUNT)?;
+    if password.is_empty() {
+        return match entry.delete_credential() {
+            Ok(()) | Err(KeyringError::NoEntry) => Ok(()),
+            Err(error) => Err(error).context("failed to remove the OBS WebSocket password"),
+        };
+    }
+    if password.len() > 256 || password.chars().any(char::is_control) {
+        bail!("The OBS WebSocket password is invalid.");
+    }
+    entry
+        .set_password(password)
+        .context("failed to save the OBS WebSocket password in Windows Credential Manager")
+}
+
+pub fn load_obs_password() -> Result<Option<String>> {
+    initialize_keyring()?;
+    match Entry::new(SERVICE, OBS_WEBSOCKET_ACCOUNT)?.get_password() {
+        Ok(password) => Ok(Some(password)),
+        Err(KeyringError::NoEntry) => Ok(None),
+        Err(error) => Err(error).context("failed to read the OBS WebSocket password"),
+    }
+}
+
 pub fn credential_status() -> Result<CredentialStatus> {
     let credentials = load_discord_credentials()?;
     let youtube_configured = load_youtube_api_key()?.is_some();
+    let obs_password_configured = load_obs_password().ok().flatten().is_some();
     Ok(match credentials {
         Some((credentials, source)) => CredentialStatus {
             configured: true,
             source: Some(source),
             client_id: Some(credentials.client_id),
             youtube_configured,
+            obs_password_configured,
         },
         None => CredentialStatus {
             configured: false,
             source: None,
             client_id: None,
             youtube_configured,
+            obs_password_configured,
         },
     })
 }

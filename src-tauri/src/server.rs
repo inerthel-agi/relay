@@ -60,6 +60,9 @@ struct OverlayConfig {
     media_widget_geometry: OutputGeometry,
     notification_obs_geometry: OutputGeometry,
     notification_widget_geometry: OutputGeometry,
+    /// 0 = no limit; longer videos and sounds are cut on stream.
+    max_media_seconds: u16,
+    loudness_limiter: bool,
 }
 
 impl From<&AppConfig> for OverlayConfig {
@@ -80,6 +83,8 @@ impl From<&AppConfig> for OverlayConfig {
             widget_sound_enabled: config.widget_sound_enabled,
             notification_sound_enabled: config.notification_sound_enabled,
             notification_sound_obs_enabled: config.notification_sound_obs_enabled,
+            max_media_seconds: config.moderation.max_media_seconds,
+            loudness_limiter: config.moderation.loudness_limiter,
             media_obs_geometry: config.media_obs_geometry,
             media_widget_geometry: config.media_widget_geometry,
             notification_obs_geometry: config.notification_obs_geometry,
@@ -320,6 +325,9 @@ pub async fn start_server(core: Arc<AppCore>) -> Result<()> {
         .route("/overlay-assets/audio-card.css", get(audio_card_css))
         .route("/overlay-assets/overlay.js", get(overlay_js))
         .route("/output-layout.js", get(output_layout))
+        .route("/output-theme.css", get(output_theme_css))
+        .route("/output-theme.js", get(output_theme_js))
+        .route("/output-fonts/{file}", get(output_font))
         .route("/output-samples/{sample}", get(output_sample))
         .route("/overlay-assets/relay-radar.png", get(radar_png))
         .route("/tts-audio/{id}", get(tts_audio))
@@ -353,7 +361,7 @@ pub async fn start_server(core: Arc<AppCore>) -> Result<()> {
             header::CONTENT_SECURITY_POLICY,
             // frame-src 'self' allows /obs/* composites to embed legacy short pages.
             HeaderValue::from_static(
-                "default-src 'none'; script-src 'self' https://www.youtube.com https://www.youtube-nocookie.com; style-src 'self'; img-src 'self' https://cdn.discordapp.com https://media.discordapp.net https://*.discordapp.net https://*.klipy.com https://media.tenor.com https://i.ytimg.com data:; media-src 'self' https://cdn.discordapp.com https://media.discordapp.net https://*.discordapp.net https://*.klipy.com https://media.tenor.com; connect-src 'self' ws://127.0.0.1:* ws://localhost:* https://www.youtube.com https://www.youtube-nocookie.com https://*.googlevideo.com https://youtubei.googleapis.com; frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com; frame-ancestors 'self' tauri://localhost http://tauri.localhost",
+                "default-src 'none'; script-src 'self' https://www.youtube.com https://www.youtube-nocookie.com; style-src 'self'; font-src 'self'; img-src 'self' https://cdn.discordapp.com https://media.discordapp.net https://*.discordapp.net https://*.klipy.com https://media.tenor.com https://i.ytimg.com data:; media-src 'self' https://cdn.discordapp.com https://media.discordapp.net https://*.discordapp.net https://*.klipy.com https://media.tenor.com; connect-src 'self' ws://127.0.0.1:* ws://localhost:* https://www.youtube.com https://www.youtube-nocookie.com https://*.googlevideo.com https://youtubei.googleapis.com; frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com; frame-ancestors 'self' tauri://localhost http://tauri.localhost",
             ),
         ))
         .layer(middleware::from_fn(move |request: Request, next: Next| async move {

@@ -7,16 +7,11 @@
   --crop-bottom: 0%;
   --crop-left: 0%;
   /* No forced color-scheme: `dark` paints opaque black in OBS CEF; `light` paints white in panel iframes. */
-  font-family: Bahnschrift, "Segoe UI Variable Display", sans-serif;
+  font-family: var(--out-font, Bahnschrift, "Segoe UI Variable Display", sans-serif);
 }
 
 .notification-move-badge {
   font-size: calc(1em * var(--font-scale));
-}
-
-.notification-card__presence,
-.notification-card__signal {
-  background: var(--accent);
 }
 
 html,
@@ -46,32 +41,54 @@ body {
   position: relative;
   display: grid;
   grid-template-columns: calc(32px * var(--notification-scale)) minmax(0, 1fr);
-  width: min(360px, calc(100vw - 32px));
-  min-height: calc(76px * var(--notification-scale));
+  /* Compact: the card follows its text between 220 and 340 px. */
+  width: fit-content;
+  min-width: min(calc(220px * var(--notification-scale)), calc(100vw - 32px));
+  max-width: min(calc(340px * var(--notification-scale)), calc(100vw - 32px));
+  min-height: calc(56px * var(--notification-scale));
   box-sizing: border-box;
-  gap: calc(14px * var(--notification-scale));
+  gap: calc(10px * var(--notification-scale));
   align-content: center;
   align-items: center;
-  padding: calc(14px * var(--notification-scale)) calc(14px * var(--notification-scale)) calc(14px * var(--notification-scale)) calc(16px * var(--notification-scale));
+  padding: calc(10px * var(--notification-scale)) calc(14px * var(--notification-scale)) calc(10px * var(--notification-scale)) calc(10px * var(--notification-scale));
   overflow: hidden;
-  /* Opaque border — semi-transparent edges fringe as a soft black halo in WebView2/OBS. */
-  border: 1px solid #2a2e36;
-  border-radius: calc(22px * var(--notification-scale));
-  color: #f7f8fb;
-  /* Opaque fill — translucent glass blur left a soft black halo on OBS. */
-  background: #0a0c10;
-  box-shadow: none;
+  /* Opaque border and fill (outputs/theme.css) — translucent edges fringe as a black halo in WebView2/OBS. */
+  border: var(--out-border) solid var(--out-line);
+  border-radius: calc(var(--out-radius) * var(--notification-scale));
+  color: var(--out-ink);
+  background-color: var(--out-surface);
+  background-image: var(--out-surface-image);
+  background-size: var(--out-surface-size);
+  box-shadow: var(--out-shadow);
+  font-family: var(--out-font);
   filter: none;
   isolation: isolate;
   opacity: 0;
-  transform: translateX(34px);
+  transform: var(--out-enter-from);
   transform-origin: right top;
-  transition: opacity 220ms ease, transform 360ms cubic-bezier(0.2, 0.9, 0.24, 1.12);
+  clip-path: var(--out-clip-from);
+  /* display is discrete so the exit plays before the card leaves the layout. */
+  transition:
+    opacity var(--out-exit-duration) var(--out-exit-ease),
+    transform var(--out-exit-duration) var(--out-exit-ease),
+    clip-path var(--out-exit-duration) var(--out-exit-ease),
+    display var(--out-exit-duration) allow-discrete;
 }
 
 .notification-card.is-visible {
   opacity: 1;
-  transform: translateX(0);
+  transform: none;
+  clip-path: var(--out-clip-to);
+  transition-duration: var(--out-enter-duration);
+  transition-timing-function: var(--out-enter-ease);
+}
+
+@starting-style {
+  .notification-card.is-visible {
+    opacity: 0;
+    transform: var(--out-enter-from);
+    clip-path: var(--out-clip-from);
+  }
 }
 
 /* Do not leave an opacity:0 opaque fill on transparent
@@ -93,21 +110,11 @@ body {
 .notification-card__avatar {
   width: 100%;
   height: 100%;
-  border: 1px solid #2a2e36;
-  border-radius: 50%;
+  box-sizing: border-box;
+  border: var(--out-avatar-border) solid var(--out-line);
+  border-radius: var(--out-avatar-radius);
   object-fit: cover;
   background: #050505;
-}
-
-.notification-card__presence {
-  position: absolute;
-  box-sizing: border-box;
-  right: 0;
-  bottom: 1px;
-  width: calc(9px * var(--notification-scale));
-  height: calc(9px * var(--notification-scale));
-  border: calc(2px * var(--notification-scale)) solid #0a0c10;
-  border-radius: 50%;
 }
 
 .notification-card__copy {
@@ -115,7 +122,7 @@ body {
   min-width: 0;
   min-height: 0;
   align-content: center;
-  gap: calc(4px * var(--notification-scale));
+  gap: calc(2px * var(--notification-scale));
 }
 
 .notification-card__identity {
@@ -126,13 +133,21 @@ body {
   flex-wrap: wrap;
 }
 
+/* The name is the label, the message is the content. */
 .notification-card__author {
   min-width: 0;
   overflow: hidden;
-  font-size: calc(13px * var(--font-scale) * var(--notification-scale));
-  font-weight: 650;
-  letter-spacing: -0.01em;
+  padding: var(--out-name-pad);
+  color: var(--out-name-ink);
+  background: var(--out-name-bg);
+  font-family: var(--out-font-title);
+  font-size: calc(var(--out-name-size) * var(--font-scale) * var(--notification-scale));
+  font-stretch: var(--out-font-stretch);
+  font-weight: var(--out-name-weight);
+  line-height: 1.25;
+  letter-spacing: var(--out-name-spacing);
   text-overflow: ellipsis;
+  text-transform: var(--out-name-transform);
   white-space: nowrap;
 }
 
@@ -142,10 +157,10 @@ body {
   align-items: center;
   gap: calc(3px * var(--notification-scale));
   padding: calc(2px * var(--notification-scale)) calc(5px * var(--notification-scale));
-  border: 1px solid rgb(255 255 255 / 9%);
+  border: 1px solid color-mix(in srgb, var(--out-ink) 12%, transparent);
   border-radius: calc(4px * var(--notification-scale));
-  color: rgb(247 248 251 / 88%);
-  background: rgb(255 255 255 / 12%);
+  color: var(--out-muted);
+  background: color-mix(in srgb, var(--out-ink) 10%, transparent);
   font-size: calc(10px * var(--font-scale) * var(--notification-scale));
   font-weight: 750;
   line-height: 1;
@@ -165,15 +180,40 @@ body {
 
 .notification-card__message {
   display: -webkit-box;
-  margin: 1px 0 0;
+  margin: 0;
   overflow: hidden;
-  color: rgb(244 247 252 / 76%);
-  font-size: calc(14px * var(--font-scale) * var(--notification-scale));
-  line-height: 1.4;
+  color: var(--out-ink);
+  font-family: var(--out-font);
+  font-size: calc(var(--out-message-size) * var(--font-scale) * var(--notification-scale));
+  font-weight: var(--out-message-weight);
+  line-height: var(--out-message-leading);
   text-wrap: pretty;
   overflow-wrap: anywhere;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 6;
+  -webkit-line-clamp: 3;
+}
+
+/* Subtitle style: outlined text instead of a card (0px elsewhere). */
+.notification-card__author,
+.notification-card__message {
+  -webkit-text-stroke: var(--out-stroke) var(--out-stroke-color);
+  paint-order: stroke fill;
+}
+
+/* A full-width stroke swallows small text: the name gets a thinner outline. */
+.notification-card__author {
+  -webkit-text-stroke-width: calc(var(--out-stroke) * 0.7);
+}
+
+/* Subtitle has no card, so the server tag and avatar carry their own solid outline. */
+:root[data-output-style="subtitle"] .notification-card__tag {
+  border-color: var(--out-stroke-color);
+  color: var(--out-ink);
+  background: var(--out-stroke-color);
+}
+
+:root[data-output-style="subtitle"] .notification-card__avatar {
+  border-color: var(--out-stroke-color);
 }
 
 .notification-card__emoji {
@@ -285,23 +325,10 @@ html.notification-widget .notification-card__sticker {
   height: min(calc(56px * var(--notification-scale)), max(32px, calc(100vh - 24px)));
 }
 
-/* Give text notifications more reading space without enlarging sticker-only cards. */
-.notification-card:not(.is-sticker-only) {
-  grid-template-columns: calc(40px * var(--notification-scale)) minmax(0, 1fr);
-  width: min(400px, calc(100vw - 32px));
-  min-height: calc(88px * var(--notification-scale));
-}
-.notification-card:not(.is-sticker-only) .notification-card__avatar-shell {
-  width: calc(40px * var(--notification-scale));
-  height: calc(40px * var(--notification-scale));
-}
-.notification-card:not(.is-sticker-only) .notification-card__author,
-.notification-card:not(.is-sticker-only) .notification-card__message {
-  font-size: calc(15px * var(--font-scale) * var(--notification-scale));
-}
+/* Text cards in the Windows widget fill the window the user sized. */
 html.notification-widget .notification-card:not(.is-sticker-only) {
   width: 100%;
   max-width: 400px;
-  min-height: min(calc(88px * var(--notification-scale)), calc(100vh - 8px));
-  padding: calc(10px * var(--notification-scale)) calc(14px * var(--notification-scale));
+  min-height: min(calc(56px * var(--notification-scale)), calc(100vh - 8px));
+  padding: calc(8px * var(--notification-scale)) calc(14px * var(--notification-scale)) calc(8px * var(--notification-scale)) calc(10px * var(--notification-scale));
 }

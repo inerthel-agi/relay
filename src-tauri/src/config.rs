@@ -30,6 +30,7 @@ const LEGACY_NOTIFICATION_WIDGET_HEIGHT: f64 = 180.0;
 const PREVIOUS_NOTIFICATION_WIDGET_WIDTH: f64 = 480.0;
 const PREVIOUS_NOTIFICATION_WIDGET_HEIGHT: f64 = 112.0;
 pub const DEFAULT_SKIP_SHORTCUT: &str = "control+alt+KeyS";
+pub const DEFAULT_PANIC_SHORTCUT: &str = "control+alt+KeyP";
 pub const MAX_PRIVACY_EXEMPT_ROLE_IDS: usize = 100;
 pub const MIN_WIDGET_WIDTH: f64 = 160.0;
 pub const MIN_WIDGET_HEIGHT: f64 = 90.0;
@@ -125,6 +126,8 @@ pub enum HoneypotAction {
     #[default]
     Kick,
     Ban,
+    /// Temporary timeout; the duration lives in `moderation.honeypot_timeout_minutes`.
+    Timeout,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -151,6 +154,7 @@ pub struct AppConfig {
     pub notification_duration_ms: u64,
     pub media_volume: u8,
     pub skip_shortcut: String,
+    pub panic_shortcut: String,
     pub tts_character_limit: u32,
     pub tts_queue_limit: u8,
     pub tts_notifications_obs_enabled: bool,
@@ -175,6 +179,7 @@ pub struct AppConfig {
     pub privacy_auto_delete_blocked_messages: bool,
     pub privacy_allowlist: Vec<String>,
     pub privacy_custom_patterns: Vec<String>,
+    pub moderation: crate::moderation::ModerationSettings,
     pub command_channel_enabled: bool,
     pub command_url_enabled: bool,
     pub command_show_enabled: bool,
@@ -235,6 +240,7 @@ impl Default for AppConfig {
             notification_duration_ms: DEFAULT_NOTIFICATION_DURATION_MS,
             media_volume: 50,
             skip_shortcut: DEFAULT_SKIP_SHORTCUT.into(),
+            panic_shortcut: DEFAULT_PANIC_SHORTCUT.into(),
             tts_character_limit: 0,
             tts_queue_limit: 50,
             tts_notifications_obs_enabled: true,
@@ -259,6 +265,7 @@ impl Default for AppConfig {
             privacy_auto_delete_blocked_messages: true,
             privacy_allowlist: Vec::new(),
             privacy_custom_patterns: Vec::new(),
+            moderation: crate::moderation::ModerationSettings::default(),
             command_channel_enabled: true,
             command_url_enabled: true,
             command_show_enabled: true,
@@ -380,6 +387,9 @@ impl AppConfig {
         if self.skip_shortcut.trim().parse::<Shortcut>().is_err() {
             bail!("The media skip shortcut is invalid.");
         }
+        if self.panic_shortcut.trim().parse::<Shortcut>().is_err() {
+            bail!("The panic shortcut is invalid.");
+        }
         if !(1..=50).contains(&self.tts_queue_limit) {
             bail!("The message queue limit must be between 1 and 50.");
         }
@@ -428,6 +438,7 @@ impl AppConfig {
         }
         validate_privacy_list(&self.privacy_allowlist, "privacy allowlist")?;
         validate_privacy_list(&self.privacy_custom_patterns, "private data list")?;
+        self.moderation.validate()?;
         if !matches!(
             self.bot_online_status.as_str(),
             "online" | "idle" | "dnd" | "invisible"
@@ -460,7 +471,7 @@ impl AppConfig {
     }
 }
 
-fn validate_interface_preferences(preferences: &InterfacePreferences) -> Result<()> {
+pub(crate) fn validate_interface_preferences(preferences: &InterfacePreferences) -> Result<()> {
     if !matches!(
         preferences.language.as_str(),
         "en" | "fr" | "es" | "de" | "ru" | "zh" | "ko" | "ja" | "id"
@@ -472,6 +483,22 @@ fn validate_interface_preferences(preferences: &InterfacePreferences) -> Result<
     }
     if !(80..=140).contains(&preferences.font_scale) {
         bail!("The interface font scale must be between 80 and 140 percent.");
+    }
+    if !crate::model::INTERFACE_DESIGNS.contains(&preferences.design.as_str()) {
+        bail!("The interface design is invalid.");
+    }
+    let output_style = preferences.output_style.as_str();
+    if output_style != "auto"
+        && output_style != crate::model::SUBTITLE_OUTPUT_STYLE
+        && !crate::model::INTERFACE_DESIGNS.contains(&output_style)
+    {
+        bail!("The notification style is invalid.");
+    }
+    if !matches!(
+        preferences.output_background.as_str(),
+        "auto" | "light" | "dark"
+    ) {
+        bail!("The notification background is invalid.");
     }
     Ok(())
 }

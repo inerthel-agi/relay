@@ -152,10 +152,14 @@ html.widget-edit .widget-move-layer {
   gap: 0.2rem;
   max-width: min(420px, calc(100% - 2.5rem));
   padding: 0.7rem 0.95rem;
-  border: 1px solid rgb(255 255 255 / 14%);
-  border-radius: 14px;
-  color: #fff;
-  background: rgb(0 0 0 / 72%);
+  border: var(--out-border) solid var(--out-line);
+  border-radius: var(--out-radius);
+  color: var(--out-ink);
+  background-color: var(--out-surface);
+  background-image: var(--out-surface-image);
+  background-size: var(--out-surface-size);
+  box-shadow: var(--out-shadow);
+  font-family: var(--out-font);
   opacity: 0;
   pointer-events: none;
   transform: translateY(6px);
@@ -188,7 +192,9 @@ html.widget-edit .widget-move-layer {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-family: var(--out-font-title);
   font-size: 0.95rem;
+  font-stretch: var(--out-font-stretch);
   font-weight: 650;
   letter-spacing: 0.01em;
 }
@@ -204,7 +210,7 @@ html.widget-edit .widget-move-layer {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: rgb(255 255 255 / 78%);
+  color: var(--out-muted);
   font-size: 0.82rem;
   font-weight: 500;
 }
@@ -223,10 +229,6 @@ html.widget-edit .widget-move-layer {
   gap: 12px;
   align-items: center;
   padding: 10px;
-  border-color: rgb(255 255 255 / 12%);
-  border-radius: 16px;
-  background: rgb(8 9 12 / 88%);
-  box-shadow: 0 12px 32px rgb(0 0 0 / 32%);
 }
 
 .youtube-credit--widget .youtube-credit__copy {
@@ -235,7 +237,7 @@ html.widget-edit .widget-move-layer {
 
 .youtube-credit--widget .youtube-credit__label {
   display: block;
-  color: rgb(255 255 255 / 55%);
+  color: var(--out-muted);
   font-size: 9px;
   font-weight: 750;
   letter-spacing: 0.16em;
@@ -252,7 +254,7 @@ html.widget-edit .widget-move-layer {
 .youtube-credit--widget .youtube-credit__source {
   display: block;
   overflow: hidden;
-  color: rgb(255 255 255 / 72%);
+  color: var(--out-muted);
   font-size: 11px;
   font-weight: 550;
   text-overflow: ellipsis;
@@ -260,7 +262,7 @@ html.widget-edit .widget-move-layer {
 }
 
 .youtube-credit--widget .youtube-credit__meta {
-  color: rgb(255 255 255 / 62%);
+  color: var(--out-muted);
   font-size: 10px;
   white-space: nowrap;
 }
@@ -273,7 +275,7 @@ html.widget-edit .widget-move-layer {
 .youtube-credit--widget .youtube-credit__time {
   display: inline;
   flex: none;
-  color: rgb(255 255 255 / 78%);
+  color: var(--out-ink);
   font-size: inherit;
   font-variant-numeric: tabular-nums;
 }
@@ -281,7 +283,7 @@ html.widget-edit .widget-move-layer {
 .youtube-credit--widget .youtube-credit__time::before {
   content: "·";
   margin-right: 0.35rem;
-  color: rgb(255 255 255 / 38%);
+  color: var(--out-muted);
 }
 
 .youtube-credit--widget .youtube-credit__transport {
@@ -302,7 +304,7 @@ html.widget-edit .widget-move-layer {
   width: 2px;
   height: 4px;
   border-radius: 999px;
-  background: #ff334f;
+  background: var(--accent);
   animation: youtube-credit-wave 650ms ease-in-out infinite alternate;
 }
 
@@ -315,7 +317,7 @@ html.widget-edit .widget-move-layer {
   width: 100%;
   height: 2px;
   border-radius: 999px;
-  background: rgb(255 255 255 / 13%);
+  background: var(--out-track);
 }
 
 .youtube-credit__progress i {
@@ -323,7 +325,7 @@ html.widget-edit .widget-move-layer {
   width: 0%;
   height: 100%;
   border-radius: inherit;
-  background: #ff334f;
+  background: var(--accent);
   transition: width 240ms linear;
 }
 
@@ -347,13 +349,20 @@ html.widget-edit .widget-move-layer {
   align-items: center;
   gap: 8px;
   padding: 6px 10px;
-  border: 1px solid rgb(255 255 255 / 14%);
-  border-radius: 12px;
-  color: #fff;
-  background: rgb(0 0 0 / 72%);
+  border: var(--out-border) solid var(--out-line);
+  border-radius: var(--out-radius-pill);
+  color: var(--out-ink);
+  background-color: var(--out-surface);
+  background-image: var(--out-surface-image);
+  background-size: var(--out-surface-size);
+  box-shadow: var(--out-shadow);
   opacity: 0;
+  font-family: var(--out-font-title);
   font-size: 14px;
+  font-stretch: var(--out-font-stretch);
   font-weight: 600;
+  letter-spacing: var(--out-name-spacing);
+  text-transform: var(--out-name-transform);
   transform: translateY(8px) scale(var(--content-scale));
   transform-origin: left top;
   transition: opacity 240ms ease 80ms, transform 240ms ease 80ms;
@@ -372,7 +381,7 @@ html.widget-edit .widget-move-layer {
 .overlay__avatar {
   width: 24px;
   height: 24px;
-  border-radius: 50%;
+  border-radius: var(--out-avatar-radius);
   object-fit: cover;
   flex: none;
 }
@@ -389,11 +398,15 @@ html.widget-edit .widget-move-layer {
   overflow: hidden;
   padding: 8px 10px;
   box-sizing: border-box;
-  border: 1px solid rgb(255 255 255 / 14%);
-  border-radius: 0.8rem;
-  color: #fff;
-  background: rgb(0 0 0 / 76%);
+  border: var(--out-border) solid var(--out-line);
+  border-radius: var(--out-radius-pill);
+  color: var(--out-ink);
+  background-color: var(--out-surface);
+  background-image: var(--out-surface-image);
+  background-size: var(--out-surface-size);
+  box-shadow: var(--out-shadow);
   opacity: 0;
+  font-family: var(--out-font);
   font-size: 14px;
   font-weight: 500;
   line-height: 1.4;
@@ -449,7 +462,7 @@ html.widget-edit .widget-move-layer {
   align-items: center;
   min-width: 0;
   gap: 8px;
-  color: rgb(244 247 252 / 76%);
+  color: var(--out-muted);
   font-size: calc(12px * var(--font-scale));
 }
 .audio-card__author[hidden] { display: none; }
@@ -464,4 +477,12 @@ html.widget-edit .widget-move-layer {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Subtitle style: outlined text instead of pills (0px elsewhere). */
+.overlay__author,
+.overlay__caption,
+.youtube-credit__copy {
+  -webkit-text-stroke: var(--out-stroke) var(--out-stroke-color);
+  paint-order: stroke fill;
 }

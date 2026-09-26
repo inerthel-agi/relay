@@ -45,7 +45,7 @@ function fixture() {
     populateChannels: (input, channels, selected) => { input.value = selected || ""; },
     applyNotificationSoundConfig() {}, updateBotActivityAvailability() {},
     customCommandsUi: undefined,
-    applyOutputGeometryConfig() {}, updateSkipShortcutDisplay() {},
+    applyOutputGeometryConfig() {}, updateSkipShortcutDisplay() {}, updatePanicShortcutDisplay() {}, moderationUi: { applyAdvancedEdits: (concepts) => concepts, readDraft: (settings) => settings, fillForm() {}, pendingTextCount: () => 0, decorateQueueItem() {}, renderTexts() {} }, obsSetup: undefined,
   };
   for (const match of source.matchAll(/const (\w+) = \$\("#([^"]+)"\);/g)) {
     context[match[1]] = forms.get(match[2]) || element(match[2]);
@@ -269,6 +269,7 @@ test("credential status refreshes do not erase unsubmitted input", () => {
   const context = vm.createContext({
     tokenElement: token, youtubeApiKeyElement: key, clientIdElement: client,
     credentialStateElement: {}, setSaveState() {}, updateYoutubeKeyStatus() {}, t: (value) => value,
+    moderationUi: { applyAdvancedEdits: (concepts) => concepts, readDraft: (settings) => settings, fillForm() {}, pendingTextCount: () => 0, decorateQueueItem() {}, renderTexts() {} }, obsSetup: undefined, $: () => ({}),
   });
   vm.runInContext(source.slice(source.indexOf("function setCredentials"), source.indexOf("function updateYoutubeKeyStatus")), context);
   context.setCredentials({ configured: true, source: "Windows", clientId: "saved-client" });

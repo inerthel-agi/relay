@@ -7,13 +7,17 @@ mod commands;
 mod config;
 mod credentials;
 mod custom_commands;
+mod discord_check;
 mod media_compat;
 mod media_library;
 mod model;
+mod moderation;
 mod music;
 mod music_cleanup;
 mod music_i18n;
 mod notification_widget;
+mod obs;
+mod panic;
 mod privacy;
 mod reaction_protection;
 mod reaction_trim;
@@ -45,15 +49,17 @@ use crate::{
     bot::start_bot,
     changelog::get_changelog_markdown,
     commands::{
-        apply_config, approve_pending_media, clear_notification_sound, clear_overlay,
-        clear_pending_media, control_audio, download_history_media, get_bootstrap,
-        get_media_artwork, get_runtime_status, pick_notification_sound, preview_output_sample,
-        refresh_channels, regenerate_secret, reject_pending_media, remove_queued_media,
-        replay_media, save_command_settings, save_credentials, save_custom_commands,
-        set_interface_preferences, set_media_caption_visibility, set_notification_sound_enabled,
-        set_notification_sound_obs_enabled, set_notification_widget_locked,
-        set_notification_widget_visible, set_output_geometry, set_skip_shortcut, set_widget_locked,
-        skip_media, store_youtube_api_key, test_output, toggle_widget,
+        apply_config, approve_pending_media, check_discord_setup, clear_notification_sound,
+        clear_overlay, clear_pending_media, control_audio, download_history_media,
+        forget_obs_password, get_bootstrap, get_media_artwork, get_runtime_status,
+        obs_install_sources, obs_list_scenes, panic_stop, pick_notification_sound,
+        preview_output_sample, refresh_channels, regenerate_secret, reject_pending_media,
+        remove_queued_media, replay_media, resume_outputs, save_command_settings, save_credentials,
+        save_custom_commands, set_interface_preferences, set_media_caption_visibility,
+        set_notification_sound_enabled, set_notification_sound_obs_enabled,
+        set_notification_widget_locked, set_notification_widget_visible, set_output_geometry,
+        set_panic_shortcut, set_skip_shortcut, set_widget_locked, skip_media,
+        store_youtube_api_key, test_output, toggle_widget,
     },
     config::{DEFAULT_SKIP_SHORTCUT, migrate_legacy_config},
     model::{MediaKind, RelayEvent, ServerStatus},
@@ -67,7 +73,7 @@ use crate::{
 
 const TRAY_PANEL_LABEL: &str = "tray-panel";
 const TRAY_PANEL_WIDTH: f64 = 336.0;
-const TRAY_PANEL_HEIGHT: f64 = 486.0;
+const TRAY_PANEL_HEIGHT: f64 = 468.0;
 const TRAY_PANEL_MARGIN: i32 = 10;
 const MAIN_WINDOW_TITLE: &str = "Relay";
 const STARTUP_ARGUMENT: &str = "--startup";
@@ -128,6 +134,7 @@ pub fn run() {
             }
 
             let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(moderation::live::run(core.clone()));
             tauri::async_runtime::spawn(async move {
                 let server_started = match start_server(core.clone()).await {
                     Ok(()) => true,
@@ -207,6 +214,24 @@ pub fn run() {
             replay_media,
             download_history_media,
             set_skip_shortcut,
+            set_panic_shortcut,
+            panic_stop,
+            check_discord_setup,
+            commands::moderation::moderation_overview,
+            commands::moderation::preview_moderation_preset,
+            commands::moderation::apply_moderation_preset,
+            commands::moderation::moderation_pack_words,
+            commands::moderation::test_moderation_text,
+            commands::moderation::clear_moderation_log,
+            commands::moderation::approve_pending_text,
+            commands::moderation::reject_pending_text,
+            commands::moderation::moderate_pending,
+            commands::moderation::sync_discord_automod,
+            commands::moderation::remove_discord_automod,
+            obs_list_scenes,
+            obs_install_sources,
+            forget_obs_password,
+            resume_outputs,
             skip_media,
             test_output,
             control_audio,
@@ -368,6 +393,17 @@ fn register_skip_shortcut(app: &mut tauri::App, core: Arc<AppCore>) -> tauri::Re
         .expect("Relay default shortcut must be valid");
     app.handle()
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())?;
+    let panic_configured = core
+        .config
+        .try_read()
+        .ok()
+        .map(|config| config.panic_shortcut.clone())
+        .unwrap_or_default();
+    let panic_shortcut = panic_configured
+        .parse::<Shortcut>()
+        .or_else(|_| config::DEFAULT_PANIC_SHORTCUT.parse::<Shortcut>())
+        .expect("Relay default panic shortcut must be valid");
+    let panic_core = core.clone();
     let _ = app
         .global_shortcut()
         .on_shortcut(shortcut, move |_app, _pressed_shortcut, event| {
@@ -378,6 +414,8 @@ fn register_skip_shortcut(app: &mut tauri::App, core: Arc<AppCore>) -> tauri::Re
                 });
             }
         });
+    // A failure here only disables the panic shortcut; the buttons still work.
+    let _ = commands::register_panic_handler(app.global_shortcut(), panic_shortcut, panic_core);
     Ok(())
 }
 
@@ -582,6 +620,9 @@ fn resolve_external_link(link: &str) -> Result<String, String> {
     Ok(url.to_owned())
 }
 
+/// Discord's ADMINISTRATOR permission bit; an invite must never request it.
+const ADMINISTRATOR_PERMISSION: u64 = 1 << 3;
+
 fn is_discord_invite_url(link: &str) -> bool {
     let Ok(url) = reqwest::Url::parse(link) else {
         return false;
@@ -608,7 +649,13 @@ fn is_discord_invite_url(link: &str) -> bool {
                 client_id = (17..=20).contains(&value.len())
                     && value.chars().all(|character| character.is_ascii_digit());
             }
-            "permissions" => permissions = value == "268510208",
+            // The value changes with enabled features; any bitfield without ADMINISTRATOR is fine.
+            "permissions" => {
+                permissions = value.len() <= 20
+                    && value
+                        .parse::<u64>()
+                        .is_ok_and(|bits| bits & ADMINISTRATOR_PERMISSION == 0);
+            }
             "scope" => scope = value == "bot applications.commands",
             _ => return false,
         }
@@ -690,6 +737,20 @@ mod external_link_tests {
             resolve_external_link("github"),
             Ok("https://github.com/inerthel-agi".to_owned())
         );
+    }
+
+    #[test]
+    fn accepts_the_invite_relay_generates() {
+        let mut config = crate::config::AppConfig::default();
+        assert!(is_discord_invite_url(&crate::bot::invite_url(
+            "123456789012345678",
+            &config
+        )));
+        config.honeypot_channel_id = "1".into();
+        assert!(is_discord_invite_url(&crate::bot::invite_url(
+            "123456789012345678",
+            &config
+        )));
     }
 
     #[test]
