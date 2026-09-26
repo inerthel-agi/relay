@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Relay Visual</title>
+    <link rel="stylesheet" href="/obs-assets/obs-visual.css">
+  </head>
+  <body>
+    <!--
+      Composite OBS Browser Source: medias + stickers + notifications + YouTube.
+      Parent must be http://localhost (not 127.0.0.1) so the YouTube layer embeds.
+      Each child page embeds the relay secret in a meta tag for WS/media auth.
+      allowtransparency helps OBS CEF composite nested transparent frames.
+    -->
+    <iframe
+      class="obs-layer obs-layer--youtube"
+      src="/youtube"
+      title="Relay YouTube"
+      allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+      referrerpolicy="strict-origin-when-cross-origin"
+      allowtransparency="true"
+      frameborder="0"
+    ></iframe>
+    <iframe
+      class="obs-layer obs-layer--medias"
+      src="/medias"
+      title="Relay medias"
+      allow="autoplay; encrypted-media"
+      allowtransparency="true"
+      frameborder="0"
+    ></iframe>
+    <iframe
+      class="obs-layer obs-layer--stickers"
+      src="/stickers"
+      title="Relay stickers"
+      allowtransparency="true"
+      frameborder="0"
+    ></iframe>
+    <iframe
+      class="obs-layer obs-layer--notifications"
+      src="/notifications"
+      title="Relay notifications"
+      allow="autoplay"
+      allowtransparency="true"
+      frameborder="0"
+    ></iframe>
+  </body>
+</html>

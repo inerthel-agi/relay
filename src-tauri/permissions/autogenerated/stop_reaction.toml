@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-stop-reaction"
+description = "Enables the stop_reaction command without any pre-configured scope."
+commands.allow = ["stop_reaction"]
+
+[[permission]]
+identifier = "deny-stop-reaction"
+description = "Denies the stop_reaction command without any pre-configured scope."
+commands.deny = ["stop_reaction"]

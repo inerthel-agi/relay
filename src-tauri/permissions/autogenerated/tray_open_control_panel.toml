@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-tray-open-control-panel"
+description = "Enables the tray_open_control_panel command without any pre-configured scope."
+commands.allow = ["tray_open_control_panel"]
+
+[[permission]]
+identifier = "deny-tray-open-control-panel"
+description = "Denies the tray_open_control_panel command without any pre-configured scope."
+commands.deny = ["tray_open_control_panel"]

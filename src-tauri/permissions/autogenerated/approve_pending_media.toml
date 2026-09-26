@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-approve-pending-media"
+description = "Enables the approve_pending_media command without any pre-configured scope."
+commands.allow = ["approve_pending_media"]
+
+[[permission]]
+identifier = "deny-approve-pending-media"
+description = "Denies the approve_pending_media command without any pre-configured scope."
+commands.deny = ["approve_pending_media"]

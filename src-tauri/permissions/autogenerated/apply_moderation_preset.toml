@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-apply-moderation-preset"
+description = "Enables the apply_moderation_preset command without any pre-configured scope."
+commands.allow = ["apply_moderation_preset"]
+
+[[permission]]
+identifier = "deny-apply-moderation-preset"
+description = "Denies the apply_moderation_preset command without any pre-configured scope."
+commands.deny = ["apply_moderation_preset"]

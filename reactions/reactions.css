@@ -1,0 +1,4 @@
+html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
+#reaction { position: absolute; right: 12px; bottom: 12px; max-width: 90vw; color: white; font: 600 24px system-ui, sans-serif; text-shadow: 0 2px 4px #000; text-align: center; }
+#reaction[hidden], #visual[hidden] { display: none; }
+#visual { display: block; max-width: min(400px, 85vw); max-height: 75vh; object-fit: contain; margin: 0 auto 8px; }

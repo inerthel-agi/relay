@@ -1,0 +1,36 @@
+name: Bug report
+description: Report a reproducible Relay defect.
+title: "bug: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not report security or privacy vulnerabilities here. Follow SECURITY.md instead.
+        Never include Discord tokens, private output URLs, real messages, or personal media.
+  - type: input
+    id: version
+    attributes:
+      label: Relay version
+      description: Include the release version or commit.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Use fictional data and list the smallest reliable sequence.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: checkboxes
+    id: environment
+    attributes:
+      label: Environment
+      options:
+        - label: I included relevant Windows, OBS, Discord, or WebView2 details without sensitive values.
+          required: true

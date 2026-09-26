@@ -1,0 +1,59 @@
+name: Verify
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Windows quality checks
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Check Rust formatting
+        working-directory: src-tauri
+        run: cargo fmt --check
+
+      - name: Lint Rust
+        working-directory: src-tauri
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Test Rust
+        working-directory: src-tauri
+        run: cargo test
+
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+
+      - name: Audit Rust dependencies
+        working-directory: src-tauri
+        run: cargo audit
+
+      - name: Test interface and browser sources
+        shell: pwsh
+        run: |
+          $testFiles = Get-ChildItem -Path gui, overlay, notifications, stickers, reactions -Filter *.test.cjs -File |
+            ForEach-Object { $_.FullName }
+          node --test $testFiles

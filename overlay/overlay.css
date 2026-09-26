@@ -1,0 +1,488 @@
+:root {
+  --accent: rgb(88 185 137);
+  --font-scale: 1;
+  --content-scale: 1;
+  --crop-top: 0%;
+  --crop-right: 0%;
+  --crop-bottom: 0%;
+  --crop-left: 0%;
+  /* No forced color-scheme: `dark` paints opaque black in OBS CEF; `light` paints white in panel iframes. */
+  font-family: Bahnschrift, "Arial Narrow", sans-serif;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
+/* Browser iframes paint transparent pages as white in the panel preview.
+   Keep OBS transparent; only the local preview gets an opaque backdrop. */
+html.overlay-preview,
+html.overlay-preview body {
+  background: #000;
+}
+
+.widget-move-layer {
+  position: fixed;
+  z-index: 2147483647;
+  inset: 0;
+  display: none;
+  border: 2px dashed rgb(255 255 255 / 72%);
+  background: rgb(255 255 255 / 7%);
+  cursor: move;
+  user-select: none;
+  -webkit-app-region: drag;
+}
+
+.widget-move-badge {
+  position: absolute;
+  top: 6px;
+  left: 8px;
+  padding: 4px 9px;
+  border-radius: 6px;
+  color: #fff;
+  background: #111;
+  font: 700 12px Arial, sans-serif;
+  pointer-events: none;
+}
+
+.widget-move-badge,
+.audio-card__label,
+.audio-card__title,
+.audio-card__artist,
+.author__name,
+.overlay__caption {
+  font-size: calc(1em * var(--font-scale));
+}
+
+.audio-card__wave i {
+  background: var(--accent);
+}
+
+html.widget-edit .widget-move-layer {
+  display: block;
+}
+
+.overlay {
+  position: relative;
+  display: grid;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  clip-path: inset(var(--crop-top) var(--crop-right) var(--crop-bottom) var(--crop-left));
+  place-items: center;
+}
+
+.overlay__media {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: auto;
+  height: auto;
+  min-width: 0;
+  min-height: 0;
+  max-width: 100%;
+  max-height: 100%;
+  visibility: hidden;
+  opacity: 0;
+  object-fit: contain;
+  object-position: center;
+  transform: translate(-50%, -50%) scale(calc(var(--content-scale) * 0.985));
+  transition: opacity 320ms ease, transform 320ms ease;
+  will-change: opacity, transform;
+}
+
+.overlay__media.is-visible {
+  visibility: visible;
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(var(--content-scale));
+}
+
+.overlay__media.is-hiding {
+  visibility: visible;
+}
+
+.overlay__video {
+  background: transparent;
+}
+
+.youtube-player {
+  position: fixed;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  border: 0;
+  background: transparent;
+}
+
+/* OBS /youtube Browser Source: full-viewport player (audio + visible video). */
+.youtube-player--obs {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  opacity: 1;
+  overflow: hidden;
+  background: transparent;
+}
+
+.youtube-player--obs iframe {
+  width: 100% !important;
+  height: 100% !important;
+  border: 0;
+  background: transparent;
+}
+
+/* Compact OBS credit; widget mode expands this into a complete Now Playing card. */
+.youtube-credit {
+  position: absolute;
+  left: 1.25rem;
+  bottom: 1.25rem;
+  z-index: 2;
+  display: grid;
+  gap: 0.2rem;
+  max-width: min(420px, calc(100% - 2.5rem));
+  padding: 0.7rem 0.95rem;
+  border: var(--out-border) solid var(--out-line);
+  border-radius: var(--out-radius);
+  color: var(--out-ink);
+  background-color: var(--out-surface);
+  background-image: var(--out-surface-image);
+  background-size: var(--out-surface-size);
+  box-shadow: var(--out-shadow);
+  font-family: var(--out-font);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(6px);
+  transition: opacity 220ms ease, transform 220ms ease;
+}
+
+.youtube-credit__copy {
+  display: grid;
+  min-width: 0;
+  gap: 0.2rem;
+}
+
+.youtube-credit.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.youtube-credit[hidden] {
+  display: none;
+}
+
+.youtube-credit__label,
+.youtube-credit__source,
+.youtube-credit__time,
+.youtube-credit__transport {
+  display: none;
+}
+
+.youtube-credit__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--out-font-title);
+  font-size: 0.95rem;
+  font-stretch: var(--out-font-stretch);
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+
+.youtube-credit__meta {
+  display: flex;
+  min-width: 0;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.youtube-credit__added {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--out-muted);
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+
+.youtube-credit__title[hidden],
+.youtube-credit__source[hidden],
+.youtube-credit__added[hidden],
+.youtube-credit__time[hidden] {
+  display: none;
+}
+
+.youtube-credit--widget {
+  grid-template-columns: minmax(0, 1fr);
+  width: min(360px, calc(100% - 2rem));
+  max-width: none;
+  gap: 12px;
+  align-items: center;
+  padding: 10px;
+}
+
+.youtube-credit--widget .youtube-credit__copy {
+  gap: 3px;
+}
+
+.youtube-credit--widget .youtube-credit__label {
+  display: block;
+  color: var(--out-muted);
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: 0.16em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.youtube-credit--widget .youtube-credit__title {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.youtube-credit--widget .youtube-credit__source {
+  display: block;
+  overflow: hidden;
+  color: var(--out-muted);
+  font-size: 11px;
+  font-weight: 550;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.youtube-credit--widget .youtube-credit__meta {
+  color: var(--out-muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.youtube-credit--widget .youtube-credit__added {
+  color: inherit;
+  font-size: inherit;
+}
+
+.youtube-credit--widget .youtube-credit__time {
+  display: inline;
+  flex: none;
+  color: var(--out-ink);
+  font-size: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+.youtube-credit--widget .youtube-credit__time::before {
+  content: "·";
+  margin-right: 0.35rem;
+  color: var(--out-muted);
+}
+
+.youtube-credit--widget .youtube-credit__transport {
+  display: flex;
+  height: 11px;
+  gap: 7px;
+  align-items: center;
+}
+
+.youtube-credit__equalizer {
+  display: flex;
+  height: 10px;
+  gap: 2px;
+  align-items: center;
+}
+
+.youtube-credit__equalizer i {
+  width: 2px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--accent);
+  animation: youtube-credit-wave 650ms ease-in-out infinite alternate;
+}
+
+.youtube-credit__equalizer i:nth-child(2) { animation-delay: -320ms; }
+.youtube-credit__equalizer i:nth-child(3) { animation-delay: -510ms; }
+.youtube-credit__equalizer i:nth-child(4) { animation-delay: -180ms; }
+
+.youtube-credit__progress {
+  overflow: hidden;
+  width: 100%;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--out-track);
+}
+
+.youtube-credit__progress i {
+  display: block;
+  width: 0%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 240ms linear;
+}
+
+.youtube-credit--widget .youtube-credit__source[hidden],
+.youtube-credit--widget .youtube-credit__time[hidden] {
+  display: none;
+}
+
+@keyframes youtube-credit-wave {
+  to {
+    height: 10px;
+    opacity: 0.55;
+  }
+}
+
+.overlay__author {
+  position: absolute;
+  right: auto;
+  bottom: 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: var(--out-border) solid var(--out-line);
+  border-radius: var(--out-radius-pill);
+  color: var(--out-ink);
+  background-color: var(--out-surface);
+  background-image: var(--out-surface-image);
+  background-size: var(--out-surface-size);
+  box-shadow: var(--out-shadow);
+  opacity: 0;
+  font-family: var(--out-font-title);
+  font-size: 14px;
+  font-stretch: var(--out-font-stretch);
+  font-weight: 600;
+  letter-spacing: var(--out-name-spacing);
+  text-transform: var(--out-name-transform);
+  transform: translateY(8px) scale(var(--content-scale));
+  transform-origin: left top;
+  transition: opacity 240ms ease 80ms, transform 240ms ease 80ms;
+  box-sizing: border-box;
+}
+
+.overlay__author.is-visible {
+  opacity: 1;
+  transform: translateY(0) scale(var(--content-scale));
+}
+
+.overlay__author[hidden] {
+  display: none;
+}
+
+.overlay__avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--out-avatar-radius);
+  object-fit: cover;
+  flex: none;
+}
+
+.overlay__caption {
+  position: absolute;
+  bottom: 1.5rem;
+  left: 1.5rem;
+  display: -webkit-box;
+  width: fit-content;
+  max-width: min(62ch, calc(100% - 18rem));
+  max-height: 76px;
+  margin: 0;
+  overflow: hidden;
+  padding: 8px 10px;
+  box-sizing: border-box;
+  border: var(--out-border) solid var(--out-line);
+  border-radius: var(--out-radius-pill);
+  color: var(--out-ink);
+  background-color: var(--out-surface);
+  background-image: var(--out-surface-image);
+  background-size: var(--out-surface-size);
+  box-shadow: var(--out-shadow);
+  opacity: 0;
+  font-family: var(--out-font);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  transform: translateY(8px) scale(var(--content-scale));
+  transform-origin: left top;
+  transition: opacity 240ms ease 80ms, transform 240ms ease 80ms;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.overlay__caption.is-visible {
+  opacity: 1;
+  transform: translateY(0) scale(var(--content-scale));
+}
+
+.overlay__caption[hidden] {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .overlay__caption {
+    bottom: 4.75rem;
+    left: 1rem;
+    max-width: min(34ch, calc(100% - 2rem));
+    transform-origin: left bottom;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .overlay__media,
+  .audio-card,
+  .overlay__author,
+  .overlay__caption,
+  .youtube-credit {
+    transition-duration: 1ms;
+    transition-delay: 0ms;
+  }
+
+  .youtube-credit__equalizer i {
+    animation: none;
+  }
+}
+
+.overlay__author #author-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.audio-card__author {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+  color: var(--out-muted);
+  font-size: calc(12px * var(--font-scale));
+}
+.audio-card__author[hidden] { display: none; }
+.audio-card__author img {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex: none;
+}
+.audio-card__author span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Subtitle style: outlined text instead of pills (0px elsewhere). */
+.overlay__author,
+.overlay__caption,
+.youtube-credit__copy {
+  -webkit-text-stroke: var(--out-stroke) var(--out-stroke-color);
+  paint-order: stroke fill;
+}

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-tray-toggle-notification-widget"
+description = "Enables the tray_toggle_notification_widget command without any pre-configured scope."
+commands.allow = ["tray_toggle_notification_widget"]
+
+[[permission]]
+identifier = "deny-tray-toggle-notification-widget"
+description = "Denies the tray_toggle_notification_widget command without any pre-configured scope."
+commands.deny = ["tray_toggle_notification_widget"]

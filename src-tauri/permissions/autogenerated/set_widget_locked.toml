@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-widget-locked"
+description = "Enables the set_widget_locked command without any pre-configured scope."
+commands.allow = ["set_widget_locked"]
+
+[[permission]]
+identifier = "deny-set-widget-locked"
+description = "Denies the set_widget_locked command without any pre-configured scope."
+commands.deny = ["set_widget_locked"]

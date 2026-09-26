@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-move-music-queue"
+description = "Enables the move_music_queue command without any pre-configured scope."
+commands.allow = ["move_music_queue"]
+
+[[permission]]
+identifier = "deny-move-music-queue"
+description = "Denies the move_music_queue command without any pre-configured scope."
+commands.deny = ["move_music_queue"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-save-music-queue-settings"
+description = "Enables the save_music_queue_settings command without any pre-configured scope."
+commands.allow = ["save_music_queue_settings"]
+
+[[permission]]
+identifier = "deny-save-music-queue-settings"
+description = "Denies the save_music_queue_settings command without any pre-configured scope."
+commands.deny = ["save_music_queue_settings"]

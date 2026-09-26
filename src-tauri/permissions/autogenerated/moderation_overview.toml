@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-moderation-overview"
+description = "Enables the moderation_overview command without any pre-configured scope."
+commands.allow = ["moderation_overview"]
+
+[[permission]]
+identifier = "deny-moderation-overview"
+description = "Denies the moderation_overview command without any pre-configured scope."
+commands.deny = ["moderation_overview"]

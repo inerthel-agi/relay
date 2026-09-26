@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-clear-overlay"
+description = "Enables the clear_overlay command without any pre-configured scope."
+commands.allow = ["clear_overlay"]
+
+[[permission]]
+identifier = "deny-clear-overlay"
+description = "Denies the clear_overlay command without any pre-configured scope."
+commands.deny = ["clear_overlay"]

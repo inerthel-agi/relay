@@ -1,0 +1,334 @@
+:root {
+  --accent: rgb(88 185 137);
+  --font-scale: 1;
+  --content-scale: 1;
+  --crop-top: 0%;
+  --crop-right: 0%;
+  --crop-bottom: 0%;
+  --crop-left: 0%;
+  /* No forced color-scheme: `dark` paints opaque black in OBS CEF; `light` paints white in panel iframes. */
+  font-family: var(--out-font, Bahnschrift, "Segoe UI Variable Display", sans-serif);
+}
+
+.notification-move-badge {
+  font-size: calc(1em * var(--font-scale));
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
+.notification-stage {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  box-sizing: border-box;
+  padding: 16px;
+  clip-path: inset(var(--crop-top) var(--crop-right) var(--crop-bottom) var(--crop-left));
+  pointer-events: none;
+}
+
+.notification-card {
+  /* Defaults to root --content-scale; widget mode refits from card height. */
+  --notification-scale: var(--content-scale);
+  position: relative;
+  display: grid;
+  grid-template-columns: calc(32px * var(--notification-scale)) minmax(0, 1fr);
+  /* Compact: the card follows its text between 220 and 340 px. */
+  width: fit-content;
+  min-width: min(calc(220px * var(--notification-scale)), calc(100vw - 32px));
+  max-width: min(calc(340px * var(--notification-scale)), calc(100vw - 32px));
+  min-height: calc(56px * var(--notification-scale));
+  box-sizing: border-box;
+  gap: calc(10px * var(--notification-scale));
+  align-content: center;
+  align-items: center;
+  padding: calc(10px * var(--notification-scale)) calc(14px * var(--notification-scale)) calc(10px * var(--notification-scale)) calc(10px * var(--notification-scale));
+  overflow: hidden;
+  /* Opaque border and fill (outputs/theme.css) — translucent edges fringe as a black halo in WebView2/OBS. */
+  border: var(--out-border) solid var(--out-line);
+  border-radius: calc(var(--out-radius) * var(--notification-scale));
+  color: var(--out-ink);
+  background-color: var(--out-surface);
+  background-image: var(--out-surface-image);
+  background-size: var(--out-surface-size);
+  box-shadow: var(--out-shadow);
+  font-family: var(--out-font);
+  filter: none;
+  isolation: isolate;
+  opacity: 0;
+  transform: var(--out-enter-from);
+  transform-origin: right top;
+  clip-path: var(--out-clip-from);
+  /* display is discrete so the exit plays before the card leaves the layout. */
+  transition:
+    opacity var(--out-exit-duration) var(--out-exit-ease),
+    transform var(--out-exit-duration) var(--out-exit-ease),
+    clip-path var(--out-exit-duration) var(--out-exit-ease),
+    display var(--out-exit-duration) allow-discrete;
+}
+
+.notification-card.is-visible {
+  opacity: 1;
+  transform: none;
+  clip-path: var(--out-clip-to);
+  transition-duration: var(--out-enter-duration);
+  transition-timing-function: var(--out-enter-ease);
+}
+
+@starting-style {
+  .notification-card.is-visible {
+    opacity: 0;
+    transform: var(--out-enter-from);
+    clip-path: var(--out-clip-from);
+  }
+}
+
+/* Do not leave an opacity:0 opaque fill on transparent
+   WebView2 / widget chrome (absolute inset:4px would paint a large black hole). */
+.notification-card[aria-hidden="true"] {
+  display: none;
+}
+
+.notification-card[aria-hidden="false"] {
+  display: grid;
+}
+
+.notification-card__avatar-shell {
+  position: relative;
+  width: calc(32px * var(--notification-scale));
+  height: calc(32px * var(--notification-scale));
+}
+
+.notification-card__avatar {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  border: var(--out-avatar-border) solid var(--out-line);
+  border-radius: var(--out-avatar-radius);
+  object-fit: cover;
+  background: #050505;
+}
+
+.notification-card__copy {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  align-content: center;
+  gap: calc(2px * var(--notification-scale));
+}
+
+.notification-card__identity {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: calc(6px * var(--notification-scale));
+  flex-wrap: wrap;
+}
+
+/* The name is the label, the message is the content. */
+.notification-card__author {
+  min-width: 0;
+  overflow: hidden;
+  padding: var(--out-name-pad);
+  color: var(--out-name-ink);
+  background: var(--out-name-bg);
+  font-family: var(--out-font-title);
+  font-size: calc(var(--out-name-size) * var(--font-scale) * var(--notification-scale));
+  font-stretch: var(--out-font-stretch);
+  font-weight: var(--out-name-weight);
+  line-height: 1.25;
+  letter-spacing: var(--out-name-spacing);
+  text-overflow: ellipsis;
+  text-transform: var(--out-name-transform);
+  white-space: nowrap;
+}
+
+.notification-card__tag {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: calc(3px * var(--notification-scale));
+  padding: calc(2px * var(--notification-scale)) calc(5px * var(--notification-scale));
+  border: 1px solid color-mix(in srgb, var(--out-ink) 12%, transparent);
+  border-radius: calc(4px * var(--notification-scale));
+  color: var(--out-muted);
+  background: color-mix(in srgb, var(--out-ink) 10%, transparent);
+  font-size: calc(10px * var(--font-scale) * var(--notification-scale));
+  font-weight: 750;
+  line-height: 1;
+  letter-spacing: 0.02em;
+}
+
+.notification-card__tag[hidden],
+.notification-card__tag-badge[hidden] {
+  display: none;
+}
+
+.notification-card__tag-badge {
+  width: calc(12px * var(--notification-scale));
+  height: calc(12px * var(--notification-scale));
+  object-fit: contain;
+}
+
+.notification-card__message {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: var(--out-ink);
+  font-family: var(--out-font);
+  font-size: calc(var(--out-message-size) * var(--font-scale) * var(--notification-scale));
+  font-weight: var(--out-message-weight);
+  line-height: var(--out-message-leading);
+  text-wrap: pretty;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+/* Subtitle style: outlined text instead of a card (0px elsewhere). */
+.notification-card__author,
+.notification-card__message {
+  -webkit-text-stroke: var(--out-stroke) var(--out-stroke-color);
+  paint-order: stroke fill;
+}
+
+/* A full-width stroke swallows small text: the name gets a thinner outline. */
+.notification-card__author {
+  -webkit-text-stroke-width: calc(var(--out-stroke) * 0.7);
+}
+
+/* Subtitle has no card, so the server tag and avatar carry their own solid outline. */
+:root[data-output-style="subtitle"] .notification-card__tag {
+  border-color: var(--out-stroke-color);
+  color: var(--out-ink);
+  background: var(--out-stroke-color);
+}
+
+:root[data-output-style="subtitle"] .notification-card__avatar {
+  border-color: var(--out-stroke-color);
+}
+
+.notification-card__emoji {
+  width: 1.35em;
+  height: 1.35em;
+  margin: 0 0.08em;
+  vertical-align: -0.3em;
+  object-fit: contain;
+}
+
+.notification-card__sticker {
+  width: calc(56px * var(--notification-scale));
+  height: calc(56px * var(--notification-scale));
+  vertical-align: middle;
+  object-fit: contain;
+}
+
+.notification-card__signal {
+  display: none;
+}
+
+.notification-move-layer {
+  position: fixed;
+  z-index: 2147483647;
+  inset: 0;
+  display: none;
+  box-sizing: border-box;
+  border: 2px dashed color-mix(in srgb, var(--accent) 82%, transparent);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  cursor: move;
+  user-select: none;
+  /* Prefer Tauri startDragging (see notifications.js). -webkit-app-region
+     alone can fight the WebView2 host on transparent windows. */
+  -webkit-app-region: no-drag;
+}
+
+.notification-move-badge {
+  position: absolute;
+  top: 5px;
+  left: 7px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  color: #fff;
+  background: #0a0c10;
+  font-size: 10px;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+html.notification-widget .notification-stage {
+  padding: 4px;
+}
+
+/* Fill the dedicated TTS widget. Its native width is user-configurable, so
+   capping the card below that width left a visible transparent strip. */
+html.notification-widget .notification-card {
+  position: relative;
+  inset: auto;
+  width: 100%;
+  max-width: 360px;
+  /* Keep the rounded bottom edge inside a short native widget window. */
+  height: auto;
+  max-height: 100%;
+  min-height: 0;
+  --notification-scale: calc(
+    var(--content-scale) * clamp(
+      0.85,
+      min((100vh - 8px) / 94px, (100vw - 8px) / 390px),
+      1.15
+    )
+  );
+  gap: calc(10px * var(--notification-scale));
+  padding: calc(6px * var(--notification-scale)) calc(10px * var(--notification-scale))
+    calc(6px * var(--notification-scale)) calc(12px * var(--notification-scale));
+  align-self: center;
+}
+
+html.widget-edit .notification-move-layer {
+  display: block;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notification-card {
+    transition-duration: 1ms;
+  }
+}
+
+/* Use the audio card's visual language without a redundant side signal. */
+.notification-card__message:has(.notification-card__sticker) {
+  display: block;
+  -webkit-line-clamp: unset;
+}
+.notification-card__sticker {
+  max-width: 100%;
+  margin: 4px 4px 0 0;
+}
+.notification-card.is-sticker-only {
+  grid-template-columns: calc(32px * var(--notification-scale)) minmax(0, 1fr) auto;
+  width: fit-content;
+  max-width: min(360px, calc(100vw - 32px));
+}
+.notification-card.is-sticker-only .notification-card__copy { display: contents; }
+.notification-card.is-sticker-only .notification-card__message { margin: 0; }
+.notification-card.is-sticker-only .notification-card__identity { min-width: 72px; }
+.notification-card.is-sticker-only .notification-card__sticker { margin: 0; }
+html.notification-widget .notification-card.is-sticker-only { width: fit-content; max-width: min(360px, 100%); }
+html.notification-widget .notification-card__sticker {
+  width: min(calc(56px * var(--notification-scale)), max(32px, calc(100vh - 24px)));
+  height: min(calc(56px * var(--notification-scale)), max(32px, calc(100vh - 24px)));
+}
+
+/* Text cards in the Windows widget fill the window the user sized. */
+html.notification-widget .notification-card:not(.is-sticker-only) {
+  width: 100%;
+  max-width: 400px;
+  min-height: min(calc(56px * var(--notification-scale)), calc(100vh - 8px));
+  padding: calc(8px * var(--notification-scale)) calc(14px * var(--notification-scale)) calc(8px * var(--notification-scale)) calc(10px * var(--notification-scale));
+}

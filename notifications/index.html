@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Relay</title>
+    <link rel="stylesheet" href="/output-theme.css">
+    <link rel="stylesheet" href="/notification-assets/notifications.css">
+  </head>
+  <body>
+    <main class="notification-stage" aria-live="polite">
+      <article id="notification" class="notification-card" aria-hidden="true">
+        <div class="notification-card__avatar-shell">
+          <img id="notification-avatar" class="notification-card__avatar" src="/overlay-assets/relay-radar.png" alt="">
+        </div>
+        <div class="notification-card__copy">
+          <div class="notification-card__identity">
+            <strong id="notification-author" class="notification-card__author"></strong>
+            <span id="notification-guild-tag" class="notification-card__tag" hidden>
+              <img id="notification-guild-tag-badge" class="notification-card__tag-badge" alt="">
+              <span id="notification-guild-tag-name"></span>
+            </span>
+          </div>
+          <p id="notification-message" class="notification-card__message"></p>
+        </div>
+        <span class="notification-card__signal" aria-hidden="true"></span>
+      </article>
+      <audio id="notification-clock" muted preload="auto"></audio>
+    </main>
+    <div id="notification-move-layer" class="notification-move-layer" data-tauri-drag-region>
+      <span id="notification-move-label" class="notification-move-badge">Move notification</span>
+    </div>
+    <script src="/output-theme.js" defer></script>
+    <script src="/notification-assets/notifications.js" defer></script>
+  </body>
+</html>

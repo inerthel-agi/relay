@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-media-caption-visibility"
+description = "Enables the set_media_caption_visibility command without any pre-configured scope."
+commands.allow = ["set_media_caption_visibility"]
+
+[[permission]]
+identifier = "deny-set-media-caption-visibility"
+description = "Denies the set_media_caption_visibility command without any pre-configured scope."
+commands.deny = ["set_media_caption_visibility"]

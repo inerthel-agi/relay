@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-tray-toggle-media-widget"
+description = "Enables the tray_toggle_media_widget command without any pre-configured scope."
+commands.allow = ["tray_toggle_media_widget"]
+
+[[permission]]
+identifier = "deny-tray-toggle-media-widget"
+description = "Denies the tray_toggle_media_widget command without any pre-configured scope."
+commands.deny = ["tray_toggle_media_widget"]

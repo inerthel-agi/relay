@@ -1,0 +1,196 @@
+.audio-card {
+  position: absolute;
+  box-sizing: border-box;
+  top: 16px;
+  left: auto;
+  right: 4px;
+  z-index: 3;
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  width: min(400px, calc(100% - 32px));
+  gap: 12px;
+  align-items: center;
+  padding: 14px;
+  /* Shared stream style (outputs/theme.css); edges stay opaque for OBS. */
+  border: var(--out-border) solid var(--out-line);
+  border-radius: var(--out-radius);
+  color: var(--out-ink);
+  background-color: var(--out-surface);
+  background-image: var(--out-surface-image);
+  background-size: var(--out-surface-size);
+  box-shadow: var(--out-shadow);
+  font-family: var(--out-font);
+  filter: none;
+  isolation: isolate;
+  visibility: hidden;
+  opacity: 0;
+  transform: translateY(10px) scale(calc(var(--content-scale) * 0.985));
+  transform-origin: right top;
+  transition: opacity 260ms ease, transform 260ms ease;
+}
+.audio-card.is-visible,
+.audio-card.is-hiding {
+  visibility: visible;
+}
+
+.audio-card.is-visible {
+  opacity: 1;
+  transform: translateY(0) scale(var(--content-scale));
+}
+
+.audio-card[hidden] {
+  display: none;
+}
+
+.audio-card__artwork {
+  width: 112px;
+  height: 112px;
+  border-radius: var(--out-radius-inner);
+  object-fit: cover;
+  background: #050505;
+}
+
+.audio-card__copy {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.audio-card__label {
+  color: var(--out-muted);
+  font-family: var(--out-font-title);
+  font-stretch: var(--out-font-stretch);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.audio-card__title {
+  overflow: hidden;
+  font-family: var(--out-font-title);
+  font-size: clamp(16px, 3vw, 22px);
+  font-stretch: var(--out-font-stretch);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.audio-card__artist {
+  overflow: hidden;
+  color: var(--out-muted);
+  font-size: 14px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.audio-card__caption {
+  display: -webkit-box;
+  max-width: 100%;
+  max-height: 2.8em;
+  margin: 0;
+  overflow: hidden;
+  color: var(--out-ink);
+  font-size: calc(14px * var(--font-scale));
+  font-weight: 500;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 240ms ease 80ms, transform 240ms ease 80ms;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.audio-card__caption.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.audio-card__caption[hidden] {
+  display: none;
+}
+
+.audio-card__transport {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.audio-card__wave {
+  display: flex;
+  align-items: center;
+  height: 24px;
+  gap: 5px;
+}
+
+.audio-card__wave i {
+  width: 3px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--accent);
+  animation: wave 900ms ease-in-out infinite alternate;
+}
+
+.audio-card__wave i:nth-child(2),
+.audio-card__wave i:nth-child(4) {
+  animation-delay: -420ms;
+}
+
+.audio-card__wave i:nth-child(3) {
+  animation-delay: -680ms;
+}
+
+.audio-card__progress {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--out-track);
+}
+
+.audio-card__progress[hidden] {
+  display: none;
+}
+
+.audio-card__progress-fill {
+  display: block;
+  width: 0%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 160ms linear;
+}
+
+.audio-card__time {
+  color: var(--out-muted);
+  font-size: calc(12px * var(--font-scale));
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.audio-card__time[hidden] {
+  display: none;
+}
+
+@keyframes wave {
+  to {
+    height: 22px;
+    opacity: 0.45;
+  }
+}
+
+/* Subtitle style: outlined text instead of a card (0px elsewhere). */
+.audio-card__label,
+.audio-card__title,
+.audio-card__artist,
+.audio-card__caption,
+.audio-card__author,
+.audio-card__time {
+  -webkit-text-stroke: var(--out-stroke) var(--out-stroke-color);
+  paint-order: stroke fill;
+}

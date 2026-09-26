@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-notification-sound-obs-enabled"
+description = "Enables the set_notification_sound_obs_enabled command without any pre-configured scope."
+commands.allow = ["set_notification_sound_obs_enabled"]
+
+[[permission]]
+identifier = "deny-set-notification-sound-obs-enabled"
+description = "Denies the set_notification_sound_obs_enabled command without any pre-configured scope."
+commands.deny = ["set_notification_sound_obs_enabled"]

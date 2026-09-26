@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-save-custom-commands"
+description = "Enables the save_custom_commands command without any pre-configured scope."
+commands.allow = ["save_custom_commands"]
+
+[[permission]]
+identifier = "deny-save-custom-commands"
+description = "Denies the save_custom_commands command without any pre-configured scope."
+commands.deny = ["save_custom_commands"]

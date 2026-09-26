@@ -1,0 +1,62 @@
+@font-face {
+  font-family: "Relay Bricolage Grotesque";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./assets/fonts/BricolageGrotesque.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Relay DM Sans";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./assets/fonts/DMSans.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Relay Figtree";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./assets/fonts/Figtree.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Relay Inter";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./assets/fonts/Inter.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Relay JetBrains Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./assets/fonts/JetBrainsMono.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Relay Manrope";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./assets/fonts/Manrope.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Relay Poppins";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./assets/fonts/Poppins.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Relay Space Grotesk";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./assets/fonts/SpaceGrotesk.woff2") format("woff2");
+}

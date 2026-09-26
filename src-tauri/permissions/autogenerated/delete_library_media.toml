@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-delete-library-media"
+description = "Enables the delete_library_media command without any pre-configured scope."
+commands.allow = ["delete_library_media"]
+
+[[permission]]
+identifier = "deny-delete-library-media"
+description = "Denies the delete_library_media command without any pre-configured scope."
+commands.deny = ["delete_library_media"]

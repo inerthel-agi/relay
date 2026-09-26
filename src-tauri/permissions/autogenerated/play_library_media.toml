@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-play-library-media"
+description = "Enables the play_library_media command without any pre-configured scope."
+commands.allow = ["play_library_media"]
+
+[[permission]]
+identifier = "deny-play-library-media"
+description = "Denies the play_library_media command without any pre-configured scope."
+commands.deny = ["play_library_media"]

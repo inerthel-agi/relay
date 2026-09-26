@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-preview-music-cleanup"
+description = "Enables the preview_music_cleanup command without any pre-configured scope."
+commands.allow = ["preview_music_cleanup"]
+
+[[permission]]
+identifier = "deny-preview-music-cleanup"
+description = "Denies the preview_music_cleanup command without any pre-configured scope."
+commands.deny = ["preview_music_cleanup"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-obs-install-sources"
+description = "Enables the obs_install_sources command without any pre-configured scope."
+commands.allow = ["obs_install_sources"]
+
+[[permission]]
+identifier = "deny-obs-install-sources"
+description = "Denies the obs_install_sources command without any pre-configured scope."
+commands.deny = ["obs_install_sources"]

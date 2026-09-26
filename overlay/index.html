@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="relay-mode" content="all">
+    <title>Relay</title>
+    <link rel="stylesheet" href="/output-theme.css">
+    <link rel="stylesheet" href="/overlay-assets/overlay.css">
+    <link rel="stylesheet" href="/overlay-assets/audio-card.css">
+  </head>
+  <body>
+    <main id="overlay" class="overlay" aria-live="polite">
+      <img id="image" class="overlay__media overlay__image" alt="">
+      <video id="video" class="overlay__media overlay__video" playsinline preload="auto"></video>
+      <section id="audio-card" class="audio-card" hidden>
+        <img id="audio-artwork" class="audio-card__artwork" src="/overlay-assets/relay-radar.png" alt="">
+        <div class="audio-card__copy">
+          <span class="audio-card__label">Now playing</span>
+          <strong id="audio-title" class="audio-card__title"></strong>
+          <span id="audio-artist" class="audio-card__artist" hidden></span>
+          <div id="audio-author" class="audio-card__author" hidden>
+            <img id="audio-author-avatar" alt="">
+            <span id="audio-author-name"></span>
+          </div>
+          <p id="audio-media-text" class="audio-card__caption" hidden></p>
+          <div class="audio-card__transport">
+            <span class="audio-card__wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+            <div
+              id="audio-progress"
+              class="audio-card__progress"
+              role="progressbar"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              aria-valuenow="0"
+              hidden
+            >
+              <span id="audio-progress-fill" class="audio-card__progress-fill"></span>
+            </div>
+            <span id="audio-time" class="audio-card__time" hidden></span>
+          </div>
+        </div>
+      </section>
+      <audio id="audio" preload="auto"></audio>
+      <div id="youtube-player" class="youtube-player" aria-hidden="true"></div>
+      <aside id="youtube-credit" class="youtube-credit" hidden aria-hidden="true">
+        <div class="youtube-credit__copy">
+          <span id="youtube-credit-label" class="youtube-credit__label">Now playing</span>
+          <strong id="youtube-credit-channel" class="youtube-credit__title"></strong>
+          <span id="youtube-credit-source" class="youtube-credit__source" hidden></span>
+          <div class="youtube-credit__meta">
+            <span id="youtube-credit-added" class="youtube-credit__added"></span>
+            <span id="youtube-credit-time" class="youtube-credit__time" hidden></span>
+          </div>
+          <div class="youtube-credit__transport" aria-hidden="true">
+            <span class="youtube-credit__equalizer"><i></i><i></i><i></i><i></i></span>
+            <span class="youtube-credit__progress">
+              <i id="youtube-credit-progress-fill"></i>
+            </span>
+          </div>
+        </div>
+      </aside>
+      <section id="author" class="overlay__author" hidden>
+        <img id="author-avatar" class="overlay__avatar" alt="">
+        <span id="author-name"></span>
+      </section>
+      <p id="media-text" class="overlay__caption" hidden></p>
+    </main>
+    <div id="widget-move-layer" class="widget-move-layer" data-tauri-drag-region>
+      <span id="widget-move-label" class="widget-move-badge">Move overlay</span>
+    </div>
+    <script src="/output-layout.js" defer></script>
+    <script src="/output-theme.js" defer></script>
+    <script src="/overlay-assets/overlay.js" defer></script>
+  </body>
+</html>

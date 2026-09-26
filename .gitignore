@@ -1,0 +1,22 @@
+.env
+.env.*
+!.env.example
+config.json
+config.json.tmp
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/target-*/
+src-tauri/gen/
+*.log
+
+# AI agent / assistant files (local-only)
+AGENTS.md
+CLAUDE.md
+REMNANT.md
+GEMINI.md
+.agents/
+.claude/
+.codex/
+.cursor/
+.gemini/

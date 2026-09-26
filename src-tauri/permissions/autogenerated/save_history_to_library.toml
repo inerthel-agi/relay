@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-save-history-to-library"
+description = "Enables the save_history_to_library command without any pre-configured scope."
+commands.allow = ["save_history_to_library"]
+
+[[permission]]
+identifier = "deny-save-history-to-library"
+description = "Denies the save_history_to_library command without any pre-configured scope."
+commands.deny = ["save_history_to_library"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-preview-output-sample"
+description = "Enables the preview_output_sample command without any pre-configured scope."
+commands.allow = ["preview_output_sample"]
+
+[[permission]]
+identifier = "deny-preview-output-sample"
+description = "Denies the preview_output_sample command without any pre-configured scope."
+commands.deny = ["preview_output_sample"]

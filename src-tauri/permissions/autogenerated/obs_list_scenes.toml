@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-obs-list-scenes"
+description = "Enables the obs_list_scenes command without any pre-configured scope."
+commands.allow = ["obs_list_scenes"]
+
+[[permission]]
+identifier = "deny-obs-list-scenes"
+description = "Denies the obs_list_scenes command without any pre-configured scope."
+commands.deny = ["obs_list_scenes"]

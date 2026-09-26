@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-interface-preferences"
+description = "Enables the set_interface_preferences command without any pre-configured scope."
+commands.allow = ["set_interface_preferences"]
+
+[[permission]]
+identifier = "deny-set-interface-preferences"
+description = "Denies the set_interface_preferences command without any pre-configured scope."
+commands.deny = ["set_interface_preferences"]

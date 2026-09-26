@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-toggle-widget"
+description = "Enables the toggle_widget command without any pre-configured scope."
+commands.allow = ["toggle_widget"]
+
+[[permission]]
+identifier = "deny-toggle-widget"
+description = "Denies the toggle_widget command without any pre-configured scope."
+commands.deny = ["toggle_widget"]
