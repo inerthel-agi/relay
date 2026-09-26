@@ -78,6 +78,7 @@ This changelog is maintained in English. Interface translations are maintained i
 
 #### Fixed
 
+- Updated rustls to 0.23.45 and rustls-webpki to 0.103.15 to address RUSTSEC-2026-0285.
 - Bind Discord control commands to the server of the channel they control, including channel-lock restoration.
 - Apply member admission rules to deferred GIF updates and preserve rejected or held decisions without counting accepted updates twice.
 - Normalize URL authorities before checking invite, shortener and scam-domain filters.
