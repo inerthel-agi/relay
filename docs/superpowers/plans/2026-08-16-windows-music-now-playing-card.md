@@ -39,7 +39,7 @@ channelTitle: "JennieRubyJaneVEVO",
 thumbnail: "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
 durationSeconds: 219,
 startSeconds: 0,
-requestedBy: "stealthy",
+requestedBy: "inerthel",
 ```
 
 Assert the card displays its thumbnail, label, title, channel, requester, initial `0:00 → 3:39` range, and widget modifier class. Set the fake player current time to `62`, execute the 1000 ms timer, and assert `1:02 → 3:39` plus progress near `28.31%`. Stop playback and assert the card is hidden and cleared.

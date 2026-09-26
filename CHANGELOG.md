@@ -13,6 +13,12 @@ This changelog is maintained in English. Interface translations are maintained i
 
 ## [Unreleased]
 
+### English
+
+#### Changed
+
+- Replaced legacy branding in public metadata, documentation and test fixtures with inerthel.
+
 ## [1.4.0] - 2026-09-26
 
 ### English
@@ -166,7 +172,7 @@ This changelog is maintained in English. Interface translations are maintained i
 
 #### Changed
 
-- Updated release, changelog, and updater links to the current stealthsrc/relay repository.
+- Updated release, changelog, and updater links to the official Relay repository.
 - Notifications are wider and display up to six text lines, wrapping long text even without spaces.
 - The OBS music credit shows the track title and Discord requester instead of the YouTube channel name.
 

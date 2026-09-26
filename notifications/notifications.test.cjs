@@ -616,7 +616,7 @@ test("notifications show enabled Discord guild tags without a timestamp", () => 
       tts: {
         text: "Tagged notification",
         visualOnly: true,
-        author: { username: "Stealthy." },
+        author: { username: "inerthel" },
         guildTag: {
           name: "RE",
           badgeUrl: "https://cdn.discordapp.com/guild-tag-badges/1/badge.png",
@@ -626,7 +626,7 @@ test("notifications show enabled Discord guild tags without a timestamp", () => 
     },
   }));
 
-  assert.equal(elements["#notification-author"].textContent, "Stealthy.");
+  assert.equal(elements["#notification-author"].textContent, "inerthel");
   assert.equal(elements["#notification-guild-tag"].hidden, false);
   assert.equal(elements["#notification-guild-tag-name"].textContent, "RE");
   assert.equal(elements["#notification-guild-tag-badge"].hidden, false);

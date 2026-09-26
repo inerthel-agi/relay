@@ -500,14 +500,14 @@ test("media overlay reads the camelCase Discord avatar and falls back locally", 
       kind: "image",
       url: "https://cdn.discordapp.com/media.png",
       author: {
-        username: "Stealthy",
+        username: "inerthel",
         displayAvatarUrl: "https://cdn.discordapp.com/avatar.png",
       },
     },
   }));
 
   assert.equal(avatar.src, "https://cdn.discordapp.com/avatar.png");
-  assert.equal(elements["#author-name"].textContent, "Stealthy");
+  assert.equal(elements["#author-name"].textContent, "inerthel");
   assert.equal(elements["#author"].hidden, false);
 
   avatar.onerror();
@@ -681,7 +681,7 @@ test("YouTube music uses the official IFrame player and rejects stale stops", as
       endSeconds: 30,
       channelTitle: "Rick Astley",
       title: "Never Gonna Give You Up",
-      requestedBy: "stealthy",
+      requestedBy: "inerthel",
     },
   }));
   await Promise.resolve();
@@ -705,7 +705,7 @@ test("YouTube music uses the official IFrame player and rejects stale stops", as
     endSeconds: 30,
   }));
   assert.equal(audio.elements["#youtube-credit-channel"].textContent, "Never Gonna Give You Up");
-  assert.equal(audio.elements["#youtube-credit-added"].textContent, "Added by stealthy");
+  assert.equal(audio.elements["#youtube-credit-added"].textContent, "Added by inerthel");
   assert.equal(audio.elements["#youtube-credit"].hidden, false);
 
   audio.socket.emit("message", JSON.stringify({
@@ -904,7 +904,7 @@ test("Windows combined overlay owns full-frame YouTube playback", async () => {
       channelTitle: "JennieRubyJaneVEVO",
       thumbnail: "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
       durationSeconds: 219,
-      requestedBy: "stealthy",
+      requestedBy: "inerthel",
     },
   }));
   await Promise.resolve();
@@ -922,7 +922,7 @@ test("Windows combined overlay owns full-frame YouTube playback", async () => {
   assert.equal(widget.elements["#youtube-credit-label"].textContent, "Now playing");
   assert.equal(
     widget.elements["#youtube-credit-added"].textContent,
-    "Added by stealthy",
+    "Added by inerthel",
   );
   assert.equal(widget.elements["#youtube-credit-time"].textContent, "0:00 → 3:39");
   assert.equal(widget.elements["#youtube-credit"].classList.contains("youtube-credit--widget"), true);

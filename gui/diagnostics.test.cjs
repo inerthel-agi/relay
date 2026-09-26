@@ -41,9 +41,9 @@ test("every error category is translated in all interface languages", () => {
 test("sanitizing removes tokens, private link secrets, Discord IDs and the Windows user name", () => {
   const text = sanitizeDiagnosticText(
     "token fake-discord-token-value.abcdef.not-a-real-token-only-for-tests at http://localhost:4590/obs/visual?secret=abc123 "
-    + "channel 123456789012345678 in C:\\Users\\stealthy\\AppData",
+    + "channel 123456789012345678 in C:\\Users\\inerthel\\AppData",
   );
-  assert.doesNotMatch(text, /fake-discord-token|abc123|123456789012345678|stealthy/);
+  assert.doesNotMatch(text, /fake-discord-token|abc123|123456789012345678|inerthel/);
   assert.match(text, /\[discord-token\]/);
   assert.match(text, /secret=\[redacted\]/);
   assert.match(text, /C:\\Users\\\[user\]/);

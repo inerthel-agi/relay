@@ -9,7 +9,7 @@ Report issues against the latest Relay release or the current `main` branch. Old
 ## Reporting a vulnerability
 
 1. Use GitHub's private vulnerability reporting flow when the repository exposes **Report a vulnerability**.
-2. If private reporting is unavailable, email `125747450+stealthsrc@users.noreply.github.com` with the subject prefix `[Relay security]`.
+2. If private reporting is unavailable, email `contact@inerthel.com` with the subject prefix `[Relay security]`.
 3. Do not open a public issue, discussion, pull request, or Discord message containing exploit details before a fix is available.
 
 Include the affected Relay version, Windows version, a minimal reproduction using fictional data, expected and actual behavior, and any mitigation already tested.

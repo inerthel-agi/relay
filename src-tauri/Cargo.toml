@@ -2,7 +2,7 @@
 name = "relay"
 version = "1.4.0"
 description = "Local Discord media relay for OBS"
-authors = ["StealthyLabs <125747450+stealthsrc@users.noreply.github.com>"]
+authors = ["inerthel <contact@inerthel.com>"]
 edition = "2024"
 
 [lib]

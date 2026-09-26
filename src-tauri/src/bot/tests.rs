@@ -158,7 +158,7 @@ fn channel_commands_reject_foreign_guilds() {
 fn extracts_only_enabled_discord_guild_tags() {
     let tagged_user: User = serde_json::from_value(serde_json::json!({
         "id": "123456789012345678",
-        "username": "Stealthy.",
+        "username": "inerthel",
         "primary_guild": {
             "identity_guild_id": "987654321098765432",
             "identity_enabled": true,
@@ -178,7 +178,7 @@ fn extracts_only_enabled_discord_guild_tags() {
 
     let hidden_user: User = serde_json::from_value(serde_json::json!({
         "id": "123456789012345678",
-        "username": "Stealthy.",
+        "username": "inerthel",
         "primary_guild": {
             "identity_guild_id": "987654321098765432",
             "identity_enabled": false,

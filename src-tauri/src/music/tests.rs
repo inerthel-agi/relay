@@ -17,7 +17,7 @@ fn selection() -> MusicSelection {
 fn selection_with_id(video_id: &str) -> MusicSelection {
     MusicSelection {
         owner_id: 7,
-        owner_name: "stealthy".into(),
+        owner_name: "inerthel".into(),
         channel_id: 9,
         track: track(video_id, 90),
     }
@@ -109,7 +109,7 @@ fn only_the_requester_can_select_and_take_a_track() {
         SearchSelection::NotOwner
     );
     let SearchSelection::Selected(selection_id) =
-        state.select_search(&search_id, 7, "stealthy", "video-1")
+        state.select_search(&search_id, 7, "inerthel", "video-1")
     else {
         panic!("expected a selection");
     };
@@ -132,7 +132,7 @@ fn rejected_playback_can_restore_the_pending_selection() {
     let mut state = MusicState::default();
     let search_id = state.insert_search(7, 9, "test".into(), vec![track("video-1", 90)]);
     let SearchSelection::Selected(selection_id) =
-        state.select_search(&search_id, 7, "stealthy", "video-1")
+        state.select_search(&search_id, 7, "inerthel", "video-1")
     else {
         panic!("expected a selection");
     };
@@ -156,7 +156,7 @@ fn preview_is_cut_at_thirty_seconds_and_full_has_no_cutoff() {
         panic!("expected started");
     };
     assert_eq!(preview.end_seconds, Some(30));
-    assert_eq!(preview.requested_by, "stealthy");
+    assert_eq!(preview.requested_by, "inerthel");
     // Second start queues while the first is still current.
     let MusicStartResult::Queued {
         playback: full,
@@ -320,7 +320,7 @@ fn start_custom_sets_the_validated_window() {
     let mut state = MusicState::default();
     let selection = MusicSelection {
         owner_id: 7,
-        owner_name: "stealthy".into(),
+        owner_name: "inerthel".into(),
         channel_id: 9,
         track: track("video-1", 180),
     };
@@ -489,7 +489,7 @@ fn search_cooldown_is_per_user_and_ignores_select_play() {
 
     let search_id = state.insert_search(7, 9, "test".into(), vec![track("video-1", 90)]);
     let SearchSelection::Selected(selection_id) =
-        state.select_search(&search_id, 7, "stealthy", "video-1")
+        state.select_search(&search_id, 7, "inerthel", "video-1")
     else {
         panic!("select must work during search cooldown");
     };
