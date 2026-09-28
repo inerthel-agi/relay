@@ -14,6 +14,7 @@ use serenity::all::{
     EditMember, GuildId, Member, PartialGuild, Permissions, Role, RoleId, Timestamp, UserId,
 };
 
+use crate::config::validate_snowflake_id;
 use crate::state::AppCore;
 
 pub const MAX_CUSTOM_COMMANDS: usize = 16;
@@ -1071,7 +1072,8 @@ async fn validate_prepared_action(
             role_id,
             ..
         } => {
-            let (guild, bot_member, target_member) = validate_member_target(
+            // validate_member_target already checks both members outrank the target.
+            let (guild, bot_member, _) = validate_member_target(
                 context,
                 invoking_member,
                 invoking_user_id,
@@ -1079,13 +1081,7 @@ async fn validate_prepared_action(
                 *target_id,
             )
             .await?;
-            validate_role_hierarchy(
-                &guild,
-                invoking_member,
-                &bot_member,
-                &target_member,
-                *role_id,
-            )
+            validate_role_hierarchy(&guild, invoking_member, &bot_member, *role_id)
         }
         PreparedAction::Ban {
             guild_id,
@@ -1276,7 +1272,6 @@ fn validate_role_hierarchy(
     guild: &PartialGuild,
     invoking_member: &Member,
     bot_member: &Member,
-    _target_member: &Member,
     role_id: RoleId,
 ) -> std::result::Result<(), &'static str> {
     let role = guild
@@ -1644,16 +1639,6 @@ fn validate_id_list(values: &[String], label: &str) -> Result<()> {
         if !unique.insert(value) {
             bail!("The {label} ID list contains duplicates.");
         }
-    }
-    Ok(())
-}
-
-fn validate_snowflake_id(value: &str, label: &str) -> Result<()> {
-    if !(17..=20).contains(&value.len())
-        || !value.chars().all(|character| character.is_ascii_digit())
-        || value.parse::<u64>().map_or(true, |id| id == 0)
-    {
-        bail!("The {label} ID is invalid.");
     }
     Ok(())
 }

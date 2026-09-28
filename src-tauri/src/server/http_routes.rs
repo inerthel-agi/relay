@@ -1,13 +1,8 @@
 use super::*;
 
+/// The bare address opens the recommended OBS source (`/overlay` needs the secret).
 pub(super) async fn root() -> impl IntoResponse {
-    (StatusCode::FOUND, [(header::LOCATION, "/overlay")])
-}
-
-pub(super) async fn health() -> impl IntoResponse {
-    axum::Json(json!({
-        "status": "ok",
-    }))
+    (StatusCode::FOUND, [(header::LOCATION, "/obs/visual")])
 }
 
 pub(super) async fn overlay(
@@ -217,6 +212,13 @@ pub(super) async fn output_sample(Path(sample): Path<String>) -> Response {
     ([(header::CONTENT_TYPE, content_type)], bytes).into_response()
 }
 
+pub(super) async fn output_connection_script() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
+        include_str!("../../../outputs/connection.js"),
+    )
+}
+
 pub(super) async fn output_layout() -> impl IntoResponse {
     (
         [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
@@ -318,37 +320,6 @@ pub(super) async fn stickers_js() -> impl IntoResponse {
     )
 }
 
-pub(super) async fn tts_audio(
-    Path(id): Path<String>,
-    State(state): State<RelayServerState>,
-    Query(query): Query<AccessQuery>,
-    headers: HeaderMap,
-) -> Response {
-    if !request_secret_matches(query.secret.as_deref(), &headers, &state.relay_secret)
-        || id.is_empty()
-        || id.len() > 20
-        || !id.chars().all(|character| character.is_ascii_digit())
-    {
-        return StatusCode::UNAUTHORIZED.into_response();
-    }
-    let audio = state
-        .core
-        .tts_audio
-        .read()
-        .await
-        .iter()
-        .find(|item| item.id == id)
-        .cloned();
-    let Some(audio) = audio else {
-        return StatusCode::NOT_FOUND.into_response();
-    };
-    Response::builder()
-        .header(header::CONTENT_TYPE, audio.content_type)
-        .header(header::CACHE_CONTROL, "private, no-store")
-        .body(Body::from(audio.bytes))
-        .expect("valid TTS audio response")
-}
-
 pub(super) async fn media_artwork(
     Path(id): Path<String>,
     State(state): State<RelayServerState>,
@@ -446,7 +417,17 @@ pub(super) fn ranged_media_response(
     media: crate::state::CachedMedia,
     range: Option<&HeaderValue>,
 ) -> Response {
-    let total = media.bytes.len();
+    ranged_bytes_response(media.content_type, media.bytes, range)
+}
+
+/// Private response with HTTP range support, which Browser Source video
+/// playback needs. Used by the media cache and the media library.
+pub(super) fn ranged_bytes_response(
+    content_type: String,
+    bytes: axum::body::Bytes,
+    range: Option<&HeaderValue>,
+) -> Response {
+    let total = bytes.len();
     let requested = range
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("bytes="))
@@ -463,24 +444,25 @@ pub(super) fn ranged_media_response(
     let (status, body, content_range) = if let Some((start, end)) = requested {
         (
             StatusCode::PARTIAL_CONTENT,
-            media.bytes.slice(start..=end),
+            bytes.slice(start..=end),
             Some(format!("bytes {start}-{end}/{total}")),
         )
     } else {
-        (StatusCode::OK, media.bytes, None)
+        (StatusCode::OK, bytes, None)
     };
     let mut response = Response::builder()
         .status(status)
-        .header(header::CONTENT_TYPE, media.content_type)
+        .header(header::CONTENT_TYPE, content_type)
         .header(header::ACCEPT_RANGES, "bytes")
         .header(header::CACHE_CONTROL, "private, no-store")
         .header(header::CONTENT_LENGTH, body.len());
     if let Some(content_range) = content_range {
         response = response.header(header::CONTENT_RANGE, content_range);
     }
-    response
-        .body(Body::from(body))
-        .expect("valid cached media response")
+    match response.body(Body::from(body)) {
+        Ok(response) => response,
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
 }
 
 pub(super) async fn audio_card_css() -> impl IntoResponse {

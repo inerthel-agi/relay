@@ -9,7 +9,7 @@ async fn pinned_messages_wait_in_a_bounded_lane_without_delaying_media() {
     for id in 1..=3 {
         scheduler
             .enqueue(
-                RelayEvent::Tts(TtsEvent {
+                RelayEvent::Notification(NotificationEvent {
                     id: id.to_string(),
                     text: "waiting".into(),
                     author: AuthorIdentity {
@@ -17,12 +17,10 @@ async fn pinned_messages_wait_in_a_bounded_lane_without_delaying_media() {
                         display_avatar_url: String::new(),
                     },
                     guild_tag: None,
-                    content_type: String::new(),
                     timestamp: id,
-                    visual_only: true,
                     segments: vec![],
                 }),
-                StageLane::Tts,
+                StageLane::Notification,
             )
             .await;
     }
@@ -33,10 +31,10 @@ async fn pinned_messages_wait_in_a_bounded_lane_without_delaying_media() {
     assert!(rx.try_recv().is_err());
     assert_eq!(scheduler.queue_snapshot().await.len(), 2);
     scheduler.set_messages_pinned(false, 2).await;
-    assert!(matches!(rx.try_recv().unwrap(), RelayEvent::Tts(event) if event.id == "1"));
+    assert!(matches!(rx.try_recv().unwrap(), RelayEvent::Notification(event) if event.id == "1"));
     scheduler.stage_state(false, false, true).await;
     scheduler.stage_state(false, false, false).await;
-    assert!(matches!(rx.try_recv().unwrap(), RelayEvent::Tts(event) if event.id == "2"));
+    assert!(matches!(rx.try_recv().unwrap(), RelayEvent::Notification(event) if event.id == "2"));
 }
 
 fn media(timestamp: u64, message_id: &str) -> RelayEvent {
@@ -80,7 +78,9 @@ fn music(playback_id: &str, title: &str) -> RelayEvent {
 async fn older_pending_ticket_blocks_newer_ready_media() {
     let (tx, mut rx) = broadcast::channel(16);
     let scheduler = StageScheduler::new(tx);
-    let older = scheduler.reserve(22_000, "100", 0, StageLane::Tts).await;
+    let older = scheduler
+        .reserve(22_000, "100", 0, StageLane::Notification)
+        .await;
     scheduler
         .ready(
             scheduler
@@ -93,7 +93,7 @@ async fn older_pending_ticket_blocks_newer_ready_media() {
     scheduler
         .ready(
             older,
-            RelayEvent::Tts(TtsEvent {
+            RelayEvent::Notification(NotificationEvent {
                 id: "100".into(),
                 text: "older".into(),
                 author: AuthorIdentity {
@@ -101,14 +101,15 @@ async fn older_pending_ticket_blocks_newer_ready_media() {
                     display_avatar_url: String::new(),
                 },
                 guild_tag: None,
-                content_type: String::new(),
                 timestamp: 22_000,
-                visual_only: true,
                 segments: Vec::new(),
             }),
         )
         .await;
-    assert!(matches!(rx.recv().await.unwrap(), RelayEvent::Tts(_)));
+    assert!(matches!(
+        rx.recv().await.unwrap(),
+        RelayEvent::Notification(_)
+    ));
     scheduler.stage_state(false, false, true).await;
     scheduler.stage_state(false, false, false).await;
     assert!(matches!(rx.recv().await.unwrap(), RelayEvent::Media(_)));
@@ -136,7 +137,9 @@ async fn slow_head_is_demoted_then_reinserted_without_being_lost() {
     let (tx, mut rx) = broadcast::channel(16);
     let scheduler =
         StageScheduler::with_timeouts(tx, Duration::from_millis(20), Duration::from_millis(20));
-    let slow_text = scheduler.reserve(22_000, "100", 0, StageLane::Tts).await;
+    let slow_text = scheduler
+        .reserve(22_000, "100", 0, StageLane::Notification)
+        .await;
     let image = scheduler
         .reserve(22_001, "101", 200, StageLane::Media)
         .await;
@@ -154,7 +157,7 @@ async fn slow_head_is_demoted_then_reinserted_without_being_lost() {
     scheduler
         .ready(
             slow_text,
-            RelayEvent::Tts(TtsEvent {
+            RelayEvent::Notification(NotificationEvent {
                 id: "100".into(),
                 text: "slow text".into(),
                 author: AuthorIdentity {
@@ -162,14 +165,15 @@ async fn slow_head_is_demoted_then_reinserted_without_being_lost() {
                     display_avatar_url: String::new(),
                 },
                 guild_tag: None,
-                content_type: String::new(),
                 timestamp: 22_000,
-                visual_only: true,
                 segments: Vec::new(),
             }),
         )
         .await;
-    assert!(matches!(rx.recv().await.unwrap(), RelayEvent::Tts(_)));
+    assert!(matches!(
+        rx.recv().await.unwrap(),
+        RelayEvent::Notification(_)
+    ));
 }
 
 #[tokio::test]
@@ -177,7 +181,9 @@ async fn reinserts_a_demoted_message_in_its_original_part_order() {
     let (tx, mut rx) = broadcast::channel(16);
     let scheduler =
         StageScheduler::with_timeouts(tx, Duration::from_millis(20), Duration::from_millis(20));
-    let text = scheduler.reserve(22_000, "100", 0, StageLane::Tts).await;
+    let text = scheduler
+        .reserve(22_000, "100", 0, StageLane::Notification)
+        .await;
     let sticker = scheduler
         .reserve(22_000, "100", 100, StageLane::Media)
         .await;
@@ -213,7 +219,7 @@ async fn reinserts_a_demoted_message_in_its_original_part_order() {
     scheduler
         .ready(
             text,
-            RelayEvent::Tts(TtsEvent {
+            RelayEvent::Notification(NotificationEvent {
                 id: "100".into(),
                 text: "slow text".into(),
                 author: AuthorIdentity {
@@ -221,14 +227,14 @@ async fn reinserts_a_demoted_message_in_its_original_part_order() {
                     display_avatar_url: String::new(),
                 },
                 guild_tag: None,
-                content_type: String::new(),
                 timestamp: 22_000,
-                visual_only: true,
                 segments: Vec::new(),
             }),
         )
         .await;
-    assert!(matches!(rx.recv().await.unwrap(), RelayEvent::Tts(event) if event.id == "100"));
+    assert!(
+        matches!(rx.recv().await.unwrap(), RelayEvent::Notification(event) if event.id == "100")
+    );
     scheduler.stage_state(false, false, true).await;
     scheduler.stage_state(false, false, false).await;
     assert!(

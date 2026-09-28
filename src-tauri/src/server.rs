@@ -29,8 +29,8 @@ use crate::{
     config::{AppConfig, OutputGeometry},
     credentials::load_or_create_relay_secret,
     model::{
-        AudioPlaybackState, MediaKind, MusicEndedEvent, MusicPlaybackEvent, OutputConnectionStatus,
-        OutputStatuses, RelayEvent, ServerStatus, TtsEvent,
+        AudioPlaybackState, MediaKind, MusicEndedEvent, MusicPlaybackEvent, NotificationEvent,
+        OutputConnectionStatus, OutputStatuses, RelayEvent, ServerStatus,
     },
     state::{AppCore, ServerRuntime},
 };
@@ -48,8 +48,8 @@ struct OverlayConfig {
     sticker_duration_ms: u64,
     notification_duration_ms: u64,
     media_volume: u8,
-    tts_queue_limit: u8,
-    tts_notifications_obs_enabled: bool,
+    notification_queue_limit: u8,
+    notifications_obs_enabled: bool,
     show_author: bool,
     show_media_text_obs: bool,
     show_media_text_widget: bool,
@@ -60,10 +60,18 @@ struct OverlayConfig {
     media_widget_geometry: OutputGeometry,
     notification_obs_geometry: OutputGeometry,
     notification_widget_geometry: OutputGeometry,
+    music_obs_geometry: OutputGeometry,
+    music_video_obs_geometry: OutputGeometry,
     /// 0 = no limit; longer videos and sounds are cut on stream.
     max_media_seconds: u16,
     loudness_limiter: bool,
+    /// Changes at each Relay start. An OBS page kept open across a restart
+    /// (often an update) reconnects with its old code, so it reloads itself.
+    relay_session: &'static str,
 }
+
+static RELAY_SESSION: std::sync::LazyLock<String> =
+    std::sync::LazyLock::new(|| now_ms().to_string());
 
 impl From<&AppConfig> for OverlayConfig {
     fn from(config: &AppConfig) -> Self {
@@ -75,8 +83,8 @@ impl From<&AppConfig> for OverlayConfig {
             sticker_duration_ms: config.sticker_duration_ms,
             notification_duration_ms: config.notification_duration_ms,
             media_volume: config.media_volume,
-            tts_queue_limit: config.tts_queue_limit,
-            tts_notifications_obs_enabled: config.tts_notifications_obs_enabled,
+            notification_queue_limit: config.notification_queue_limit,
+            notifications_obs_enabled: config.notifications_obs_enabled,
             show_author: config.show_author,
             show_media_text_obs: config.show_media_text_obs,
             show_media_text_widget: config.show_media_text_widget,
@@ -89,6 +97,9 @@ impl From<&AppConfig> for OverlayConfig {
             media_widget_geometry: config.media_widget_geometry,
             notification_obs_geometry: config.notification_obs_geometry,
             notification_widget_geometry: config.notification_widget_geometry,
+            music_obs_geometry: config.music_obs_geometry,
+            music_video_obs_geometry: config.music_video_obs_geometry,
+            relay_session: RELAY_SESSION.as_str(),
         }
     }
 }
@@ -135,22 +146,22 @@ struct MediaClockCounts {
     audio_busy: usize,
 }
 
-/// Cross-output stage lock so media / YouTube and TTS never overlap.
+/// Cross-output stage lock so media / YouTube and notifications never overlap.
 #[derive(Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct StageClockState {
     media_busy: bool,
     /// Authoritative YouTube/jukebox occupancy from the server music queue.
     /// Clients must prefer this over local musicPlay/musicIdle flags so a
-    /// lagged WebSocket cannot leave TTS/notifications blocked forever.
+    /// lagged WebSocket cannot leave notifications blocked forever.
     music_busy: bool,
-    tts_busy: bool,
+    notification_busy: bool,
 }
 
 #[derive(Default)]
 struct StageClockCounts {
     media_busy: usize,
-    tts_busy: usize,
+    notification_busy: usize,
     music_busy: bool,
 }
 
@@ -165,7 +176,7 @@ struct MusicClockState {
 #[serde(rename_all = "camelCase")]
 enum StageLane {
     Media,
-    Tts,
+    Notification,
 }
 
 #[derive(Debug, Deserialize)]
@@ -182,7 +193,6 @@ enum OutputSource {
     Reaction,
     Visual,
     Audio,
-    Tts,
     Notification,
     Sticker,
     All,
@@ -224,7 +234,7 @@ enum OutputClientMessage {
 struct NotificationStateReport {
     visible: bool,
     #[serde(default)]
-    notification: Option<TtsEvent>,
+    notification: Option<NotificationEvent>,
     #[serde(default)]
     id: Option<String>,
 }
@@ -277,7 +287,7 @@ pub async fn start_server(core: Arc<AppCore>) -> Result<()> {
         music_clock: Arc::new(Mutex::new(MusicClockState::default())),
     };
     // Keep musicBusy on the stage clock in sync with the server jukebox so
-    // lagged overlay/TTS/notification sockets cannot strand musicActive=true.
+    // lagged overlay/notification sockets cannot strand musicActive=true.
     let music_clock_state = state.clone();
     let mut music_events = core.relay_tx.subscribe();
     tokio::spawn(async move {
@@ -307,7 +317,6 @@ pub async fn start_server(core: Arc<AppCore>) -> Result<()> {
     });
     let router = Router::new()
         .route("/", get(root))
-        .route("/health", get(health))
         .route("/reactions", get(reaction_routes::page))
         .route("/reaction-assets/reactions.js", get(reaction_routes::script))
         .route("/reaction-assets/reactions.css", get(reaction_routes::style))
@@ -325,12 +334,12 @@ pub async fn start_server(core: Arc<AppCore>) -> Result<()> {
         .route("/overlay-assets/audio-card.css", get(audio_card_css))
         .route("/overlay-assets/overlay.js", get(overlay_js))
         .route("/output-layout.js", get(output_layout))
+        .route("/output-connection.js", get(output_connection_script))
         .route("/output-theme.css", get(output_theme_css))
         .route("/output-theme.js", get(output_theme_js))
         .route("/output-fonts/{file}", get(output_font))
         .route("/output-samples/{sample}", get(output_sample))
         .route("/overlay-assets/relay-radar.png", get(radar_png))
-        .route("/tts-audio/{id}", get(tts_audio))
         .route("/media-artwork/{id}", get(media_artwork))
         .route("/media-audio/{id}", get(media_audio))
         .route("/media-cache/{id}", get(cached_media))
@@ -430,7 +439,7 @@ async fn websocket(
     }
     let role = query.role.as_deref().unwrap_or("overlay");
     let authorized = match role {
-        "overlay" | "tts" | "notification" | "sticker" | "reaction" => {
+        "overlay" | "notification" | "sticker" | "reaction" => {
             request_secret_matches(query.secret.as_deref(), &headers, &state.relay_secret)
         }
         "panel" => secret_matches(query.token.as_deref(), &state.core.panel_token),
@@ -441,7 +450,7 @@ async fn websocket(
     }
 
     let output = match role {
-        "overlay" | "tts" | "notification" | "sticker" | "reaction" => {
+        "overlay" | "notification" | "sticker" | "reaction" => {
             let Some(output) = output_connection(role, &query) else {
                 return StatusCode::BAD_REQUEST.into_response();
             };
@@ -723,11 +732,11 @@ async fn handle_socket(
                                             "payload": {
                                                 "mediaBusy": clock.media_busy,
                                                 "musicBusy": clock.music_busy,
-                                                "ttsBusy": clock.tts_busy,
+                                                "notificationBusy": clock.notification_busy,
                                                 "granted": false,
                                                 "lane": match report.lane {
                                                     StageLane::Media => "media",
-                                                    StageLane::Tts => "tts",
+                                                    StageLane::Notification => "notification",
                                                 },
                                             }
                                         }),
@@ -782,7 +791,6 @@ fn output_connection(role: &str, query: &AccessQuery) -> Option<OutputConnection
         ("overlay", None | Some("all")) => OutputSource::All,
         ("overlay", Some("visual")) => OutputSource::Visual,
         ("overlay", Some("audio") | Some("youtube")) => OutputSource::Audio,
-        ("tts", None | Some("tts")) => OutputSource::Tts,
         ("notification", None | Some("notification")) => OutputSource::Notification,
         ("sticker", None | Some("sticker")) => OutputSource::Sticker,
         _ => return None,
@@ -817,8 +825,7 @@ fn output_receives_music(output: Option<OutputConnection>) -> bool {
             source: OutputSource::Audio
                 | OutputSource::Visual
                 | OutputSource::All
-                | OutputSource::Notification
-                | OutputSource::Tts,
+                | OutputSource::Notification,
             client: OutputClient::Obs | OutputClient::Widget,
         })
     )
@@ -841,7 +848,6 @@ fn output_receives_stage_clock(output: Option<OutputConnection>) -> bool {
             source: OutputSource::Visual
                 | OutputSource::Audio
                 | OutputSource::All
-                | OutputSource::Tts
                 | OutputSource::Notification
                 | OutputSource::Sticker,
             client: OutputClient::Obs | OutputClient::Widget,
@@ -961,7 +967,7 @@ fn stage_clock_state(state: &RelayServerState) -> StageClockState {
     StageClockState {
         media_busy: counts.media_busy > 0,
         music_busy: counts.music_busy,
-        tts_busy: counts.tts_busy > 0,
+        notification_busy: counts.notification_busy > 0,
     }
 }
 
@@ -970,7 +976,7 @@ async fn sync_stage_scheduler(state: &RelayServerState) {
     state
         .core
         .stage_scheduler
-        .stage_state(clock.media_busy, clock.music_busy, clock.tts_busy)
+        .stage_state(clock.media_busy, clock.music_busy, clock.notification_busy)
         .await;
 }
 
@@ -1080,10 +1086,10 @@ fn apply_stage_clock_report(
         if *reported_lane == Some(lane) {
             return true;
         }
-        // Exclusive stage: media, YouTube, and TTS must never overlap.
+        // Exclusive stage: media, YouTube, and notifications must never overlap.
         let blocked = match lane {
-            StageLane::Media => counts.tts_busy > 0 || counts.music_busy,
-            StageLane::Tts => counts.media_busy > 0 || counts.music_busy,
+            StageLane::Media => counts.notification_busy > 0 || counts.music_busy,
+            StageLane::Notification => counts.media_busy > 0 || counts.music_busy,
         };
         if blocked {
             return false;
@@ -1091,12 +1097,14 @@ fn apply_stage_clock_report(
         if let Some(previous) = reported_lane.take() {
             match previous {
                 StageLane::Media => adjust_count(&mut counts.media_busy, -1),
-                StageLane::Tts => adjust_count(&mut counts.tts_busy, -1),
+                StageLane::Notification => adjust_count(&mut counts.notification_busy, -1),
             }
         }
         match lane {
             StageLane::Media => counts.media_busy = counts.media_busy.saturating_add(1),
-            StageLane::Tts => counts.tts_busy = counts.tts_busy.saturating_add(1),
+            StageLane::Notification => {
+                counts.notification_busy = counts.notification_busy.saturating_add(1)
+            }
         }
         *reported_lane = Some(lane);
     } else {
@@ -1108,7 +1116,7 @@ fn apply_stage_clock_report(
         }
         match previous {
             StageLane::Media => adjust_count(&mut counts.media_busy, -1),
-            StageLane::Tts => adjust_count(&mut counts.tts_busy, -1),
+            StageLane::Notification => adjust_count(&mut counts.notification_busy, -1),
         }
         *reported_lane = None;
     }
@@ -1123,7 +1131,6 @@ fn output_sources(source: OutputSource) -> &'static [OutputSource] {
         OutputSource::All => &[OutputSource::Visual, OutputSource::Audio],
         OutputSource::Visual => &[OutputSource::Visual],
         OutputSource::Audio => &[OutputSource::Audio],
-        OutputSource::Tts => &[OutputSource::Tts],
         OutputSource::Notification => &[OutputSource::Notification],
         OutputSource::Sticker => &[OutputSource::Sticker],
     }
@@ -1137,7 +1144,6 @@ fn output_status_mut(
         OutputSource::Reaction => &mut statuses.reaction,
         OutputSource::Visual => &mut statuses.visual,
         OutputSource::Audio => &mut statuses.audio,
-        OutputSource::Tts => &mut statuses.tts,
         OutputSource::Notification => &mut statuses.notification,
         OutputSource::Sticker => &mut statuses.sticker,
         OutputSource::All => unreachable!("combined output sources are expanded before tracking"),

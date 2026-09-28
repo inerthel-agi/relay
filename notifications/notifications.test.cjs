@@ -92,18 +92,6 @@ function createHarness(target = "obs", language = "en", preview = false, autoGra
     },
     "#music-progress-fill": { style: { width: "0%" } },
     "#notification-move-label": { textContent: "" },
-    "#notification-clock": {
-      src: "",
-      muted: false,
-      onended: null,
-      onerror: null,
-      pause() {},
-      load() {},
-      play() { return Promise.resolve(); },
-      removeAttribute(name) {
-        if (name === "src") this.src = "";
-      },
-    },
   };
   const youtubeHostParent = {
     replaceChild(next) {
@@ -146,12 +134,12 @@ function createHarness(target = "obs", language = "en", preview = false, autoGra
       if (
         autoGrantStage
         && message.type === "stageClock"
-        && message.payload?.lane === "tts"
+        && message.payload?.lane === "notification"
         && message.payload?.busy === true
       ) {
         this.emit("message", JSON.stringify({
           type: "stageClock",
-          payload: { mediaBusy: false, musicBusy: false, ttsBusy: true },
+          payload: { mediaBusy: false, musicBusy: false, notificationBusy: true },
         }));
       }
     }
@@ -169,6 +157,8 @@ function createHarness(target = "obs", language = "en", preview = false, autoGra
     href: `http://localhost:4590/notifications${search}`,
     search,
     replace() {},
+    reloads: 0,
+    reload() { this.reloads += 1; },
   };
 
   class FakeYoutubePlayer {
@@ -283,12 +273,14 @@ function createHarness(target = "obs", language = "en", preview = false, autoGra
   const source = fs.readFileSync(__dirname + "/notifications.js", "utf8");
   vm.runInContext(fs.readFileSync(__dirname + "/../outputs/layout.js", "utf8"), context);
   if (withTheme) vm.runInContext(fs.readFileSync(__dirname + "/../outputs/theme.js", "utf8"), context);
+  vm.runInContext(fs.readFileSync(__dirname + "/../outputs/connection.js", "utf8"), context);
   vm.runInContext(source, context);
 
   return {
     context,
     cssProperties,
     elements,
+    location,
     pings,
     sockets,
     socket: sockets[0],
@@ -314,10 +306,29 @@ function createHarness(target = "obs", language = "en", preview = false, autoGra
       }
       return false;
     },
+    /** Id of the card this page last reported as visible, or null. */
+    shownId() {
+      const state = sockets.at(-1)?.sent.filter((message) => message.type === "notificationState").at(-1);
+      return state?.payload?.visible ? state.payload.notification.id : null;
+    },
+    /** Callback of the pending display timer (8 s by default), left scheduled. */
+    displayTimer(delay = 8000) {
+      return [...timers.values()].find((entry) => entry.delay === delay)?.callback;
+    },
+    /** Lets the current card's display time run out. */
+    endCard(delay = 8000) {
+      for (const [id, entry] of timers.entries()) {
+        if (entry.delay !== delay) continue;
+        timers.delete(id);
+        entry.callback?.();
+        return true;
+      }
+      return false;
+    },
   };
 }
 
-test("notification geometry previews stay visible without consuming live TTS or playing sound", () => {
+test("notification geometry previews stay visible without consuming live notifications or playing sound", () => {
   const preview = createHarness("widget", "fr", true);
   const card = preview.elements["#notification"];
 
@@ -334,19 +345,28 @@ test("notification geometry previews stay visible without consuming live TTS or 
       notificationWidgetGeometry: { cropLeft: 15, contentScale: 125 },
     },
   }));
-  preview.socket.emit("message", JSON.stringify({ type: "tts", payload: notification("ignored") }));
+  preview.socket.emit("message", JSON.stringify({ type: "notification", payload: notification("ignored") }));
   preview.socket.emit("message", JSON.stringify({ type: "clear" }));
 
   assert.equal(preview.cssProperties["--crop-left"], "15%");
   assert.equal(preview.cssProperties["--content-scale"], "1.25");
   assert.equal(preview.elements["#notification-author"].textContent, "Aperçu en direct");
   assert.equal(card.classList.contains("is-visible"), true);
-  assert.equal(preview.elements["#notification-clock"].src, "");
   assert.equal(preview.pings.length, 0);
 
   const panelSource = fs.readFileSync(__dirname + "/../gui/panel.js", "utf8");
   assert.match(panelSource, /path = metadata\.previewKey === "notificationUrl" \? "\/notifications" : "\/medias"/);
   assert.match(panelSource, /url\.searchParams\.set\("preview", "1"\)/);
+});
+
+test("a notification page reloads only after a Relay restart", () => {
+  const { socket, location } = createHarness();
+  const config = (relaySession) => socket.emit("message", JSON.stringify({ type: "config", payload: { relaySession } }));
+  config("first");
+  config("first");
+  assert.equal(location.reloads, 0);
+  config("second");
+  assert.equal(location.reloads, 1);
 });
 
 test("notification output applies live crop and scale for OBS and widgets", () => {
@@ -387,7 +407,7 @@ test("notification output applies live crop and scale for OBS and widgets", () =
     css,
     /html\.notification-widget \.notification-card\s*\{[^}]*width:\s*100%[^}]*max-width:\s*360px[^}]*height:\s*auto[^}]*max-height:\s*100%[^}]*min-height:\s*0/s,
   );
-  // TTS toast geometry fits the native widget, including the rounded bottom.
+  // Notification toast geometry fits the native widget, including the rounded bottom.
   assert.match(
     css,
     /html\.notification-widget \.notification-card\s*\{[^}]*--notification-scale:\s*calc\([\s\S]*1\.15/s,
@@ -398,7 +418,7 @@ test("notification output applies live crop and scale for OBS and widgets", () =
   assert.match(css, /\.notification-card__signal\s*\{[^}]*display:\s*none/s);
   assert.doesNotMatch(css, /#9fc9ff/);
   assert.doesNotMatch(css, /159 201 255/);
-  const source = fs.readFileSync(__dirname + "/notifications.js", "utf8");
+  const source = fs.readFileSync(__dirname + "/../outputs/connection.js", "utf8");
   assert.match(source, /probeWatchdog[\s\S]*probe\.close\(\)/);
   // No outer glow on transparent OBS / widget chrome (opaque cards, no blur halo).
   assert.match(css, /\.notification-card\s*\{[^}]*box-shadow:\s*var\(--out-shadow\)[^}]*filter:\s*none/s);
@@ -424,7 +444,7 @@ test("musicPlay only marks stage occupancy for every notification target", async
     if (target === "obs") {
       harness.socket.emit("message", JSON.stringify({
         type: "config",
-        payload: { ttsNotificationsObsEnabled: true },
+        payload: { notificationsObsEnabled: true },
       }));
     }
     harness.socket.emit("message", JSON.stringify({
@@ -438,10 +458,10 @@ test("musicPlay only marks stage occupancy for every notification target", async
     await Promise.resolve();
 
     harness.socket.emit("message", JSON.stringify({
-      type: "tts",
+      type: "notification",
       payload: notification(`${target}-blocked`),
     }));
-    assert.equal(harness.elements["#notification-clock"].src, "");
+    assert.equal(harness.shownId(), null);
     assert.equal(harness.elements["#music"].classList.contains("is-visible"), false);
     assert.notEqual(harness.elements["#music"].attributes.get("aria-hidden"), "false");
     assert.equal(harness.youtubePlayers.length, 0);
@@ -463,10 +483,10 @@ test("musicPlay only marks stage occupancy for every notification target", async
   }
 });
 
-test("ordinary TTS cleanup leaves the legacy YouTube host untouched", () => {
+test("ordinary notification cleanup leaves the legacy YouTube host untouched", () => {
   const harness = createHarness("widget");
   harness.socket.emit("message", JSON.stringify({
-    type: "tts",
+    type: "notification",
     payload: notification("host-stable"),
   }));
 
@@ -483,27 +503,26 @@ test("beforeunload leaves an inactive legacy YouTube host untouched", () => {
   assert.equal(harness.youtubePlayers.length, 0);
 });
 
-test("music occupancy does not replace TTS and queued TTS resumes on musicIdle", async () => {
-  const { elements, socket, youtubePlayers } = createHarness("widget");
-  const audio = elements["#notification-clock"];
+test("music occupancy does not replace a notification and queued notifications resume on musicIdle", async () => {
+  const { elements, socket, youtubePlayers, shownId, endCard } = createHarness("widget");
 
-  socket.emit("message", JSON.stringify({ type: "tts", payload: notification("live-tts") }));
+  socket.emit("message", JSON.stringify({ type: "notification", payload: notification("live-notification") }));
   socket.emit("message", JSON.stringify({
     type: "musicPlay",
     payload: { playbackId: "wait-1", videoId: "dQw4w9WgXcQ", title: "Track" },
   }));
-  socket.emit("message", JSON.stringify({ type: "tts", payload: notification("queued-tts", "Next") }));
+  socket.emit("message", JSON.stringify({ type: "notification", payload: notification("queued-notification", "Next") }));
 
-  assert.match(audio.src, /\/tts-audio\/live-tts\?secret=private$/);
+  assert.equal(shownId(), "live-notification");
   assert.equal(elements["#music"].classList.contains("is-visible"), false);
   assert.equal(youtubePlayers.length, 0);
 
-  audio.onended();
+  endCard();
   await nextMicrotask();
-  assert.equal(audio.src, "");
+  assert.equal(shownId(), null);
 
   socket.emit("message", JSON.stringify({ type: "musicIdle" }));
-  assert.match(audio.src, /\/tts-audio\/queued-tts\?secret=private$/);
+  assert.equal(shownId(), "queued-notification");
   assert.equal(elements["#notification-author"].textContent, "Next");
 });
 
@@ -519,7 +538,7 @@ test("musicStop keeps music occupancy until authoritative idle", async () => {
   }));
   await Promise.resolve();
   widget.socket.emit("message", JSON.stringify({
-    type: "tts",
+    type: "notification",
     payload: notification("wait-after-stop"),
   }));
 
@@ -533,13 +552,10 @@ test("musicStop keeps music occupancy until authoritative idle", async () => {
   }));
   assert.equal(widget.elements["#music"].classList.contains("is-visible"), false);
   assert.equal(widget.youtubePlayers.length, 0);
-  assert.equal(widget.elements["#notification-clock"].src, "");
+  assert.equal(widget.shownId(), null);
 
   widget.socket.emit("message", JSON.stringify({ type: "musicIdle" }));
-  assert.match(
-    widget.elements["#notification-clock"].src,
-    /\/tts-audio\/wait-after-stop\?secret=private$/,
-  );
+  assert.equal(widget.shownId(), "wait-after-stop");
 });
 
 test("transient WebSocket close retains music stage occupancy without local playback", async () => {
@@ -556,10 +572,10 @@ test("transient WebSocket close retains music stage occupancy without local play
   assert.equal(widget.elements["#music"].classList.contains("is-visible"), false);
   assert.equal(widget.youtubePlayers.length, 0);
   widget.socket.emit("message", JSON.stringify({
-    type: "tts",
+    type: "notification",
     payload: notification("blocked-after-close"),
   }));
-  assert.equal(widget.elements["#notification-clock"].src, "");
+  assert.equal(widget.shownId(), null);
 });
 
 test("Windows widget plays the configured notification sound per message", () => {
@@ -569,7 +585,7 @@ test("Windows widget plays the configured notification sound per message", () =>
     type: "config",
     payload: { notificationSoundEnabled: true, mediaVolume: 80 },
   }));
-  socket.emit("message", JSON.stringify({ type: "tts", payload: notification("1") }));
+  socket.emit("message", JSON.stringify({ type: "notification", payload: notification("1") }));
 
   assert.equal(pings.length, 1);
   assert.equal(pings[0].playCount, 1);
@@ -577,7 +593,7 @@ test("Windows widget plays the configured notification sound per message", () =>
   assert.match(pings[0].src, /^\/notification-sound\?secret=private$/);
 
   const disabled = createHarness("widget");
-  disabled.socket.emit("message", JSON.stringify({ type: "tts", payload: notification("1") }));
+  disabled.socket.emit("message", JSON.stringify({ type: "notification", payload: notification("1") }));
   assert.equal(disabled.pings.length, 0);
 });
 
@@ -585,17 +601,17 @@ test("OBS notification page plays the sound only with its own toggle", () => {
   const widgetOnly = createHarness("obs");
   widgetOnly.socket.emit("message", JSON.stringify({
     type: "config",
-    payload: { ttsNotificationsObsEnabled: true, notificationSoundEnabled: true },
+    payload: { notificationsObsEnabled: true, notificationSoundEnabled: true },
   }));
-  widgetOnly.socket.emit("message", JSON.stringify({ type: "tts", payload: notification("1") }));
+  widgetOnly.socket.emit("message", JSON.stringify({ type: "notification", payload: notification("1") }));
   assert.equal(widgetOnly.pings.length, 0);
 
   const obsEnabled = createHarness("obs");
   obsEnabled.socket.emit("message", JSON.stringify({
     type: "config",
-    payload: { ttsNotificationsObsEnabled: true, notificationSoundObsEnabled: true },
+    payload: { notificationsObsEnabled: true, notificationSoundObsEnabled: true },
   }));
-  obsEnabled.socket.emit("message", JSON.stringify({ type: "tts", payload: notification("1") }));
+  obsEnabled.socket.emit("message", JSON.stringify({ type: "notification", payload: notification("1") }));
   assert.equal(obsEnabled.pings.length, 1);
   assert.equal(obsEnabled.pings[0].playCount, 1);
 });
@@ -613,9 +629,8 @@ test("notifications show enabled Discord guild tags without a timestamp", () => 
     type: "testOutput",
     payload: {
       target: "notification",
-      tts: {
+      notification: {
         text: "Tagged notification",
-        visualOnly: true,
         author: { username: "inerthel" },
         guildTag: {
           name: "RE",
@@ -659,8 +674,8 @@ test("author privacy anonymizes current, pinned and queued notifications on OBS 
       ...visualNotification("private"),
       guildTag: { name: "TEAM", badgeUrl: "https://cdn.discordapp.com/badge.png" },
     };
-    send("config", { ttsNotificationsObsEnabled: true });
-    send("tts", first);
+    send("config", { notificationsObsEnabled: true });
+    send("notification", first);
     send("messagePin", { pinned: true, message: first });
     const body = elements["#notification-message"].children.map(node => node.textContent).join("");
     const reports = socket.sent.length;
@@ -680,14 +695,14 @@ test("author privacy anonymizes current, pinned and queued notifications on OBS 
     assert.equal(elements["#notification-guild-tag-name"].textContent, "TEAM");
     assert.equal(elements["#notification-guild-tag"].hidden, false);
     send("config", { showAuthor: false });
-    send("tts", visualNotification("queued"));
+    send("notification", visualNotification("queued"));
     send("messagePin", { pinned: false });
     assert.equal(elements["#notification-author"].textContent, "Anonym");
     assert.equal(elements["#notification-avatar"].src, "/overlay-assets/relay-radar.png");
     assert.equal(elements["#notification"].classList.contains("is-visible"), true);
     const reconnect = createHarness(target, "fr");
     reconnect.socket.emit("message", JSON.stringify({
-      type: "config", payload: { showAuthor: false, ttsNotificationsObsEnabled: true },
+      type: "config", payload: { showAuthor: false, notificationsObsEnabled: true },
     }));
     reconnect.socket.emit("message", JSON.stringify({ type: "messagePin", payload: { pinned: true, message: first } }));
     assert.equal(reconnect.elements["#notification-author"].textContent, "Anonyme");
@@ -695,51 +710,49 @@ test("author privacy anonymizes current, pinned and queued notifications on OBS 
   }
 });
 
-test("OBS notifications follow TTS FIFO, skip, clear, and configured queue limit", async () => {
-  const { elements, socket } = createHarness();
+test("OBS notifications follow FIFO order, skip, clear, and the configured queue limit", async () => {
+  const { elements, socket, shownId, displayTimer } = createHarness();
   const card = elements["#notification"];
-  const audio = elements["#notification-clock"];
 
   assert.match(socket.url, /role=notification&source=notification&client=obs&secret=private$/);
-  assert.equal(audio.muted, true);
 
   socket.emit("message", JSON.stringify({
-    type: "tts",
+    type: "notification",
     payload: notification("ignored"),
   }));
-  assert.equal(audio.src, "");
+  assert.equal(shownId(), null);
 
   socket.emit("message", JSON.stringify({
     type: "config",
-    payload: { ttsNotificationsObsEnabled: true, ttsQueueLimit: 1 },
+    payload: { notificationsObsEnabled: true, notificationQueueLimit: 1 },
   }));
-  socket.emit("message", JSON.stringify({ type: "tts", payload: notification("1", "Alice") }));
+  socket.emit("message", JSON.stringify({ type: "notification", payload: notification("1", "Alice") }));
   await nextMicrotask();
 
-  assert.match(audio.src, /\/tts-audio\/1\?secret=private$/);
+  assert.equal(shownId(), "1");
   assert.equal(elements["#notification-author"].textContent, "Alice");
   assert.equal(elements["#notification-message"].textContent, "Message 1");
   assert.match(elements["#notification-avatar"].src, /avatars\/1\.png$/);
   assert.equal(card.classList.contains("is-visible"), true);
 
-  const firstEnded = audio.onended;
-  socket.emit("message", JSON.stringify({ type: "tts", payload: notification("2") }));
-  socket.emit("message", JSON.stringify({ type: "tts", payload: notification("dropped") }));
+  const firstEnded = displayTimer();
+  socket.emit("message", JSON.stringify({ type: "notification", payload: notification("2") }));
+  socket.emit("message", JSON.stringify({ type: "notification", payload: notification("dropped") }));
   firstEnded();
   await nextMicrotask();
 
-  assert.match(audio.src, /\/tts-audio\/2\?secret=private$/);
+  assert.equal(shownId(), "2");
+  // A stale timer from the previous card never ends the new one.
   firstEnded();
-  assert.match(audio.src, /\/tts-audio\/2\?secret=private$/);
+  assert.equal(shownId(), "2");
 
-  socket.emit("message", JSON.stringify({ type: "tts", payload: notification("3") }));
+  socket.emit("message", JSON.stringify({ type: "notification", payload: notification("3") }));
   socket.emit("message", JSON.stringify({ type: "skip" }));
   await nextMicrotask();
-  assert.match(audio.src, /\/tts-audio\/3\?secret=private$/);
+  assert.equal(shownId(), "3");
 
   socket.emit("message", JSON.stringify({ type: "clear" }));
-  assert.equal(audio.src, "");
-  assert.equal(audio.onended, null);
+  assert.equal(shownId(), null);
   assert.equal(card.classList.contains("is-visible"), false);
 });
 
@@ -749,9 +762,8 @@ test("local notification tests bypass the OBS delivery toggle", () => {
     type: "testOutput",
     payload: {
       target: "notification",
-      tts: {
+      notification: {
         text: "Relay notification test",
-        visualOnly: true,
         author: { username: "Relay test" },
         segments: [{ kind: "text", value: "Relay notification test" }],
       },
@@ -761,67 +773,63 @@ test("local notification tests bypass the OBS delivery toggle", () => {
   assert.equal(elements["#notification"].classList.contains("is-visible"), true);
   assert.equal(elements["#notification-author"].textContent, "Relay test");
   assert.equal(elements["#notification-message"].children[0].textContent, "Relay notification test");
-  assert.equal(elements["#notification-clock"].src, "");
 });
 
 test("Windows notification widget remains independent from the OBS toggle", async () => {
-  const { elements, socket } = createHarness("widget");
-  const audio = elements["#notification-clock"];
+  const { elements, socket, shownId } = createHarness("widget");
 
   socket.emit("message", JSON.stringify({
     type: "config",
-    payload: { ttsNotificationsObsEnabled: false, ttsQueueLimit: 50 },
+    payload: { notificationsObsEnabled: false, notificationQueueLimit: 50 },
   }));
-  socket.emit("message", JSON.stringify({ type: "tts", payload: notification("widget") }));
+  socket.emit("message", JSON.stringify({ type: "notification", payload: notification("widget") }));
   await nextMicrotask();
 
-  assert.match(audio.src, /\/tts-audio\/widget\?secret=private$/);
+  assert.equal(shownId(), "widget");
   assert.equal(elements["#notification"].classList.contains("is-visible"), true);
 });
 
-test("OBS and Windows outputs keep separate queues while displaying the same TTS event", async () => {
+test("OBS and Windows outputs keep separate queues while displaying the same notification", async () => {
   const obs = createHarness("obs");
   const windows = createHarness("widget");
   const config = JSON.stringify({
     type: "config",
-    payload: { ttsNotificationsObsEnabled: true, ttsQueueLimit: 50 },
+    payload: { notificationsObsEnabled: true, notificationQueueLimit: 50 },
   });
   obs.socket.emit("message", config);
   windows.socket.emit("message", config);
 
-  const event = JSON.stringify({ type: "tts", payload: notification("shared") });
+  const event = JSON.stringify({ type: "notification", payload: notification("shared") });
   obs.socket.emit("message", event);
   windows.socket.emit("message", event);
   await nextMicrotask();
 
-  assert.match(obs.elements["#notification-clock"].src, /\/tts-audio\/shared\?secret=private$/);
-  assert.match(windows.elements["#notification-clock"].src, /\/tts-audio\/shared\?secret=private$/);
+  assert.equal(obs.shownId(), "shared");
+  assert.equal(windows.shownId(), "shared");
   assert.equal(obs.elements["#notification"].classList.contains("is-visible"), true);
   assert.equal(windows.elements["#notification"].classList.contains("is-visible"), true);
 
   obs.socket.emit("message", JSON.stringify({ type: "clear" }));
   assert.equal(obs.elements["#notification"].classList.contains("is-visible"), false);
-  assert.equal(obs.elements["#notification-clock"].src, "");
+  assert.equal(obs.shownId(), null);
   assert.equal(windows.elements["#notification"].classList.contains("is-visible"), true);
-  assert.match(windows.elements["#notification-clock"].src, /\/tts-audio\/shared\?secret=private$/);
+  assert.equal(windows.shownId(), "shared");
 });
 
 test("notification playback clears when Relay disconnects", async () => {
   const { elements, socket } = createHarness("widget");
-  socket.emit("message", JSON.stringify({ type: "tts", payload: notification("disconnect") }));
+  socket.emit("message", JSON.stringify({ type: "notification", payload: notification("disconnect") }));
   await nextMicrotask();
   socket.emit("close");
-  assert.equal(elements["#notification-clock"].src, "");
   assert.equal(elements["#notification"].attributes.get("aria-hidden"), "true");
 });
 
-test("emoji messages render visually without requesting TTS audio", () => {
+test("emoji messages render visually", () => {
   const { elements, socket } = createHarness("widget");
   socket.emit("message", JSON.stringify({
-    type: "tts",
+    type: "notification",
     payload: {
       ...notification("emoji", "Emoji user"),
-      visualOnly: true,
       segments: [
         { kind: "text", value: "Hello " },
         { kind: "emoji", value: "👋", url: null },
@@ -830,82 +838,55 @@ test("emoji messages render visually without requesting TTS audio", () => {
     },
   }));
 
-  assert.equal(elements["#notification-clock"].src, "");
   assert.equal(elements["#notification"].classList.contains("is-visible"), true);
   assert.equal(elements["#notification-message"].children.length, 3);
   assert.equal(elements["#notification-message"].children[2].tagName, "img");
 });
 
-test("Discord stickers render visually in TTS notifications", () => {
+test("Discord stickers render visually in notifications", () => {
   const { elements, socket } = createHarness("widget");
   socket.emit("message", JSON.stringify({
-    type: "tts",
+    type: "notification",
     payload: {
       ...notification("sticker", "Sticker user"),
-      visualOnly: true,
       segments: [{ kind: "sticker", value: "Relay dance", url: "https://media.discordapp.net/stickers/1.gif" }],
     },
   }));
 
   const message = elements["#notification-message"];
-  assert.equal(elements["#notification-clock"].src, "");
   assert.equal(message.children.length, 1);
   assert.equal(message.children[0].tagName, "img");
   assert.equal(message.children[0].className, "notification-card__sticker");
   assert.equal(message.children[0].alt, "Relay dance");
 });
 
-test("a spoken notification stays visible even when audio playback fails", async () => {
-  const { elements, socket, timers } = createHarness("widget");
-  const card = elements["#notification"];
-  const audio = elements["#notification-clock"];
-  audio.play = () => Promise.reject(new Error("playback blocked"));
-
-  socket.emit("message", JSON.stringify({ type: "tts", payload: notification("silent", "Muted") }));
-  assert.equal(card.classList.contains("is-visible"), true);
-  await nextMicrotask();
-
-  assert.equal(card.classList.contains("is-visible"), true);
-  assert.equal(elements["#notification-author"].textContent, "Muted");
-  assert.equal(elements["#notification-message"].textContent, "Message silent");
-
-  for (const entry of [...timers.values()]) entry.callback();
-  assert.equal(card.classList.contains("is-visible"), false);
-
-  audio.play = () => Promise.resolve();
-  socket.emit("message", JSON.stringify({ type: "tts", payload: notification("next", "Speaker") }));
-  await nextMicrotask();
-  assert.match(audio.src, /\/tts-audio\/next\?secret=private$/);
-  assert.equal(card.classList.contains("is-visible"), true);
-});
-
 test("emoji then plain text messages both notify and keep the queue moving", async () => {
-  const { elements, socket } = createHarness("widget");
+  const { elements, socket, shownId, endCard } = createHarness("widget");
   const card = elements["#notification"];
-  const audio = elements["#notification-clock"];
 
   socket.emit("message", JSON.stringify({
-    type: "tts",
+    type: "notification",
     payload: {
       ...notification("emoji-first"),
-      visualOnly: true,
-      segments: [{ kind: "emoji", value: "👋", url: null }],
+      segments: [{ kind: "emoji", value: "\u{1F44B}", url: null }],
     },
   }));
   assert.equal(card.classList.contains("is-visible"), true);
-  assert.equal(audio.src, "");
+  assert.equal(shownId(), "emoji-first");
 
-  socket.emit("message", JSON.stringify({ type: "tts", payload: notification("test", "Tester") }));
+  // The next message waits its turn instead of cutting the current card.
+  socket.emit("message", JSON.stringify({ type: "notification", payload: notification("test", "Tester") }));
+  assert.equal(shownId(), "emoji-first");
+  endCard();
   await nextMicrotask();
-  assert.equal(card.classList.contains("is-visible"), true);
   assert.equal(elements["#notification-author"].textContent, "Tester");
-  assert.match(audio.src, /\/tts-audio\/test\?secret=private$/);
+  assert.equal(shownId(), "test");
 
-  socket.emit("message", JSON.stringify({ type: "tts", payload: notification("second", "Second user") }));
-  audio.onended();
+  socket.emit("message", JSON.stringify({ type: "notification", payload: notification("second", "Second user") }));
+  endCard();
   await nextMicrotask();
   assert.equal(elements["#notification-author"].textContent, "Second user");
-  assert.match(audio.src, /\/tts-audio\/second\?secret=private$/);
+  assert.equal(shownId(), "second");
   assert.equal(card.classList.contains("is-visible"), true);
 });
 
@@ -916,10 +897,9 @@ test("visual notifications stay visible for the configured duration", () => {
     payload: { notificationDurationMs: 12000 },
   }));
   socket.emit("message", JSON.stringify({
-    type: "tts",
+    type: "notification",
     payload: {
       ...notification("timed"),
-      visualOnly: true,
       segments: [{ kind: "emoji", value: "👋", url: null }],
     },
   }));
@@ -931,10 +911,9 @@ test("visual notifications stay visible for the configured duration", () => {
 test("visual notifications fall back to eight seconds without a configured duration", () => {
   const { socket, timerDelays } = createHarness("widget");
   socket.emit("message", JSON.stringify({
-    type: "tts",
+    type: "notification",
     payload: {
       ...notification("default-timed"),
-      visualOnly: true,
       segments: [{ kind: "emoji", value: "👋", url: null }],
     },
   }));
@@ -942,46 +921,25 @@ test("visual notifications fall back to eight seconds without a configured durat
   assert.equal(timerDelays.at(-1), 8000);
 });
 
-test("a visual emoji notification never blocks the next spoken message", async () => {
-  const { elements, socket } = createHarness("widget");
-  socket.emit("message", JSON.stringify({
-    type: "tts",
-    payload: {
-      ...notification("emoji"),
-      visualOnly: true,
-      segments: [{ kind: "emoji", value: "👋", url: null }],
-    },
-  }));
-  socket.emit("message", JSON.stringify({
-    type: "tts",
-    payload: notification("after-emoji", "Friend"),
-  }));
-  await nextMicrotask();
-
-  assert.match(elements["#notification-clock"].src, /\/tts-audio\/after-emoji\?secret=private$/);
-  assert.equal(elements["#notification-author"].textContent, "Friend");
-  assert.equal(elements["#notification-message"].textContent, "Message after-emoji");
-});
-
-test("TTS waits for media stage and YouTube before playing", () => {
-  const { elements, socket } = createHarness("widget");
+test("notifications wait for the media stage and YouTube", () => {
+  const { elements, socket, shownId } = createHarness("widget");
 
   socket.emit("message", JSON.stringify({
     type: "stageClock",
-    payload: { mediaBusy: true, ttsBusy: false },
+    payload: { mediaBusy: true, notificationBusy: false },
   }));
-  socket.emit("message", JSON.stringify({ type: "tts", payload: notification("queued-media") }));
-  assert.equal(elements["#notification-clock"].src, "");
+  socket.emit("message", JSON.stringify({ type: "notification", payload: notification("queued-media") }));
+  assert.equal(shownId(), null);
   assert.equal(elements["#notification"].classList.contains("is-visible"), false);
 
   socket.emit("message", JSON.stringify({
     type: "stageClock",
-    payload: { mediaBusy: false, ttsBusy: false },
+    payload: { mediaBusy: false, notificationBusy: false },
   }));
-  assert.match(elements["#notification-clock"].src, /\/tts-audio\/queued-media\?secret=private$/);
+  assert.equal(shownId(), "queued-media");
   assert.deepEqual(socket.sent.at(-1), {
     type: "stageClock",
-    payload: { lane: "tts", busy: true },
+    payload: { lane: "notification", busy: true },
   });
 
   const music = createHarness("widget");
@@ -989,62 +947,62 @@ test("TTS waits for media stage and YouTube before playing", () => {
     type: "musicPlay",
     payload: { playbackId: "yt-1", title: "Track", durationSeconds: 30 },
   }));
-  music.socket.emit("message", JSON.stringify({ type: "tts", payload: notification("queued-yt") }));
-  assert.equal(music.elements["#notification-clock"].src, "");
+  music.socket.emit("message", JSON.stringify({ type: "notification", payload: notification("queued-yt") }));
+  assert.equal(music.shownId(), null);
 
   music.socket.emit("message", JSON.stringify({ type: "musicIdle" }));
-  assert.match(music.elements["#notification-clock"].src, /\/tts-audio\/queued-yt\?secret=private$/);
+  assert.equal(music.shownId(), "queued-yt");
 });
 
-test("TTS waits for the server stage grant before becoming visible", () => {
-  const { elements, socket } = createHarness("widget", "en", false, false);
+test("notifications wait for the server stage grant before becoming visible", () => {
+  const { elements, socket, shownId } = createHarness("widget", "en", false, false);
   socket.emit("message", JSON.stringify({
-    type: "tts",
+    type: "notification",
     payload: notification("race"),
   }));
 
   assert.equal(elements["#notification"].classList.contains("is-visible"), false);
-  assert.equal(elements["#notification-clock"].src, "");
+  assert.equal(shownId(), null);
   assert.deepEqual(socket.sent.at(-1), {
     type: "stageClock",
-    payload: { lane: "tts", busy: true },
+    payload: { lane: "notification", busy: true },
   });
 
   socket.emit("message", JSON.stringify({
     type: "stageClock",
-    payload: { mediaBusy: false, musicBusy: false, ttsBusy: true },
+    payload: { mediaBusy: false, musicBusy: false, notificationBusy: true },
   }));
   assert.equal(elements["#notification"].classList.contains("is-visible"), true);
-  assert.match(elements["#notification-clock"].src, /\/tts-audio\/race\?secret=private$/);
+  assert.equal(shownId(), "race");
 });
 
-test("OBS hides the completed TTS card while the next message waits for media", () => {
-  const { elements, socket } = createHarness("obs", "en", false, false);
+test("OBS hides the completed card while the next message waits for media", () => {
+  const { elements, socket, shownId, endCard } = createHarness("obs", "en", false, false);
   socket.emit("message", JSON.stringify({
     type: "config",
-    payload: { ttsNotificationsObsEnabled: true },
+    payload: { notificationsObsEnabled: true },
   }));
   socket.emit("message", JSON.stringify({
-    type: "tts",
+    type: "notification",
     payload: notification("first"),
   }));
   socket.emit("message", JSON.stringify({
     type: "stageClock",
-    payload: { mediaBusy: false, musicBusy: false, ttsBusy: true },
+    payload: { mediaBusy: false, musicBusy: false, notificationBusy: true },
   }));
   socket.emit("message", JSON.stringify({
-    type: "tts",
+    type: "notification",
     payload: notification("second"),
   }));
   assert.equal(elements["#notification"].classList.contains("is-visible"), true);
 
-  elements["#notification-clock"].onended();
+  endCard();
 
   assert.equal(elements["#notification"].classList.contains("is-visible"), false);
-  assert.match(elements["#notification-clock"].src, /^$/);
+  assert.equal(shownId(), null);
   assert.deepEqual(socket.sent.at(-1), {
     type: "stageClock",
-    payload: { lane: "tts", busy: true },
+    payload: { lane: "notification", busy: true },
   });
 
   socket.emit("message", JSON.stringify({
@@ -1052,68 +1010,67 @@ test("OBS hides the completed TTS card while the next message waits for media", 
     payload: {
       mediaBusy: true,
       musicBusy: false,
-      ttsBusy: false,
+      notificationBusy: false,
       granted: false,
-      lane: "tts",
+      lane: "notification",
     },
   }));
   assert.equal(elements["#notification"].classList.contains("is-visible"), false);
 });
 
 test("OBS notifications recover when stageClock clears a missed musicIdle", () => {
-  const { elements, socket } = createHarness("obs");
+  const { elements, socket, shownId } = createHarness("obs");
   socket.emit("message", JSON.stringify({
     type: "config",
-    payload: { ttsNotificationsObsEnabled: true },
+    payload: { notificationsObsEnabled: true },
   }));
   // Simulate a lagged client that still thinks YouTube is active.
   socket.emit("message", JSON.stringify({
     type: "musicPlay",
     payload: { playbackId: "stuck", title: "Track", durationSeconds: 30 },
   }));
-  socket.emit("message", JSON.stringify({ type: "tts", payload: notification("blocked") }));
+  socket.emit("message", JSON.stringify({ type: "notification", payload: notification("blocked") }));
   assert.equal(elements["#notification"].classList.contains("is-visible"), false);
-  assert.equal(elements["#notification-clock"].src, "");
+  assert.equal(shownId(), null);
 
   // Server watch clock recovers without a musicIdle relay event.
   socket.emit("message", JSON.stringify({
     type: "stageClock",
-    payload: { mediaBusy: false, musicBusy: false, ttsBusy: false },
+    payload: { mediaBusy: false, musicBusy: false, notificationBusy: false },
   }));
   assert.equal(elements["#notification"].classList.contains("is-visible"), true);
-  assert.match(elements["#notification-clock"].src, /\/tts-audio\/blocked\?secret=private$/);
+  assert.equal(shownId(), "blocked");
 });
 
-test("skip and clear release the TTS stage without leaving it stuck", () => {
+test("skip and clear release the notification stage without leaving it stuck", () => {
   const { elements, socket } = createHarness("widget");
-  socket.emit("message", JSON.stringify({ type: "tts", payload: notification("live") }));
+  socket.emit("message", JSON.stringify({ type: "notification", payload: notification("live") }));
   assert.deepEqual(socket.sent.at(-1), {
     type: "stageClock",
-    payload: { lane: "tts", busy: true },
+    payload: { lane: "notification", busy: true },
   });
 
   socket.emit("message", JSON.stringify({ type: "skip" }));
-  assert.equal(elements["#notification-clock"].src, "");
   assert.deepEqual(socket.sent.at(-1), {
     type: "stageClock",
-    payload: { lane: "tts", busy: false },
+    payload: { lane: "notification", busy: false },
   });
 
-  socket.emit("message", JSON.stringify({ type: "tts", payload: notification("again") }));
+  socket.emit("message", JSON.stringify({ type: "notification", payload: notification("again") }));
   socket.emit("message", JSON.stringify({ type: "clear" }));
   assert.deepEqual(socket.sent.at(-1), {
     type: "stageClock",
-    payload: { lane: "tts", busy: false },
+    payload: { lane: "notification", busy: false },
   });
   assert.equal(elements["#notification"].classList.contains("is-visible"), false);
 });
 
 test("sticker-only notifications use a compact layout and plain text resets it", () => {
   const { socket, elements } = createHarness("widget");
-  socket.emit("message", JSON.stringify({ type: "testOutput", payload: { target: "notification", tts: { visualOnly: true, segments: [{ kind: "sticker", url: "demo.png" }] } } }));
+  socket.emit("message", JSON.stringify({ type: "testOutput", payload: { target: "notification", notification: { segments: [{ kind: "sticker", url: "demo.png" }] } } }));
   assert.equal(elements["#notification"].classList.contains("is-sticker-only"), true);
   socket.emit("message", JSON.stringify({ type: "clear" }));
-  socket.emit("message", JSON.stringify({ type: "testOutput", payload: { target: "notification", tts: { visualOnly: true, text: "Next message" } } }));
+  socket.emit("message", JSON.stringify({ type: "testOutput", payload: { target: "notification", notification: { text: "Next message" } } }));
   assert.equal(elements["#notification"].classList.contains("is-sticker-only"), false);
 });
 
@@ -1159,7 +1116,6 @@ test("appearance messages set the stream style on the notification page", () => 
 function visualNotification(id, username = `User ${id}`) {
   return {
     ...notification(id, username),
-    visualOnly: true,
     segments: [{ kind: "text", value: `Message ${id}` }],
   };
 }
@@ -1168,7 +1124,7 @@ test("a pinned visual notification stays visible while later messages queue", ()
   const { elements, socket, timers } = createHarness("widget");
   const first = visualNotification("pinned");
 
-  socket.emit("message", JSON.stringify({ type: "tts", payload: first }));
+  socket.emit("message", JSON.stringify({ type: "notification", payload: first }));
   socket.emit("message", JSON.stringify({
     type: "messagePin",
     payload: { pinned: true, message: first },
@@ -1177,7 +1133,7 @@ test("a pinned visual notification stays visible while later messages queue", ()
   assert.equal(elements["#notification"].classList.contains("is-visible"), true);
   assert.equal([...timers.values()].some(({ delay }) => delay === 8000), false);
 
-  socket.emit("message", JSON.stringify({ type: "tts", payload: visualNotification("queued") }));
+  socket.emit("message", JSON.stringify({ type: "notification", payload: visualNotification("queued") }));
   assert.equal(elements["#notification-author"].textContent, "User pinned");
 
   socket.emit("message", JSON.stringify({ type: "messagePin", payload: { pinned: false } }));
@@ -1185,18 +1141,17 @@ test("a pinned visual notification stays visible while later messages queue", ()
   assert.equal(elements["#notification"].classList.contains("is-visible"), true);
 });
 
-test("a pinned spoken notification keeps its card after audio ends and resumes on removal", async () => {
+test("a pinned plain-text notification keeps its card and the queue resumes on removal", async () => {
   const { elements, socket, timers } = createHarness("widget");
   const first = notification("spoken-pin");
-  socket.emit("message", JSON.stringify({ type: "tts", payload: first }));
+  socket.emit("message", JSON.stringify({ type: "notification", payload: first }));
   socket.emit("message", JSON.stringify({
     type: "messagePin",
     payload: { pinned: true, message: first },
   }));
   assert.equal(elements["#notification"].classList.contains("is-visible"), true);
-  assert.equal(elements["#notification-clock"].src, "");
 
-  socket.emit("message", JSON.stringify({ type: "tts", payload: notification("after-pin") }));
+  socket.emit("message", JSON.stringify({ type: "notification", payload: notification("after-pin") }));
   assert.equal(elements["#notification-author"].textContent, "User spoken-pin");
   socket.emit("message", JSON.stringify({ type: "messagePin", payload: { pinned: false } }));
   await nextMicrotask();
@@ -1206,9 +1161,9 @@ test("a pinned spoken notification keeps its card after audio ends and resumes o
 test("reconnected notifications wait for the pin snapshot before draining queued messages", () => {
   const { elements, socket, sockets, runNextTimer } = createHarness("widget");
   const first = visualNotification("reconnect-pin");
-  socket.emit("message", JSON.stringify({ type: "tts", payload: first }));
+  socket.emit("message", JSON.stringify({ type: "notification", payload: first }));
   socket.emit("message", JSON.stringify({ type: "messagePin", payload: { pinned: true, message: first } }));
-  socket.emit("message", JSON.stringify({ type: "tts", payload: visualNotification("reconnect-queued") }));
+  socket.emit("message", JSON.stringify({ type: "notification", payload: visualNotification("reconnect-queued") }));
 
   socket.emit("close");
   assert.equal(elements["#notification"].classList.contains("is-visible"), false);

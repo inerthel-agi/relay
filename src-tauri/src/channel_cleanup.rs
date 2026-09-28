@@ -1,7 +1,4 @@
-use std::{
-    sync::Arc,
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
+use std::{sync::Arc, time::Duration};
 
 use serenity::{
     all::{ChannelId, GetMessages, MessageId},
@@ -17,7 +14,7 @@ const MAX_PAGES: usize = 10;
 #[derive(Clone, Copy)]
 enum ChannelKind {
     Media,
-    Tts,
+    FormerMessages,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -40,10 +37,10 @@ fn rule(config: &AppConfig, kind: ChannelKind) -> Option<CleanupRule> {
             &config.watched_channel_id,
             &config.media_welcome_message_id,
         ),
-        ChannelKind::Tts => (
-            config.tts_cleanup_enabled,
-            &config.tts_channel_id,
-            &config.tts_welcome_message_id,
+        ChannelKind::FormerMessages => (
+            config.former_message_cleanup_enabled,
+            &config.former_message_channel_id,
+            &config.former_message_welcome_message_id,
         ),
     };
     if !enabled {
@@ -101,10 +98,7 @@ async fn sweep(
                 |_| "24-hour cleanup paused: the protected welcome message cannot be verified.",
             )?;
     }
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
+    let now = crate::clock::now_secs();
     for _ in 0..MAX_PAGES {
         if !unchanged(core, kind, &current).await {
             scan.before = None;
@@ -157,7 +151,7 @@ pub async fn run(core: Arc<AppCore>, http: Arc<Http>) {
         if !core.bot_status.read().await.connected {
             continue;
         }
-        for (kind, scan) in [ChannelKind::Media, ChannelKind::Tts]
+        for (kind, scan) in [ChannelKind::Media, ChannelKind::FormerMessages]
             .into_iter()
             .zip(&mut scans)
         {
@@ -189,26 +183,23 @@ pub async fn verify_welcome(
         .ok()
         .filter(|id| *id > 0)
         .ok_or("Select a channel before enabling 24-hour cleanup.")?;
-    if welcome.is_empty() {
+    // Same checks as the music channel's welcome message, with this page's wording.
+    let Some(welcome) = crate::music_cleanup::optional_protected_message(welcome)
+        .map_err(|_| "Enter a valid welcome message ID.")?
+    else {
         return Ok(());
-    }
-    let welcome = welcome
-        .parse::<u64>()
-        .ok()
-        .filter(|id| *id > 0)
-        .ok_or("Enter a valid welcome message ID.")?;
+    };
     let http = core
-        .bot_runtime
-        .lock()
+        .discord_http()
         .await
-        .as_ref()
-        .map(|runtime| runtime.http.clone())
         .ok_or("Connect the bot to verify the welcome message.")?;
-    ChannelId::new(channel)
-        .message(&http, MessageId::new(welcome))
-        .await
-        .map_err(|_| "The welcome message was not found in the selected channel.")?;
-    Ok(())
+    crate::music_cleanup::verify_protected_message(
+        &http,
+        channel,
+        Some(welcome),
+        "The welcome message was not found in the selected channel.",
+    )
+    .await
 }
 
 #[cfg(test)]

@@ -13,15 +13,35 @@ This changelog is maintained in English. Interface translations are maintained i
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-09-28
+
 ### English
 
 #### Changed
 
 - Replaced legacy branding in public metadata, documentation and test fixtures with inerthel.
+- Messages and media now share one Relay channel, chosen on the Discord page. In that channel, text becomes a notification and each supported image, GIF, video, audio file and sticker goes to its output once, in Discord order, up to three attachments per message as before. A message with text and media shows one notification, then its media, without repeating the text on the media cards. Media alone never creates an empty notification. GIF links are shown as GIFs, not as notifications. Slash commands typed as text and Discord system messages are never shown as notifications. Stickers posted in the Relay channel use the sticker output. Music, reactions and the security trap keep their own channels.
+- A message with text and media passes the moderation checks of both: spam, cooldown, duplicate and raid protection, and the word filter of every output it feeds. If one part is blocked, no part of the message reaches the stream.
+- Existing settings move to the Relay channel automatically when only one channel was set, or when both were the same. When the media and message channels were different, both keep working as before until you choose which one to keep on the Discord page. `/relay channel` waits for that choice. `/relay status`, `/relay show`, the bot check and the diagnostic report show the Relay channel.
+- The server owner and members allowed to moderate the server (Administrator, Manage Server or Manage Messages) are treated like trusted members: the delay between two messages, spam checks and manual review no longer hold back their media and messages. Privacy checks still apply to them.
+- Size and crop has two YouTube outputs with a live preview. YouTube video in OBS scales the video from 10% to 400%, anchors it with margins and crops its edges. YouTube card in OBS scales and anchors the Now playing card, which follows the visible video. The YouTube source no longer follows the Media in OBS settings.
+- OBS pages left open while Relay restarts, for example after an update, now reload themselves once they reconnect, so new settings and fixes apply without refreshing each Browser Source by hand.
+- On OBS & widgets, Content scale now goes up to 400% so notifications and media can be made much larger on a 1080p or 4K canvas. With the Current layout anchor, the margin controls are greyed out because only an anchored position uses them.
+- Animated GIFs from Tenor, Giphy and Klipy no longer wait for review only because text recognition reads their first frame. Every other privacy check still applies, and other animated images still wait for review when text recognition is on.
+- The Commands page and Help describe the single Relay channel: `/relay channel` chooses it, `/relay lock` locks it, and the troubleshooting steps point to it.
+- `/relay status` no longer shows a "Messages preparing" line that always read 0.
+- The panel test files are no longer bundled into the application.
+- Moderation → filter words has a "Weight of near matches" setting (1 to 100, 4 by default), which could only be changed by editing the configuration file.
+- Settings still named after the removed speech feature are renamed in the configuration file, for example `notificationQueueLimit` instead of `ttsQueueLimit`. Relay converts older files on first start and keeps their values.
+- Opening the bare local address (`http://localhost:<port>/`) now leads to Relay Visual instead of a page that required the secret.
+- The application identifier is now `eu.inerthel.relay`. On first start, Relay copies its settings, decision log, media library, reactions and panel preferences from the previous `eu.stealthylabs.relay` folders, which stay in place, and moves the saved Discord, YouTube, OBS and Relay secrets to the new Windows Credential Manager entries.
 
 #### Fixed
 
 - Restored the Relay logo next to the `Relay` title in Windows taskbar previews; the app's own title bar still shows no icon.
+- The skip shortcut and skip button now also end a sticker on screen instead of waiting for its display time.
+- The control panel can show the reaction image preview and Tenor media again: its own security policy now matches the application's.
+- HEVC video conversion finds FFmpeg installed with WinGet even when Windows has not refreshed the PATH yet, like audio trimming already did.
 
 ## [1.4.0] - 2026-09-26
 
@@ -468,10 +488,13 @@ This changelog is maintained in English. Interface translations are maintained i
 - Separate media, audio, TTS, and notification outputs.
 - Local moderation, playback controls, history, personalization, and multilingual interface.
 
-[Unreleased]: https://github.com/inerthel-agi/relay/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/inerthel-agi/relay/compare/v1.4.1...HEAD
+[1.4.1]: https://github.com/inerthel-agi/relay/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/inerthel-agi/relay/compare/v1.3.7...v1.4.0
 [1.3.7]: https://github.com/inerthel-agi/relay/compare/v1.3.6...v1.3.7
 [1.3.6]: https://github.com/inerthel-agi/relay/compare/v1.3.3...v1.3.6
+[1.3.3]: https://github.com/inerthel-agi/relay/compare/v1.3.2...v1.3.3
+[1.3.2]: https://github.com/inerthel-agi/relay/compare/v1.3.1...v1.3.2
 [1.3.1]: https://github.com/inerthel-agi/relay/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/inerthel-agi/relay/compare/v1.2.7...v1.3.0
 [1.2.7]: https://github.com/inerthel-agi/relay/compare/v1.2.6...v1.2.7

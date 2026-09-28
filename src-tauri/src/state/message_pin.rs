@@ -3,7 +3,7 @@ use std::collections::{HashMap, VecDeque};
 use anyhow::{Result, bail};
 use serde::Serialize;
 
-use crate::model::{MessagePinEvent, TtsEvent};
+use crate::model::{MessagePinEvent, NotificationEvent};
 
 use super::AppCore;
 
@@ -12,26 +12,26 @@ const AUTHORITATIVE_TTS_LIMIT: usize = 128;
 #[derive(Clone, Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MessagePinStatus {
-    pub current: Option<TtsEvent>,
+    pub current: Option<NotificationEvent>,
     pub pinned: bool,
 }
 
 #[derive(Default)]
 pub(crate) struct MessagePinRuntime {
     visible: HashMap<u64, VisibleNotification>,
-    authoritative: VecDeque<TtsEvent>,
+    authoritative: VecDeque<NotificationEvent>,
     next_client_id: u64,
     next_sequence: u64,
-    pinned: Option<TtsEvent>,
+    pinned: Option<NotificationEvent>,
 }
 
 struct VisibleNotification {
-    event: TtsEvent,
+    event: NotificationEvent,
     sequence: u64,
 }
 
 impl MessagePinRuntime {
-    pub(super) fn remember_authoritative(&mut self, event: TtsEvent) {
+    pub(super) fn remember_authoritative(&mut self, event: NotificationEvent) {
         if event.id.is_empty() {
             return;
         }
@@ -42,7 +42,7 @@ impl MessagePinRuntime {
         }
     }
 
-    fn authoritative_event(&self, id: &str) -> Option<TtsEvent> {
+    fn authoritative_event(&self, id: &str) -> Option<NotificationEvent> {
         self.authoritative
             .iter()
             .rev()
@@ -51,7 +51,7 @@ impl MessagePinRuntime {
             .or_else(|| self.pinned.as_ref().filter(|event| event.id == id).cloned())
     }
 
-    fn current(&self) -> Option<TtsEvent> {
+    fn current(&self) -> Option<NotificationEvent> {
         self.visible
             .values()
             .max_by_key(|notification| notification.sequence)
@@ -82,7 +82,7 @@ impl AppCore {
     }
 
     /// Record the message currently displayed by one notification output.
-    pub async fn report_notification_output(&self, client_id: u64, event: TtsEvent) {
+    pub async fn report_notification_output(&self, client_id: u64, event: NotificationEvent) {
         let mut state = self.message_pin.lock().await;
         let Some(event) = state.authoritative_event(&event.id) else {
             return;
@@ -94,7 +94,7 @@ impl AppCore {
             .insert(client_id, VisibleNotification { event, sequence });
     }
 
-    pub(crate) async fn remember_authoritative_tts(&self, event: &TtsEvent) {
+    pub(crate) async fn remember_authoritative_notification(&self, event: &NotificationEvent) {
         self.message_pin
             .lock()
             .await
@@ -148,7 +148,7 @@ impl AppCore {
             (state.status(), changed.then_some(current))
         };
         if let Some(message) = event {
-            let limit = usize::from(self.config.read().await.tts_queue_limit);
+            let limit = usize::from(self.config.read().await.notification_queue_limit);
             self.stage_scheduler.set_messages_pinned(true, limit).await;
             let _ = self
                 .relay_tx
@@ -184,8 +184,8 @@ mod tests {
     use super::*;
     use crate::model::{AuthorIdentity, RelayEvent, VisualSegment};
 
-    fn notification(id: &str) -> TtsEvent {
-        TtsEvent {
+    fn notification(id: &str) -> NotificationEvent {
+        NotificationEvent {
             id: id.into(),
             text: format!("Message {id}"),
             author: AuthorIdentity {
@@ -193,9 +193,7 @@ mod tests {
                 display_avatar_url: String::new(),
             },
             guild_tag: None,
-            content_type: String::new(),
             timestamp: 1,
-            visual_only: true,
             segments: vec![VisualSegment {
                 kind: "text".into(),
                 value: format!("Message {id}"),
@@ -211,7 +209,7 @@ mod tests {
         let core = AppCore::load(directory.path().join("config.json")).unwrap();
         let mut events = core.relay_tx.subscribe();
         let client = core.register_notification_output().await;
-        core.remember_authoritative_tts(&notification("visible"))
+        core.remember_authoritative_notification(&notification("visible"))
             .await;
         core.report_notification_output(client, notification("visible"))
             .await;
@@ -241,7 +239,7 @@ mod tests {
         let core = AppCore::load(directory.path().join("config.json")).unwrap();
         assert!(core.pin_current_message(None).await.is_err());
         let client = core.register_notification_output().await;
-        core.remember_authoritative_tts(&notification("visible"))
+        core.remember_authoritative_notification(&notification("visible"))
             .await;
         core.report_notification_output(client, notification("visible"))
             .await;
@@ -261,7 +259,7 @@ mod tests {
         let path = directory.path().join("config.json");
         let core = AppCore::load(path.clone()).unwrap();
         let client = core.register_notification_output().await;
-        core.remember_authoritative_tts(&notification("visible"))
+        core.remember_authoritative_notification(&notification("visible"))
             .await;
         core.report_notification_output(client, notification("visible"))
             .await;
@@ -277,7 +275,7 @@ mod tests {
         let core = AppCore::load(directory.path().join("config.json")).unwrap();
         let client = core.register_notification_output().await;
         let trusted = notification("trusted");
-        core.remember_authoritative_tts(&trusted).await;
+        core.remember_authoritative_notification(&trusted).await;
 
         core.report_notification_output(client, notification("unknown"))
             .await;
@@ -305,13 +303,13 @@ mod tests {
         let core = AppCore::load(directory.path().join("config.json")).unwrap();
         let client = core.register_notification_output().await;
         let trusted = notification("pinned");
-        core.remember_authoritative_tts(&trusted).await;
+        core.remember_authoritative_notification(&trusted).await;
         core.report_notification_output(client, trusted.clone())
             .await;
         core.pin_current_message(None).await.unwrap();
 
         for index in 0..AUTHORITATIVE_TTS_LIMIT {
-            core.remember_authoritative_tts(&notification(&format!("other-{index}")))
+            core.remember_authoritative_notification(&notification(&format!("other-{index}")))
                 .await;
         }
         core.clear_notification_output(client, Some("pinned")).await;

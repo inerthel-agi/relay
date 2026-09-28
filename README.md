@@ -16,10 +16,10 @@ Download the installer or portable executable from [Releases](https://github.com
 Run the downloaded installer:
 
 ```powershell
-.\Relay_1.4.0_x64-setup.exe
+.\Relay_1.4.1_x64-setup.exe
 ```
 
-Or run `Relay_1.4.0_x64-portable.exe` directly.
+Or run `Relay_1.4.1_x64-portable.exe` directly.
 
 To build from source with the prerequisites installed:
 
@@ -34,7 +34,7 @@ The executable is written to `src-tauri/target/release/relay.exe`.
 ## Usage
 
 1. Open Relay and enter the bot credentials on the Discord page.
-2. Invite the bot and select the media channel. Messages and music use separate optional channels.
+2. Invite the bot and select the Relay channel. Its text messages become notifications; its images, GIFs, videos, audio and stickers go to OBS. Music uses a separate optional channel.
 3. On OBS & widgets, add the sources to OBS or copy their URLs into Browser Sources.
 4. Keep Relay running and post media in the selected channel.
 
@@ -57,7 +57,7 @@ Edit settings in Relay. Configuration is stored in the application configuration
 ## Limitations
 
 - Windows only. OBS must run on the same computer.
-- One media channel is watched per instance. History is limited to 50 entries and is lost on exit.
+- One Relay channel is watched per instance. History is limited to 50 entries and is lost on exit.
 - OCR is limited to available French and English Windows language packs. Animated images require review when OCR has not inspected every frame; videos are not fully frame-scanned.
 - Local output access does not isolate other programs running on the same computer.
 - YouTube export may download external helpers. These use provider checksums; Relay installers use a separate pinned update signature.

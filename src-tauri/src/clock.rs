@@ -10,3 +10,11 @@ pub fn now_ms() -> u64 {
         .try_into()
         .unwrap_or(u64::MAX)
 }
+
+/// Seconds since the Unix epoch, 0 if the system clock is set before 1970.
+pub fn now_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}

@@ -25,10 +25,9 @@ const authorAvatarElement = document.querySelector("#author-avatar");
 const authorNameElement = document.querySelector("#author-name");
 const mediaTextElement = document.querySelector("#media-text");
 const widgetParameters = new URLSearchParams(window.location.search);
-const relaySecret =
-  widgetParameters.get("secret")
-  || document.querySelector('meta[name="relay-secret"]')?.content
-  || "";
+const relaySecret = RelayConnection.secret(widgetParameters);
+// Reloads a page kept open across a Relay restart (often an update).
+const reloadAfterRelayRestart = RelayConnection.reloadOnRestart();
 const isWidgetWindow = widgetParameters.get("widget") === "1";
 const isPreview = widgetParameters.get("preview") === "1";
 document.documentElement.classList.toggle("overlay-preview", isPreview);
@@ -135,16 +134,15 @@ let youtubeApiPromise;
 let youtubePendingPlayback;
 let youtubePlaybackId;
 let youtubeGeneration = 0;
-let youtubeActiveGeneration = 0;
 let youtubeActivePlayback;
 let youtubeSyncTimer;
 const YOUTUBE_SYNC_INTERVAL_MS = 500;
 const YOUTUBE_SYNC_TOLERANCE_SECONDS = 0.75;
-/** YouTube payloads waiting because media or TTS is currently on screen. */
+/** YouTube payloads waiting because media or a notification is currently on screen. */
 let deferredYoutubeQueue = [];
 const DEFERRED_YOUTUBE_LIMIT = 20;
-/** True while a notification/TTS client holds the shared stage. */
-let ttsBusy = false;
+/** True while a notification client holds the shared stage. */
+let notificationBusy = false;
 /**
  * Peer Discord media occupancy from the server stage clock.
  * On split OBS outputs (/medias vs /youtube) this is the only way the YouTube
@@ -404,7 +402,6 @@ function loadYoutubePendingPlayback() {
   }
   youtubePendingPlayback = undefined;
   youtubeActivePlayback = pending;
-  youtubeActiveGeneration = pending.generation;
   const options = {
     videoId: pending.videoId,
     startSeconds: youtubePlaybackPosition(pending),
@@ -592,7 +589,6 @@ function finishYoutubePlayback(playbackId, generation, notifyServer = true) {
   youtubePendingPlayback = undefined;
   youtubeActivePlayback = undefined;
   youtubePlaybackId = undefined;
-  youtubeActiveGeneration = 0;
   unloadYoutubePlayer();
   syncMediaStageBusy();
   // Server may reply with musicPlay (next queued track) or musicIdle (resume media).
@@ -622,7 +618,6 @@ function stopYoutubePlayback(playbackId) {
   youtubePendingPlayback = undefined;
   youtubeActivePlayback = undefined;
   youtubePlaybackId = undefined;
-  youtubeActiveGeneration = 0;
   unloadYoutubePlayer();
   syncMediaStageBusy();
   return true;
@@ -651,22 +646,22 @@ function syncMediaStageBusy() {
 }
 
 function mediaStageBlocked() {
-  // musicBusy: YouTube jukebox. ttsBusy: spoken notifications.
+  // musicBusy: YouTube jukebox. notificationBusy: spoken notifications.
   // Peer mediaBusy: Discord file audio on /audios, or Windows Now Playing
   // reporting the media lane — ignore our own occupancy echo.
-  return musicBusy || ttsBusy || (mediaBusy && !mediaStageOccupied());
+  return musicBusy || notificationBusy || (mediaBusy && !mediaStageOccupied());
 }
 
 function youtubeStageBlocked() {
   // Ignore our own media-lane report while we already hold YouTube on this page.
-  return ttsBusy || (mediaBusy && !mediaStageOccupied());
+  return notificationBusy || (mediaBusy && !mediaStageOccupied());
 }
 
 function resolveMediaStageClaim() {
   if (!mediaStageClaimPending) return;
   if (
     (lastStageClockPayload.granted === false && lastStageClockPayload.lane === "media")
-    || ttsBusy
+    || notificationBusy
     || musicBusy
   ) {
     mediaStageClaimPending = false;
@@ -684,7 +679,7 @@ function playDeferredYoutubeOrNextMedia() {
     !stageClockReady
     || currentMedia
     || youtubePlaybackId
-    || ttsBusy
+    || notificationBusy
     || mediaStageClaimPending
   ) return;
   if (deferredYoutubeQueue.length > 0) {
@@ -704,7 +699,7 @@ function activateQueuedMedia() {
     || currentMedia
     || youtubePlaybackId
     || musicBusy
-    || ttsBusy
+    || notificationBusy
     || !mediaClockReady
   ) {
     syncMediaStageBusy();
@@ -767,7 +762,7 @@ function startYoutubeMusic(payload = {}) {
   const playbackId = typeof payload.playbackId === "string" ? payload.playbackId : "";
   if (!/^[A-Za-z0-9_-]{11}$/.test(videoId) || !playbackId) return;
 
-  // While media or TTS holds the stage, queue YouTube instead of interrupting it.
+  // While media or a notification holds the stage, queue YouTube instead of interrupting it.
   // `mediaBusy` covers peer OBS iframes (/medias) that share the stage clock.
   if (!stageClockReady || currentMedia || youtubeStageBlocked()) {
     if (deferredYoutubeQueue.length >= DEFERRED_YOUTUBE_LIMIT) return;
@@ -951,6 +946,16 @@ function positionMediaText() {
 
 function showPreview() {
   const sample = widgetParameters.get("sample");
+  if (sample === "music" && youtubeCreditElement) {
+    // Panel preview of the OBS YouTube video and "Now playing" card (Size and crop).
+    youtubePlayerElement?.classList.add("youtube-player--obs", "youtube-player--sample");
+    if (youtubeCreditChannelElement) youtubeCreditChannelElement.textContent = "Relay — Now playing preview";
+    youtubeCreditRequester = "Relay";
+    updateYoutubeCreditAuthor();
+    youtubeCreditElement.hidden = false;
+    youtubeCreditElement.classList.add("is-visible");
+    return;
+  }
   if (sample === "audio") {
     audioCardElement.hidden = false;
     audioTitleElement.textContent = "Relay audio test";
@@ -1043,17 +1048,24 @@ function fitVisualToViewport(element, width, height, insetPx = 0) {
   }
 }
 
+// The OBS /youtube page (and its panel preview) has its own size and place.
+const isMusicObsOutput = !isWidgetWindow
+  && (relayMode === "youtube" || (isPreview && widgetParameters.get("sample") === "music"));
+
 function applyOutputGeometry() {
-  const geometry = isWidgetWindow ? config.mediaWidgetGeometry : config.mediaObsGeometry;
+  const geometry = isWidgetWindow
+    ? config.mediaWidgetGeometry
+    : isMusicObsOutput ? config.musicObsGeometry : config.mediaObsGeometry;
   const crop = (value) => Math.min(40, Math.max(0, Number(value) || 0));
   // Widget: never zoom past 100% — that was cropping images at the edges.
-  let scale = Math.min(200, Math.max(50, Number(geometry?.contentScale) || 100));
+  let scale = Math.min(400, Math.max(50, Number(geometry?.contentScale) || 100));
   if (isWidgetWindow) {
     scale = Math.min(scale, 100);
   }
   const rootStyle = document.documentElement.style;
-  // Windows media widget always shows the full frame (no user crop).
-  if (isWidgetWindow) {
+  // Windows media widget always shows the full frame (no user crop); the OBS
+  // YouTube page crops the video itself, not the whole canvas.
+  if (isWidgetWindow || isMusicObsOutput) {
     rootStyle.setProperty("--crop-top", "0%");
     rootStyle.setProperty("--crop-right", "0%");
     rootStyle.setProperty("--crop-bottom", "0%");
@@ -1065,6 +1077,81 @@ function applyOutputGeometry() {
     rootStyle.setProperty("--crop-left", `${crop(geometry?.cropLeft)}%`);
   }
   rootStyle.setProperty("--content-scale", String(scale / 100));
+  if (isMusicObsOutput) {
+    placeYoutubeCredit(geometry, scale / 100);
+    placeYoutubeVideo(config.musicVideoObsGeometry);
+  }
+}
+
+/**
+ * Scales, anchors and crops the OBS YouTube video. The YouTube API recreates the
+ * player for each video, so the setting lives in CSS variables on the page.
+ */
+function placeYoutubeVideo(geometry = {}) {
+  const rootStyle = document.documentElement.style;
+  const scale = Math.min(400, Math.max(10, Number(geometry?.contentScale) || 100)) / 100;
+  const anchor = geometry?.anchor && geometry.anchor !== "legacy" ? geometry.anchor : "center";
+  const margin = (value) => Math.min(200, Math.max(0, Number(value) || 0));
+  const crop = (value) => Math.min(40, Math.max(0, Number(value) || 0));
+  const horizontal = anchor.endsWith("Left") ? "left" : anchor.endsWith("Right") ? "right" : "center";
+  const vertical = anchor.startsWith("top") ? "top" : anchor.startsWith("bottom") ? "bottom" : "center";
+  const shiftX = horizontal === "left" ? margin(geometry?.marginX) : horizontal === "right" ? -margin(geometry?.marginX) : 0;
+  const shiftY = vertical === "top" ? margin(geometry?.marginY) : vertical === "bottom" ? -margin(geometry?.marginY) : 0;
+  const crops = ["Top", "Right", "Bottom", "Left"].map((side) => crop(geometry?.[`crop${side}`]));
+  // The video grows or shrinks from its anchor; margins stay in canvas pixels.
+  rootStyle.setProperty("--video-scale", String(scale));
+  rootStyle.setProperty("--video-origin", `${horizontal} ${vertical}`);
+  rootStyle.setProperty("--video-shift-x", `${shiftX}px`);
+  rootStyle.setProperty("--video-shift-y", `${shiftY}px`);
+  ["top", "right", "bottom", "left"].forEach((side, index) => {
+    rootStyle.setProperty(`--video-crop-${side}`, `${crops[index]}%`);
+  });
+  // Distance from each canvas edge to the visible video, so the Now playing
+  // card follows it. Percentages resolve on the matching canvas axis.
+  const fx = { left: 0, center: 0.5, right: 1 }[horizontal];
+  const fy = { top: 0, center: 0.5, bottom: 1 }[vertical];
+  const inset = (percent, pixels) => `max(0px, calc(${Number(percent.toFixed(3))}% + ${pixels}px))`;
+  rootStyle.setProperty("--video-inset-top", inset(fy * (1 - scale) * 100 + crops[0] * scale, shiftY));
+  rootStyle.setProperty("--video-inset-right", inset((1 - fx) * (1 - scale) * 100 + crops[1] * scale, -shiftX));
+  rootStyle.setProperty("--video-inset-bottom", inset((1 - fy) * (1 - scale) * 100 + crops[2] * scale, -shiftY));
+  rootStyle.setProperty("--video-inset-left", inset(fx * (1 - scale) * 100 + crops[3] * scale, shiftX));
+  // Default settings keep the untouched full-canvas player.
+  document.documentElement.classList.toggle(
+    "youtube-video-sized",
+    scale !== 1 || shiftX !== 0 || shiftY !== 0 || crops.some(Boolean),
+  );
+}
+
+/**
+ * Scales the OBS "Now playing" card from the chosen anchor and pins it there.
+ * Anchors and margins are measured from the visible YouTube video, not the canvas.
+ */
+function placeYoutubeCredit(geometry = {}, scale = 1) {
+  if (!youtubeCreditElement) return;
+  document.documentElement.style.setProperty("--credit-scale", String(scale));
+  const style = youtubeCreditElement.style;
+  for (const property of ["left", "right", "top", "bottom", "marginInline", "marginBlock", "width", "height", "transformOrigin"]) {
+    style[property] = "";
+  }
+  const anchor = geometry.anchor || "legacy";
+  if (anchor === "legacy") return;
+  const edge = (side, value) => `calc(var(--video-inset-${side}, 0px) + ${Math.min(200, Math.max(0, Number(value) || 0))}px)`;
+  const horizontal = anchor.endsWith("Left") ? "left" : anchor.endsWith("Right") ? "right" : "center";
+  const vertical = anchor.startsWith("top") ? "top" : anchor.startsWith("bottom") ? "bottom" : "center";
+  // The card grows from its anchored corner, so margins stay in canvas pixels.
+  style.transformOrigin = `${horizontal} ${vertical}`;
+  if (horizontal === "center") {
+    Object.assign(style, { left: edge("left", 0), right: edge("right", 0), marginInline: "auto", width: "fit-content" });
+  } else {
+    style.left = horizontal === "left" ? edge("left", geometry.marginX) : "auto";
+    style.right = horizontal === "right" ? edge("right", geometry.marginX) : "auto";
+  }
+  if (vertical === "center") {
+    Object.assign(style, { top: edge("top", 0), bottom: edge("bottom", 0), marginBlock: "auto", height: "fit-content" });
+  } else {
+    style.top = vertical === "top" ? edge("top", geometry.marginY) : "auto";
+    style.bottom = vertical === "bottom" ? edge("bottom", geometry.marginY) : "auto";
+  }
 }
 
 function resetElements() {
@@ -1449,7 +1536,7 @@ function applyStageClock(payload = {}) {
   if (Object.prototype.hasOwnProperty.call(payload, "musicBusy")) {
     musicBusy = Boolean(payload.musicBusy);
   }
-  ttsBusy = Boolean(payload.ttsBusy);
+  notificationBusy = Boolean(payload.notificationBusy);
   if (isReconnectHydration && payload.musicBusy === false) {
     deferredYoutubeQueue.length = 0;
   }
@@ -1498,6 +1585,7 @@ function applyReactionDucking(playback) {
   if (playback && playback.endsAt > Date.now()) reactionRestoreTimer = window.setTimeout(() => applyReactionDucking(null), playback.endsAt - Date.now());
 }
 
+
 function handleMessage(event) {
   let message;
   try {
@@ -1509,6 +1597,7 @@ function handleMessage(event) {
   if (message.type === "reaction") {
     applyReactionDucking(message.payload);
   } else if (message.type === "config") {
+    if (reloadAfterRelayRestart(message.payload?.relaySession)) return;
     config = { ...config, ...message.payload };
     applyOutputGeometry();
     positionMediaText();
@@ -1552,9 +1641,6 @@ function handleMessage(event) {
     ) {
       enqueueMedia(outputTest.media);
     }
-  } else if (message.type === "image") {
-    if (isPreview) return;
-    if (message.payload) enqueueMedia({ kind: "image", ...message.payload });
   } else if (message.type === "skip") {
     if (isPreview) return;
     skipCurrentMedia();
@@ -1601,11 +1687,6 @@ function handleMessage(event) {
     } else {
       requestOutputLease();
     }
-  } else if (message.type === "serverMove") {
-    const movedPort = Number(message.payload?.port);
-    if (Number.isInteger(movedPort) && movedPort > 0 && movedPort <= 65535) {
-      pendingPort = movedPort;
-    }
   } else if (message.type === "appearance") {
     applyAppearance(message.payload);
   }
@@ -1641,29 +1722,7 @@ function scheduleReconnect() {
 }
 
 function moveToPendingPort() {
-  const nextUrl = new URL(window.location.href);
-  nextUrl.port = String(pendingPort);
-  // Probe the moved server before navigating: OBS browser sources never
-  // retry a failed page load, so a blind navigation can leave them dead.
-  const probe = new WebSocket(
-    outputSocketUrl(`${window.location.hostname}:${pendingPort}`, "probe", "ws:"),
-  );
-  let ready = false;
-  const probeWatchdog = window.setTimeout(() => {
-    if (!ready) probe.close();
-  }, 5000);
-  probe.addEventListener("open", () => {
-    ready = true;
-    window.clearTimeout(probeWatchdog);
-    probe.close();
-    window.location.replace(nextUrl);
-  });
-  probe.addEventListener("close", () => {
-    window.clearTimeout(probeWatchdog);
-    if (!ready && !isUnloading) {
-      window.setTimeout(moveToPendingPort, 1000);
-    }
-  });
+  RelayConnection.moveToPort(pendingPort, (host) => outputSocketUrl(host, "probe", "ws:"), () => isUnloading);
 }
 
 function connect() {
@@ -1689,7 +1748,7 @@ function connect() {
     lastStageClockPayload = {};
     reconnectHydrationPending = true;
     stageClockReady = isPreview;
-    ttsBusy = false;
+    notificationBusy = false;
     mediaBusy = false;
     musicBusy = false;
     mediaClockReady = !coordinatesSplitOutputs;

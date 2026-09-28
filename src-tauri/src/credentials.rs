@@ -9,8 +9,10 @@ use rand::{RngCore, rng};
 use serde::{Deserialize, Serialize};
 use windows_native_keyring_store::Store;
 
-const SERVICE: &str = "eu.stealthylabs.relay";
-const LEGACY_SERVICE: &str = "eu.stealthylabs.discord-obs-relay";
+const SERVICE: &str = "eu.inerthel.relay";
+/// Former Credential Manager services, newest first. A value found there is
+/// moved to `SERVICE` the first time it is read.
+const LEGACY_SERVICES: [&str; 2] = ["eu.stealthylabs.relay", "eu.stealthylabs.discord-obs-relay"];
 const DISCORD_ACCOUNT: &str = "discord-credentials";
 const YOUTUBE_API_KEY_ACCOUNT: &str = "youtube-api-key";
 const RELAY_SECRET_ACCOUNT: &str = "relay-secret";
@@ -96,7 +98,13 @@ pub fn load_youtube_api_key() -> Result<Option<String>> {
             validate_youtube_api_key(&api_key)?;
             Ok(Some(api_key))
         }
-        Err(KeyringError::NoEntry) => Ok(None),
+        Err(KeyringError::NoEntry) => match migrate_legacy_password(YOUTUBE_API_KEY_ACCOUNT)? {
+            Some(api_key) => {
+                validate_youtube_api_key(&api_key)?;
+                Ok(Some(api_key))
+            }
+            None => Ok(None),
+        },
         Err(error) => Err(error).context("failed to read the YouTube API key"),
     }
 }
@@ -106,6 +114,15 @@ pub fn save_obs_password(password: &str) -> Result<()> {
     initialize_keyring()?;
     let entry = Entry::new(SERVICE, OBS_WEBSOCKET_ACCOUNT)?;
     if password.is_empty() {
+        // A forgotten password must not come back from a former service.
+        for service in LEGACY_SERVICES {
+            match Entry::new(service, OBS_WEBSOCKET_ACCOUNT)?.delete_credential() {
+                Ok(()) | Err(KeyringError::NoEntry) => {}
+                Err(error) => {
+                    return Err(error).context("failed to remove the OBS WebSocket password");
+                }
+            }
+        }
         return match entry.delete_credential() {
             Ok(()) | Err(KeyringError::NoEntry) => Ok(()),
             Err(error) => Err(error).context("failed to remove the OBS WebSocket password"),
@@ -123,7 +140,7 @@ pub fn load_obs_password() -> Result<Option<String>> {
     initialize_keyring()?;
     match Entry::new(SERVICE, OBS_WEBSOCKET_ACCOUNT)?.get_password() {
         Ok(password) => Ok(Some(password)),
-        Err(KeyringError::NoEntry) => Ok(None),
+        Err(KeyringError::NoEntry) => migrate_legacy_password(OBS_WEBSOCKET_ACCOUNT),
         Err(error) => Err(error).context("failed to read the OBS WebSocket password"),
     }
 }
@@ -189,19 +206,22 @@ fn create_relay_secret() -> Result<String> {
 }
 
 fn migrate_legacy_password(account: &str) -> Result<Option<String>> {
-    let legacy_entry = Entry::new(LEGACY_SERVICE, account)?;
-    let password = match legacy_entry.get_password() {
-        Ok(password) => password,
-        Err(KeyringError::NoEntry) => return Ok(None),
-        Err(error) => return Err(error).context("failed to read legacy Relay credentials"),
-    };
-    Entry::new(SERVICE, account)?
-        .set_password(&password)
-        .context("failed to migrate Relay credentials")?;
-    legacy_entry
-        .delete_credential()
-        .context("failed to remove migrated Relay credentials")?;
-    Ok(Some(password))
+    for service in LEGACY_SERVICES {
+        let legacy_entry = Entry::new(service, account)?;
+        let password = match legacy_entry.get_password() {
+            Ok(password) => password,
+            Err(KeyringError::NoEntry) => continue,
+            Err(error) => return Err(error).context("failed to read legacy Relay credentials"),
+        };
+        Entry::new(SERVICE, account)?
+            .set_password(&password)
+            .context("failed to migrate Relay credentials")?;
+        legacy_entry
+            .delete_credential()
+            .context("failed to remove migrated Relay credentials")?;
+        return Ok(Some(password));
+    }
+    Ok(None)
 }
 
 fn load_environment_credentials() -> Result<Option<(DiscordCredentials, &'static str)>> {

@@ -8,7 +8,7 @@ use crate::{
     model::{
         AuthorIdentity, MediaEvent, MediaKind, MusicPlaybackEvent, MusicPlaybackMode, RelayEvent,
     },
-    state::{CachedMedia, MediaArtwork, MediaAudio, TtsAudio},
+    state::{CachedMedia, MediaArtwork, MediaAudio},
 };
 
 #[test]
@@ -150,6 +150,16 @@ fn output_config_never_serializes_private_scanner_values() {
 }
 
 #[test]
+fn output_config_carries_one_session_per_relay_start() {
+    let first = serde_json::to_value(OverlayConfig::from(&AppConfig::default())).unwrap();
+    let second = serde_json::to_value(OverlayConfig::from(&AppConfig::default())).unwrap();
+    let session = first["relaySession"].as_str().expect("relay session");
+    assert!(!session.is_empty());
+    // Stable for the whole run: pages only reload after a real restart.
+    assert_eq!(second["relaySession"], first["relaySession"]);
+}
+
+#[test]
 fn classifies_valid_output_sources_and_client_contexts() {
     let visual_preview =
         output_connection("overlay", &access_query(Some("visual"), Some("preview")))
@@ -215,6 +225,10 @@ async fn serves_authenticated_overlay_and_broadcasts_under_load() {
     let audio_response = http_response(port, "/audios");
     assert!(audio_response.starts_with("HTTP/1.1 200"));
     assert!(audio_response.contains("content=\"audio\""));
+    let root = http_response(port, "/");
+    assert!(root.starts_with("HTTP/1.1 302"));
+    assert!(root.contains("location: /obs/visual"));
+    assert!(http_status(port, "/health").starts_with("HTTP/1.1 404"));
     // /youtube on 127.0.0.1 must redirect: YouTube rejects that Referer (error 150).
     let youtube_redirect = http_response(port, "/youtube");
     assert!(youtube_redirect.starts_with("HTTP/1.1 307"));
@@ -243,18 +257,13 @@ async fn serves_authenticated_overlay_and_broadcasts_under_load() {
     assert!(
         http_status(port, &format!("/notifications?secret={secret}")).starts_with("HTTP/1.1 200")
     );
-    core.tts_audio.write().await.push_front(TtsAudio {
-        id: "123456789012345678".into(),
-        content_type: "audio/wav".into(),
-        bytes: axum::body::Bytes::from_static(b"RIFF-test"),
-    });
-    assert!(http_status(port, "/tts-audio/123456789012345678").starts_with("HTTP/1.1 401"));
+    // Notifications are visual only: the former speech audio route is gone.
     assert!(
         http_status(
             port,
             &format!("/tts-audio/123456789012345678?secret={secret}")
         )
-        .starts_with("HTTP/1.1 200")
+        .starts_with("HTTP/1.1 404")
     );
     core.media_artwork.write().await.push_front(MediaArtwork {
         id: "223456789012345678".into(),
@@ -373,30 +382,14 @@ async fn serves_authenticated_overlay_and_broadcasts_under_load() {
             .contains("\"type\":\"reaction\"")
     );
     clients.push(widget_client);
-    let (mut tts_client, _) = tokio_tungstenite::connect_async(format!(
-        "ws://127.0.0.1:{port}/ws?role=tts&source=tts&client=obs&secret={secret}"
-    ))
-    .await
-    .unwrap();
-    let initial = tts_client.next().await.unwrap().unwrap();
-    assert!(initial.to_text().unwrap().contains("\"type\":\"config\""));
-    let appearance = tts_client.next().await.unwrap().unwrap();
+    // The former speech page role is refused: notifications use role=notification.
     assert!(
-        appearance
-            .to_text()
-            .unwrap()
-            .contains("\"type\":\"appearance\"")
+        tokio_tungstenite::connect_async(format!(
+            "ws://127.0.0.1:{port}/ws?role=tts&source=tts&client=obs&secret={secret}"
+        ))
+        .await
+        .is_err()
     );
-    let stage = tts_client.next().await.unwrap().unwrap();
-    assert!(stage.to_text().unwrap().contains("\"type\":\"stageClock\""));
-    let reaction = tts_client.next().await.unwrap().unwrap();
-    assert!(
-        reaction
-            .to_text()
-            .unwrap()
-            .contains("\"type\":\"reaction\"")
-    );
-    clients.push(tts_client);
     let (mut notification_client, _) = tokio_tungstenite::connect_async(format!(
         "ws://127.0.0.1:{port}/ws?role=notification&source=notification&client=obs&secret={secret}"
     ))
@@ -464,12 +457,11 @@ async fn serves_authenticated_overlay_and_broadcasts_under_load() {
     }
     assert_eq!(core.history.read().await.len(), 50);
     let status = core.server_status.read().await.clone();
-    assert_eq!(status.overlay_clients, 10);
+    assert_eq!(status.overlay_clients, 9);
     assert_eq!(status.outputs.visual.obs_clients, 8);
     assert_eq!(status.outputs.visual.preview_clients, 1);
     assert_eq!(status.outputs.visual.widget_clients, 1);
     assert!(status.outputs.visual.last_connected_at.is_some());
-    assert_eq!(status.outputs.tts.obs_clients, 1);
     assert_eq!(status.outputs.notification.obs_clients, 1);
 
     start_server(core.clone()).await.unwrap();
@@ -508,6 +500,8 @@ async fn serves_the_shared_output_style_and_only_bundled_fonts() {
             .contains("font-src 'self'; img-src")
     );
     assert!(http_response(port, "/output-theme.js").contains("relayOutputTheme"));
+    // Shared reconnect, port move and restart reload for every output page.
+    assert!(http_response(port, "/output-connection.js").contains("const RelayConnection"));
     // Font bodies are binary, so read raw bytes instead of a UTF-8 string.
     let mut stream = std::net::TcpStream::connect((HOST, port)).unwrap();
     write!(
@@ -675,7 +669,7 @@ async fn coordinates_split_video_and_audio_outputs() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn coordinates_media_and_tts_stage_clock() {
+async fn coordinates_media_and_notification_stage_clock() {
     let port = free_local_port();
     let directory = tempfile::tempdir().unwrap();
     let core = AppCore::load(directory.path().join("config.json")).unwrap();
@@ -692,7 +686,7 @@ async fn coordinates_media_and_tts_stage_clock() {
     let overlay_stage = next_test_event(&mut overlay, "stageClock").await;
     assert_eq!(overlay_stage["payload"]["mediaBusy"], false);
     assert_eq!(overlay_stage["payload"]["musicBusy"], false);
-    assert_eq!(overlay_stage["payload"]["ttsBusy"], false);
+    assert_eq!(overlay_stage["payload"]["notificationBusy"], false);
 
     let (mut notification, _) = tokio_tungstenite::connect_async(format!(
         "ws://127.0.0.1:{port}/ws?role=notification&source=notification&client=widget&secret={secret}"
@@ -710,21 +704,21 @@ async fn coordinates_media_and_tts_stage_clock() {
     let notification_stage = next_test_event(&mut notification, "stageClock").await;
     assert_eq!(notification_stage["payload"]["mediaBusy"], false);
     assert_eq!(notification_stage["payload"]["musicBusy"], false);
-    assert_eq!(notification_stage["payload"]["ttsBusy"], false);
+    assert_eq!(notification_stage["payload"]["notificationBusy"], false);
 
     notification
         .send(tokio_tungstenite::tungstenite::Message::Text(
-            json!({ "type": "stageClock", "payload": { "lane": "tts", "busy": true } })
+            json!({ "type": "stageClock", "payload": { "lane": "notification", "busy": true } })
                 .to_string()
                 .into(),
         ))
         .await
         .unwrap();
     let busy = next_test_event(&mut overlay, "stageClock").await;
-    assert_eq!(busy["payload"]["ttsBusy"], true);
+    assert_eq!(busy["payload"]["notificationBusy"], true);
     assert_eq!(busy["payload"]["mediaBusy"], false);
     let busy = next_test_event(&mut notification, "stageClock").await;
-    assert_eq!(busy["payload"]["ttsBusy"], true);
+    assert_eq!(busy["payload"]["notificationBusy"], true);
 
     overlay
         .send(tokio_tungstenite::tungstenite::Message::Text(
@@ -734,24 +728,24 @@ async fn coordinates_media_and_tts_stage_clock() {
         ))
         .await
         .unwrap();
-    // Media claim is rejected while TTS holds the exclusive stage.
+    // Media claim is rejected while a notification holds the exclusive stage.
     let rejected = next_test_event(&mut overlay, "stageClock").await;
     assert_eq!(rejected["payload"]["mediaBusy"], false);
-    assert_eq!(rejected["payload"]["ttsBusy"], true);
+    assert_eq!(rejected["payload"]["notificationBusy"], true);
     assert_eq!(rejected["payload"]["granted"], false);
 
     notification
         .send(tokio_tungstenite::tungstenite::Message::Text(
-            json!({ "type": "stageClock", "payload": { "lane": "tts", "busy": false } })
+            json!({ "type": "stageClock", "payload": { "lane": "notification", "busy": false } })
                 .to_string()
                 .into(),
         ))
         .await
         .unwrap();
     let idle = next_test_event(&mut overlay, "stageClock").await;
-    assert_eq!(idle["payload"]["ttsBusy"], false);
+    assert_eq!(idle["payload"]["notificationBusy"], false);
     let idle = next_test_event(&mut notification, "stageClock").await;
-    assert_eq!(idle["payload"]["ttsBusy"], false);
+    assert_eq!(idle["payload"]["notificationBusy"], false);
 
     overlay
         .send(tokio_tungstenite::tungstenite::Message::Text(
@@ -763,10 +757,10 @@ async fn coordinates_media_and_tts_stage_clock() {
         .unwrap();
     let media_only = next_test_event(&mut overlay, "stageClock").await;
     assert_eq!(media_only["payload"]["mediaBusy"], true);
-    assert_eq!(media_only["payload"]["ttsBusy"], false);
+    assert_eq!(media_only["payload"]["notificationBusy"], false);
     let media_only = next_test_event(&mut notification, "stageClock").await;
     assert_eq!(media_only["payload"]["mediaBusy"], true);
-    assert_eq!(media_only["payload"]["ttsBusy"], false);
+    assert_eq!(media_only["payload"]["notificationBusy"], false);
 
     let mut peer_overlay = connect_test_output(port, &secret, "all").await;
     let peer_initial = next_test_event(&mut peer_overlay, "stageClock").await;
@@ -783,7 +777,7 @@ async fn coordinates_media_and_tts_stage_clock() {
     // mediaBusy boolean was already true because another output owns it.
     let peer_grant = next_test_event(&mut peer_overlay, "stageClock").await;
     assert_eq!(peer_grant["payload"]["mediaBusy"], true);
-    assert_eq!(peer_grant["payload"]["ttsBusy"], false);
+    assert_eq!(peer_grant["payload"]["notificationBusy"], false);
 
     stop_server(&core).await;
 }
@@ -917,4 +911,30 @@ fn http_response_with_host(port: u16, path: &str, hostname: &str) -> String {
     let mut response = String::new();
     stream.read_to_string(&mut response).unwrap();
     response
+}
+
+#[test]
+fn notifications_use_the_notification_protocol_names() {
+    let event = RelayEvent::Notification(crate::model::NotificationEvent {
+        id: "1".into(),
+        text: "Hello".into(),
+        author: AuthorIdentity {
+            username: "Relay".into(),
+            display_avatar_url: String::new(),
+        },
+        guild_tag: None,
+        timestamp: 1,
+        segments: Vec::new(),
+    });
+    assert_eq!(
+        serde_json::to_value(&event).unwrap()["type"],
+        "notification"
+    );
+    // Output pages claim the notification lane and read notificationBusy.
+    let lane: StageLane = serde_json::from_value(serde_json::json!("notification")).unwrap();
+    assert_eq!(lane, StageLane::Notification);
+    assert!(serde_json::from_value::<StageLane>(serde_json::json!("tts")).is_err());
+    let clock = serde_json::to_value(StageClockState::default()).unwrap();
+    assert!(clock.get("notificationBusy").is_some());
+    assert!(clock.get("ttsBusy").is_none());
 }

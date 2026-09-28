@@ -1,15 +1,15 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Relay",
-  "version": "1.4.0",
-  "identifier": "eu.stealthylabs.relay",
+  "version": "1.4.1",
+  "identifier": "eu.inerthel.relay",
   "build": {
     "frontendDist": "../gui"
   },
   "app": {
     "withGlobalTauri": true,
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' asset: data: blob: http://127.0.0.1:* http://localhost:* https://cdn.discordapp.com https://media.discordapp.net https://*.discordapp.net https://*.klipy.com https://media.tenor.com https://i.ytimg.com; media-src blob: http://127.0.0.1:* http://localhost:* https://cdn.discordapp.com https://media.discordapp.net https://*.discordapp.net https://*.klipy.com https://media.tenor.com; connect-src http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:*; frame-src http://127.0.0.1:* http://localhost:*"
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data: blob: http://127.0.0.1:* http://localhost:* https://cdn.discordapp.com https://media.discordapp.net https://*.discordapp.net https://*.klipy.com https://media.tenor.com https://i.ytimg.com; media-src blob: http://127.0.0.1:* http://localhost:* https://cdn.discordapp.com https://media.discordapp.net https://*.discordapp.net https://*.klipy.com https://media.tenor.com; connect-src http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:*; frame-src http://127.0.0.1:* http://localhost:*"
     },
     "windows": [
       {

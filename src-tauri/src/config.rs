@@ -97,8 +97,15 @@ impl Default for OutputGeometry {
     }
 }
 
+/// The OBS YouTube video can shrink to a small corner player.
+pub const YOUTUBE_VIDEO_MIN_SCALE: u16 = 10;
+
 impl OutputGeometry {
     pub fn validate(&self) -> Result<()> {
+        self.validate_with_min_scale(50)
+    }
+
+    pub fn validate_with_min_scale(&self, min_scale: u16) -> Result<()> {
         if [
             self.crop_top,
             self.crop_right,
@@ -113,11 +120,18 @@ impl OutputGeometry {
         if self.margin_x > 200 || self.margin_y > 200 {
             bail!("Output margins must be between 0 and 200 pixels.");
         }
-        if !(50..=200).contains(&self.content_scale) {
-            bail!("Output content scale must be between 50 and 200 percent.");
+        if !(min_scale..=400).contains(&self.content_scale) {
+            bail!("Output content scale must be between {min_scale} and 400 percent.");
         }
         Ok(())
     }
+}
+
+/// What Relay takes from the messages of one Discord channel.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ChannelFeeds {
+    pub notifications: bool,
+    pub media: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -136,12 +150,15 @@ pub struct AppConfig {
     pub music_max_pending_per_user: u8,
     pub music_reject_duplicate_pending: bool,
     pub reactions: crate::reactions::ReactionSettings,
+    /// The Relay channel: its messages become notifications and its media go to OBS.
     pub watched_channel_id: String,
-    pub tts_channel_id: String,
+    /// Former separate message channel. Only kept, with its cleanup settings,
+    /// while it differs from `watched_channel_id` and the user has not chosen one.
+    pub former_message_channel_id: String,
     pub media_cleanup_enabled: bool,
     pub media_welcome_message_id: String,
-    pub tts_cleanup_enabled: bool,
-    pub tts_welcome_message_id: String,
+    pub former_message_cleanup_enabled: bool,
+    pub former_message_welcome_message_id: String,
     pub music_channel_id: String,
     pub music_cleanup_enabled: bool,
     pub music_welcome_message_id: String,
@@ -155,9 +172,9 @@ pub struct AppConfig {
     pub media_volume: u8,
     pub skip_shortcut: String,
     pub panic_shortcut: String,
-    pub tts_character_limit: u32,
-    pub tts_queue_limit: u8,
-    pub tts_notifications_obs_enabled: bool,
+    pub notification_character_limit: u32,
+    pub notification_queue_limit: u8,
+    pub notifications_obs_enabled: bool,
     pub bot_online_status: String,
     pub bot_activity_type: String,
     pub bot_activity_text: String,
@@ -211,6 +228,10 @@ pub struct AppConfig {
     pub media_widget_geometry: OutputGeometry,
     pub notification_obs_geometry: OutputGeometry,
     pub notification_widget_geometry: OutputGeometry,
+    /// Size and place of the YouTube "Now playing" card in OBS (`/youtube`).
+    pub music_obs_geometry: OutputGeometry,
+    /// Size, place and crop of the YouTube video itself in OBS (`/youtube`).
+    pub music_video_obs_geometry: OutputGeometry,
     pub notification_sound_enabled: bool,
     pub notification_sound_obs_enabled: bool,
     pub notification_sound_path: Option<String>,
@@ -223,11 +244,11 @@ impl Default for AppConfig {
             music_reject_duplicate_pending: true,
             reactions: crate::reactions::ReactionSettings::default(),
             watched_channel_id: String::new(),
-            tts_channel_id: String::new(),
+            former_message_channel_id: String::new(),
             media_cleanup_enabled: false,
             media_welcome_message_id: String::new(),
-            tts_cleanup_enabled: false,
-            tts_welcome_message_id: String::new(),
+            former_message_cleanup_enabled: false,
+            former_message_welcome_message_id: String::new(),
             music_channel_id: String::new(),
             music_cleanup_enabled: false,
             music_welcome_message_id: String::new(),
@@ -241,9 +262,9 @@ impl Default for AppConfig {
             media_volume: 50,
             skip_shortcut: DEFAULT_SKIP_SHORTCUT.into(),
             panic_shortcut: DEFAULT_PANIC_SHORTCUT.into(),
-            tts_character_limit: 0,
-            tts_queue_limit: 50,
-            tts_notifications_obs_enabled: true,
+            notification_character_limit: 0,
+            notification_queue_limit: 50,
+            notifications_obs_enabled: true,
             bot_online_status: "online".into(),
             bot_activity_type: "custom".into(),
             bot_activity_text: String::new(),
@@ -297,6 +318,8 @@ impl Default for AppConfig {
             media_widget_geometry: OutputGeometry::default(),
             notification_obs_geometry: OutputGeometry::default(),
             notification_widget_geometry: OutputGeometry::default(),
+            music_obs_geometry: OutputGeometry::default(),
+            music_video_obs_geometry: OutputGeometry::default(),
             notification_sound_enabled: false,
             notification_sound_obs_enabled: false,
             notification_sound_path: None,
@@ -323,7 +346,7 @@ impl AppConfig {
             );
         }
         validate_channel_id(&self.watched_channel_id, "watched")?;
-        validate_channel_id(&self.tts_channel_id, "message")?;
+        validate_channel_id(&self.former_message_channel_id, "message")?;
         for (enabled, channel, welcome) in [
             (
                 self.media_cleanup_enabled,
@@ -331,9 +354,9 @@ impl AppConfig {
                 &self.media_welcome_message_id,
             ),
             (
-                self.tts_cleanup_enabled,
-                &self.tts_channel_id,
-                &self.tts_welcome_message_id,
+                self.former_message_cleanup_enabled,
+                &self.former_message_channel_id,
+                &self.former_message_welcome_message_id,
             ),
         ] {
             if enabled && channel.parse::<u64>().ok().filter(|id| *id > 0).is_none() {
@@ -351,7 +374,7 @@ impl AppConfig {
         validate_channel_id(&self.honeypot_channel_id, "honeypot")?;
         let configured_channels = [
             ("media", &self.watched_channel_id),
-            ("messages", &self.tts_channel_id),
+            ("messages", &self.former_message_channel_id),
             ("music", &self.music_channel_id),
             ("honeypot", &self.honeypot_channel_id),
         ];
@@ -363,7 +386,7 @@ impl AppConfig {
                 .iter()
                 .any(|(_, right_id)| left_id == right_id && !right_id.is_empty())
             {
-                bail!("Media, messages, music, and honeypot must use separate Discord channels.");
+                bail!("The Relay channel, music, and honeypot must use separate Discord channels.");
             }
         }
         if self.port < 1024 {
@@ -390,7 +413,7 @@ impl AppConfig {
         if self.panic_shortcut.trim().parse::<Shortcut>().is_err() {
             bail!("The panic shortcut is invalid.");
         }
-        if !(1..=50).contains(&self.tts_queue_limit) {
+        if !(1..=50).contains(&self.notification_queue_limit) {
             bail!("The message queue limit must be between 1 and 50.");
         }
         if !(1..=100).contains(&self.privacy_similarity_boost) {
@@ -467,7 +490,82 @@ impl AppConfig {
         self.media_widget_geometry.validate()?;
         self.notification_obs_geometry.validate()?;
         self.notification_widget_geometry.validate()?;
+        self.music_obs_geometry.validate()?;
+        self.music_video_obs_geometry
+            .validate_with_min_scale(YOUTUBE_VIDEO_MIN_SCALE)?;
         Ok(())
+    }
+
+    /// True while two different former channels wait for the user's choice.
+    /// Until then each one keeps its former single role.
+    pub fn relay_channel_conflict(&self) -> bool {
+        !self.watched_channel_id.is_empty()
+            && !self.former_message_channel_id.is_empty()
+            && self.watched_channel_id != self.former_message_channel_id
+    }
+
+    pub fn channel_feeds(&self, channel_id: &str) -> Option<ChannelFeeds> {
+        if channel_id.is_empty() {
+            return None;
+        }
+        let media = self.watched_channel_id == channel_id;
+        let notifications = if self.relay_channel_conflict() {
+            self.former_message_channel_id == channel_id
+        } else {
+            media
+        };
+        (media || notifications).then_some(ChannelFeeds {
+            notifications,
+            media,
+        })
+    }
+
+    /// Folds the former message channel into the Relay channel when that loses
+    /// nothing: only one was set, or both were the same. Two different channels
+    /// stay untouched until `choose_relay_channel`. Returns whether it changed.
+    pub fn unify_relay_channels(&mut self) -> bool {
+        if self.former_message_channel_id.is_empty() {
+            return false;
+        }
+        if self.watched_channel_id.is_empty() {
+            self.watched_channel_id = std::mem::take(&mut self.former_message_channel_id);
+            self.media_cleanup_enabled = self.former_message_cleanup_enabled;
+            self.media_welcome_message_id =
+                std::mem::take(&mut self.former_message_welcome_message_id);
+        } else if self.watched_channel_id == self.former_message_channel_id {
+            self.media_cleanup_enabled |= self.former_message_cleanup_enabled;
+            if self.media_welcome_message_id.is_empty() {
+                self.media_welcome_message_id =
+                    std::mem::take(&mut self.former_message_welcome_message_id);
+            }
+        } else {
+            return false;
+        }
+        self.clear_former_message_channel();
+        true
+    }
+
+    /// Keeps one of the two former channels as the Relay channel, with its cleanup settings.
+    pub fn choose_relay_channel(&mut self, channel_id: &str) -> Result<()> {
+        if !self.relay_channel_conflict() {
+            bail!("There is no Relay channel choice to make.");
+        }
+        if channel_id == self.former_message_channel_id {
+            self.watched_channel_id = std::mem::take(&mut self.former_message_channel_id);
+            self.media_cleanup_enabled = self.former_message_cleanup_enabled;
+            self.media_welcome_message_id =
+                std::mem::take(&mut self.former_message_welcome_message_id);
+        } else if channel_id != self.watched_channel_id {
+            bail!("Choose one of the two former Relay channels.");
+        }
+        self.clear_former_message_channel();
+        Ok(())
+    }
+
+    fn clear_former_message_channel(&mut self) {
+        self.former_message_channel_id.clear();
+        self.former_message_cleanup_enabled = false;
+        self.former_message_welcome_message_id.clear();
     }
 }
 
@@ -543,12 +641,55 @@ fn validate_channel_id(channel_id: &str, label: &str) -> Result<()> {
     Ok(())
 }
 
-fn validate_snowflake_id(value: &str, label: &str) -> Result<()> {
+pub(crate) fn validate_snowflake_id(value: &str, label: &str) -> Result<()> {
     if !(17..=20).contains(&value.len())
         || !value.chars().all(|character| character.is_ascii_digit())
         || value.parse::<u64>().map_or(true, |id| id == 0)
     {
         bail!("The {label} ID is invalid.");
+    }
+    Ok(())
+}
+
+/// Must match `identifier` in `tauri.conf.json` (checked by a test).
+pub const APP_IDENTIFIER: &str = "eu.inerthel.relay";
+/// Identifier used up to 1.4.0 for the configuration, data and WebView folders.
+pub const PREVIOUS_APP_IDENTIFIER: &str = "eu.stealthylabs.relay";
+/// Where WebView2 keeps the panel's local preferences (localStorage).
+pub const WEBVIEW_STORAGE_PATH: [&str; 3] = ["EBWebView", "Default", "Local Storage"];
+
+/// Copies a folder of the previous app identifier to its new place, once:
+/// nothing happens when the destination exists or the source is missing.
+/// The copy goes through a staging folder, so an interrupted copy is retried
+/// on the next launch. The source stays in place for older builds.
+pub fn copy_previous_app_folder(from: &Path, to: &Path) -> Result<bool> {
+    if to.exists() || !from.is_dir() {
+        return Ok(false);
+    }
+    let mut staging = to.as_os_str().to_owned();
+    staging.push(".migrating");
+    let staging = PathBuf::from(staging);
+    if staging.exists() {
+        fs::remove_dir_all(&staging)
+            .with_context(|| format!("failed to clear {}", staging.display()))?;
+    }
+    copy_folder(from, &staging)?;
+    fs::rename(&staging, to).with_context(|| format!("failed to create {}", to.display()))?;
+    Ok(true)
+}
+
+fn copy_folder(from: &Path, to: &Path) -> Result<()> {
+    fs::create_dir_all(to).with_context(|| format!("failed to create {}", to.display()))?;
+    for entry in fs::read_dir(from).with_context(|| format!("failed to read {}", from.display()))? {
+        let entry = entry?;
+        let target = to.join(entry.file_name());
+        let kind = entry.file_type()?;
+        if kind.is_dir() {
+            copy_folder(&entry.path(), &target)?;
+        } else if kind.is_file() {
+            fs::copy(entry.path(), &target)
+                .with_context(|| format!("failed to copy {}", entry.path().display()))?;
+        }
     }
     Ok(())
 }
@@ -563,24 +704,29 @@ pub fn migrate_legacy_config(config_directory: &Path) -> Result<()> {
         if legacy_path.is_file() {
             let bytes = fs::read(&legacy_path)
                 .with_context(|| format!("failed to read {}", legacy_path.display()))?;
-            let (config, _) = deserialize_config(&bytes)
+            // Merge the former channels as saved, then unify: a channel that
+            // only differs from the current one must stay visible for the choice.
+            let (mut config, _) = deserialize_former_config(&bytes)
                 .with_context(|| format!("failed to parse {}", legacy_path.display()))?;
             if destination.exists() {
+                // This runs on every launch: only a configuration without a
+                // Relay channel takes the legacy ones. An empty former message
+                // channel is the normal state since 1.4.1 and is never refilled.
                 let store = ConfigStore::new(destination.clone());
                 let mut current = store.load()?;
-                let mut changed = false;
-                if current.watched_channel_id.is_empty() && !config.watched_channel_id.is_empty() {
+                if current.watched_channel_id.is_empty()
+                    && (!config.watched_channel_id.is_empty()
+                        || !config.former_message_channel_id.is_empty())
+                {
                     current.watched_channel_id = config.watched_channel_id;
-                    changed = true;
-                }
-                if current.tts_channel_id.is_empty() && !config.tts_channel_id.is_empty() {
-                    current.tts_channel_id = config.tts_channel_id;
-                    changed = true;
-                }
-                if changed {
+                    if current.former_message_channel_id.is_empty() {
+                        current.former_message_channel_id = config.former_message_channel_id;
+                    }
+                    current.unify_relay_channels();
                     store.save(&current)?;
                 }
             } else {
+                config.unify_relay_channels();
                 ConfigStore::new(destination.clone()).save(&config)?;
             }
             break;
@@ -639,10 +785,46 @@ impl ConfigStore {
 }
 
 fn deserialize_config(bytes: &[u8]) -> Result<(AppConfig, bool)> {
+    let (mut config, mut migrated) = deserialize_former_config(bytes)?;
+    // 1.4.1 reads messages and media from one channel. Two different former
+    // channels are kept as they are until the user chooses in Relay.
+    migrated |= config.unify_relay_channels();
+    Ok((config, migrated))
+}
+
+/// Settings renamed in 1.4.1: they were named after the removed speech feature.
+const RENAMED_KEYS: [(&str, &str); 6] = [
+    ("ttsChannelId", "formerMessageChannelId"),
+    ("ttsCleanupEnabled", "formerMessageCleanupEnabled"),
+    ("ttsWelcomeMessageId", "formerMessageWelcomeMessageId"),
+    ("ttsCharacterLimit", "notificationCharacterLimit"),
+    ("ttsQueueLimit", "notificationQueueLimit"),
+    ("ttsNotificationsObsEnabled", "notificationsObsEnabled"),
+];
+
+/// Moves former keys to their new names. When a file holds both, the new
+/// name wins, so a stray old key can never make the whole file unreadable.
+fn rename_former_keys(value: &mut serde_json::Value) -> bool {
+    let Some(config) = value.as_object_mut() else {
+        return false;
+    };
+    let mut renamed = false;
+    for (old, new) in RENAMED_KEYS {
+        if let Some(previous) = config.remove(old) {
+            renamed = true;
+            config.entry(new).or_insert(previous);
+        }
+    }
+    renamed
+}
+
+/// Reads a saved configuration with every migration except the channel unification.
+fn deserialize_former_config(bytes: &[u8]) -> Result<(AppConfig, bool)> {
     let mut value: serde_json::Value = serde_json::from_slice(bytes)?;
+    let renamed = rename_former_keys(&mut value);
     let missing_gif_duration = value.get("gifDurationMs").is_none();
     let missing_sticker_duration = value.get("stickerDurationMs").is_none();
-    let mut migrated = missing_gif_duration || missing_sticker_duration;
+    let mut migrated = renamed || missing_gif_duration || missing_sticker_duration;
     if missing_gif_duration {
         let duration = value
             .get("displayDurationMs")

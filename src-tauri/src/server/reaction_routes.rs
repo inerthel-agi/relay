@@ -8,7 +8,7 @@ pub(super) async fn library_asset(
     if !request_secret_matches(query.secret.as_deref(), &headers, &state.relay_secret) {
         return StatusCode::UNAUTHORIZED.into_response();
     }
-    if !library_routes::valid_asset_id(&id) {
+    if !crate::media_library::is_valid_id(&id) {
         return StatusCode::NOT_FOUND.into_response();
     }
     let library = state.core.media_library.clone();

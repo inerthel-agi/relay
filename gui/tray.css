@@ -1,66 +1,5 @@
-@font-face {
-  font-family: "Relay Bricolage Grotesque";
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url("./assets/fonts/BricolageGrotesque.woff2") format("woff2");
-}
-
-@font-face {
-  font-family: "Relay DM Sans";
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url("./assets/fonts/DMSans.woff2") format("woff2");
-}
-
-@font-face {
-  font-family: "Relay Figtree";
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url("./assets/fonts/Figtree.woff2") format("woff2");
-}
-
-@font-face {
-  font-family: "Relay Inter";
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url("./assets/fonts/Inter.woff2") format("woff2");
-}
-
-@font-face {
-  font-family: "Relay JetBrains Mono";
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url("./assets/fonts/JetBrainsMono.woff2") format("woff2");
-}
-
-@font-face {
-  font-family: "Relay Manrope";
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url("./assets/fonts/Manrope.woff2") format("woff2");
-}
-
-@font-face {
-  font-family: "Relay Poppins";
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url("./assets/fonts/Poppins.woff2") format("woff2");
-}
-
-@font-face {
-  font-family: "Relay Space Grotesk";
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url("./assets/fonts/SpaceGrotesk.woff2") format("woff2");
-}
+/* Same bundled interface fonts as the control panel. */
+@import url("./panel-fonts.css");
 
 :root {
   color-scheme: dark;
@@ -72,8 +11,6 @@
   --tray-faint: #85857e;
   --tray-line: #343431;
   --tray-line-strong: #55554f;
-  --tray-action: #f5f5f1;
-  --tray-action-ink: #121211;
   --tray-accent: rgb(88 185 137);
   --tray-accent-ink: #07130d;
   --tray-success: #58b989;
@@ -572,8 +509,6 @@ button:focus-visible {
   --tray-faint: #85857e;
   --tray-line: #d4d4ce;
   --tray-line-strong: #a5a59e;
-  --tray-action: #111110;
-  --tray-action-ink: #ffffff;
   --tray-success: #16804d;
   --tray-danger: #c43c36;
 }
@@ -587,8 +522,6 @@ button:focus-visible {
   --tray-faint: #85837b;
   --tray-line: #44423c;
   --tray-line-strong: #6a675e;
-  --tray-action: #d97757;
-  --tray-action-ink: #141413;
   --tray-success: #99aa79;
   --tray-danger: #e28b70;
   --tray-radius: 8px;
@@ -605,8 +538,6 @@ button:focus-visible {
   --tray-faint: #85837b;
   --tray-line: #c9c6ba;
   --tray-line-strong: #9b988e;
-  --tray-action: #d97757;
-  --tray-action-ink: #141413;
   --tray-success: #788c5d;
   --tray-danger: #b85f49;
 }
@@ -620,8 +551,6 @@ button:focus-visible {
   --tray-faint: #aa927d;
   --tray-line: #f4cc78;
   --tray-line-strong: #fff4dc;
-  --tray-action: #ff4fb3;
-  --tray-action-ink: #15110f;
   --tray-success: #6cc98b;
   --tray-danger: #ff806f;
   --tray-radius: 2px;
@@ -638,8 +567,6 @@ button:focus-visible {
   --tray-faint: #7c6b5d;
   --tray-line: #15110f;
   --tray-line-strong: #15110f;
-  --tray-action: #ff4fb3;
-  --tray-action-ink: #15110f;
   --tray-success: #3f9f66;
   --tray-danger: #e95344;
 }
@@ -653,8 +580,6 @@ button:focus-visible {
   --tray-faint: #7d929c;
   --tray-line: #c9d9df;
   --tray-line-strong: #9bb0b9;
-  --tray-action: var(--tray-accent);
-  --tray-action-ink: var(--tray-accent-ink);
   --tray-success: #247a62;
   --tray-danger: #bf4d4b;
   --tray-radius: 7px;
@@ -684,8 +609,6 @@ button:focus-visible {
   --tray-faint: #8190a5;
   --tray-line: #c6d3e4;
   --tray-line-strong: #9daec4;
-  --tray-action: var(--tray-accent);
-  --tray-action-ink: var(--tray-accent-ink);
   --tray-success: #23826b;
   --tray-danger: #c65465;
   --tray-radius: 16px;
@@ -715,8 +638,6 @@ button:focus-visible {
   --tray-faint: #8a8a86;
   --tray-line: #2b2b2b;
   --tray-line-strong: #ffffff;
-  --tray-action: var(--tray-accent);
-  --tray-action-ink: var(--tray-accent-ink);
   --tray-success: #3ddc84;
   --tray-danger: #ff5a5a;
   --tray-radius: 0px;

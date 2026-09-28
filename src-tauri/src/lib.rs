@@ -8,6 +8,7 @@ mod config;
 mod credentials;
 mod custom_commands;
 mod discord_check;
+mod hidden_process;
 mod media_compat;
 mod media_library;
 mod model;
@@ -32,7 +33,7 @@ mod youtube;
 mod youtube_download;
 
 use std::{
-    env,
+    env, fs,
     path::PathBuf,
     process::Command,
     sync::{Arc, OnceLock, atomic::Ordering},
@@ -49,19 +50,23 @@ use crate::{
     bot::start_bot,
     changelog::get_changelog_markdown,
     commands::{
-        apply_config, approve_pending_media, check_discord_setup, clear_notification_sound,
-        clear_overlay, clear_pending_media, control_audio, download_history_media,
-        forget_obs_password, get_bootstrap, get_media_artwork, get_runtime_status,
-        obs_install_sources, obs_list_scenes, panic_stop, pick_notification_sound,
-        preview_output_sample, refresh_channels, regenerate_secret, reject_pending_media,
-        remove_queued_media, replay_media, resume_outputs, save_command_settings, save_credentials,
-        save_custom_commands, set_interface_preferences, set_media_caption_visibility,
-        set_notification_sound_enabled, set_notification_sound_obs_enabled,
-        set_notification_widget_locked, set_notification_widget_visible, set_output_geometry,
-        set_panic_shortcut, set_skip_shortcut, set_widget_locked, skip_media,
-        store_youtube_api_key, test_output, toggle_widget,
+        apply_config, approve_pending_media, check_discord_setup, choose_relay_channel,
+        clear_notification_sound, clear_overlay, clear_pending_media, control_audio,
+        download_history_media, forget_obs_password, get_bootstrap, get_media_artwork,
+        get_runtime_status, obs_install_sources, obs_list_scenes, panic_stop,
+        pick_notification_sound, preview_output_sample, refresh_channels, regenerate_secret,
+        reject_pending_media, remove_queued_media, replay_media, resume_outputs,
+        save_command_settings, save_credentials, save_custom_commands, set_interface_preferences,
+        set_media_caption_visibility, set_notification_sound_enabled,
+        set_notification_sound_obs_enabled, set_notification_widget_locked,
+        set_notification_widget_visible, set_output_geometry, set_panic_shortcut,
+        set_skip_shortcut, set_widget_locked, skip_media, store_youtube_api_key, test_output,
+        toggle_widget,
     },
-    config::{DEFAULT_SKIP_SHORTCUT, migrate_legacy_config},
+    config::{
+        APP_IDENTIFIER, DEFAULT_SKIP_SHORTCUT, PREVIOUS_APP_IDENTIFIER, WEBVIEW_STORAGE_PATH,
+        copy_previous_app_folder, migrate_legacy_config,
+    },
     model::{MediaKind, RelayEvent, ServerStatus},
     music_cleanup::{confirm_music_cleanup, preview_music_cleanup},
     notification_widget::restore as restore_notification_widget,
@@ -80,6 +85,7 @@ const STARTUP_ARGUMENT: &str = "--startup";
 const WINDOWS_RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
 
 pub fn run() {
+    copy_previous_webview_storage();
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             if !is_startup_launch(&args) {
@@ -90,6 +96,11 @@ pub fn run() {
             load_dotenv();
             let startup_launch = is_startup_launch(&env::args().collect::<Vec<_>>());
             let config_directory = app.path().app_config_dir()?;
+            // 1.4.1 renamed the app identifier: bring the settings, decision
+            // log, media library and reactions over before anything is created.
+            if let Some(parent) = config_directory.parent() {
+                copy_previous_app_folder(&parent.join(PREVIOUS_APP_IDENTIFIER), &config_directory)?;
+            }
             migrate_legacy_config(&config_directory)?;
             let config_path = config_directory.join("config.json");
             let core = AppCore::load(config_path)?;
@@ -207,6 +218,7 @@ pub fn run() {
             save_credentials,
             store_youtube_api_key,
             apply_config,
+            choose_relay_channel,
             set_media_caption_visibility,
             save_command_settings,
             save_custom_commands,
@@ -249,7 +261,6 @@ pub fn run() {
             pick_notification_sound,
             clear_notification_sound,
             tray_open_control_panel,
-            tray_toggle_media_widget,
             tray_toggle_media_widget_lock,
             tray_toggle_notification_widget,
             tray_toggle_notification_widget_lock,
@@ -379,7 +390,7 @@ fn media_widget_connected(status: &ServerStatus) -> bool {
 }
 
 fn register_skip_shortcut(app: &mut tauri::App, core: Arc<AppCore>) -> tauri::Result<()> {
-    use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
+    use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
 
     let configured = core
         .config
@@ -404,17 +415,8 @@ fn register_skip_shortcut(app: &mut tauri::App, core: Arc<AppCore>) -> tauri::Re
         .or_else(|_| config::DEFAULT_PANIC_SHORTCUT.parse::<Shortcut>())
         .expect("Relay default panic shortcut must be valid");
     let panic_core = core.clone();
-    let _ = app
-        .global_shortcut()
-        .on_shortcut(shortcut, move |_app, _pressed_shortcut, event| {
-            if event.state() == ShortcutState::Pressed {
-                let core = core.clone();
-                tauri::async_runtime::spawn(async move {
-                    core.skip_playback().await;
-                });
-            }
-        });
-    // A failure here only disables the panic shortcut; the buttons still work.
+    // A failure here only disables the shortcut; the buttons still work.
+    let _ = commands::register_skip_handler(app.global_shortcut(), shortcut, core);
     let _ = commands::register_panic_handler(app.global_shortcut(), panic_shortcut, panic_core);
     Ok(())
 }
@@ -521,11 +523,7 @@ fn is_startup_launch(args: &[String]) -> bool {
 
 fn registry_status(args: &[&str]) -> Result<bool, String> {
     let mut command = Command::new("reg.exe");
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x0800_0000);
-    }
+    hidden_process::hide_window(&mut command);
     command
         .args(args)
         .output()
@@ -990,16 +988,6 @@ fn tray_panel_page(page: &str) -> Option<&'static str> {
 }
 
 #[tauri::command]
-async fn tray_toggle_media_widget(
-    app: AppHandle,
-    core: tauri::State<'_, Arc<AppCore>>,
-) -> Result<widget::WidgetState, String> {
-    widget::toggle(&app, core.inner().clone())
-        .await
-        .map_err(|error| error.to_string())
-}
-
-#[tauri::command]
 async fn tray_toggle_media_widget_lock(
     app: AppHandle,
     core: tauri::State<'_, Arc<AppCore>>,
@@ -1034,6 +1022,27 @@ async fn tray_toggle_notification_widget_lock(
 #[tauri::command]
 fn tray_quit(app: AppHandle) {
     app.exit(0);
+}
+
+/// WebView2 opens its profile before `setup` runs, so the panel preferences of
+/// the previous identifier are copied first. Only localStorage is copied, not
+/// the browser caches. A failure only resets those interface preferences.
+fn copy_previous_webview_storage() {
+    let Some(local_data) = env::var_os("LOCALAPPDATA").map(PathBuf::from) else {
+        return;
+    };
+    let storage = |identifier: &str| {
+        WEBVIEW_STORAGE_PATH
+            .iter()
+            .fold(local_data.join(identifier), |path, part| path.join(part))
+    };
+    let target = storage(APP_IDENTIFIER);
+    if let Some(parent) = target.parent()
+        && fs::create_dir_all(parent).is_ok()
+        && copy_previous_app_folder(&storage(PREVIOUS_APP_IDENTIFIER), &target).is_err()
+    {
+        eprintln!("[startup] Previous interface preferences could not be copied.");
+    }
 }
 
 fn load_dotenv() {

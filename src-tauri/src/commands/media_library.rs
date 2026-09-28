@@ -1,7 +1,4 @@
-use std::{
-    sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::sync::Arc;
 
 use serde::Serialize;
 use tauri::State;
@@ -188,10 +185,7 @@ fn preview(asset: MediaLibraryAsset) -> MediaLibraryPreview {
 }
 
 fn library_event(item: MediaLibraryItem, url: String) -> MediaEvent {
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64;
+    let timestamp = crate::clock::now_ms();
     MediaEvent {
         kind: item.kind,
         url: url.clone(),

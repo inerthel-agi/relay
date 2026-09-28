@@ -202,7 +202,7 @@ function createHarness(search = "?secret=private", mode = "all", autoGrantStage 
       ) {
         this.emit("message", JSON.stringify({
           type: "stageClock",
-          payload: { mediaBusy: true, musicBusy: false, ttsBusy: false },
+          payload: { mediaBusy: true, musicBusy: false, notificationBusy: false },
         }));
       }
     }
@@ -217,6 +217,8 @@ function createHarness(search = "?secret=private", mode = "all", autoGrantStage 
     search,
     replaced: "",
     replace(url) { this.replaced = String(url); },
+    reloads: 0,
+    reload() { this.reloads += 1; },
   };
   class FakeYoutubePlayer {
     constructor(id, options) {
@@ -307,6 +309,7 @@ function createHarness(search = "?secret=private", mode = "all", autoGrantStage 
     window,
   });
   vm.runInContext(fs.readFileSync(__dirname + "/../outputs/layout.js", "utf8"), context);
+  vm.runInContext(fs.readFileSync(__dirname + "/../outputs/connection.js", "utf8"), context);
   vm.runInContext(fs.readFileSync(__dirname + "/overlay.js", "utf8"), context);
   return {
     context,
@@ -361,12 +364,12 @@ function sendMedia(harnesses, media) {
     harness.socket.emit("message", JSON.stringify({ type: "media", payload: media }));
     // Unit tests have no server: after a media-lane claim, grant the stage when free.
     const musicBusy = vm.runInContext("musicBusy", harness.context);
-    const ttsBusy = vm.runInContext("ttsBusy", harness.context);
+    const notificationBusy = vm.runInContext("notificationBusy", harness.context);
     const claimPending = vm.runInContext("mediaStageClaimPending", harness.context);
-    if (claimPending && !musicBusy && !ttsBusy) {
+    if (claimPending && !musicBusy && !notificationBusy) {
       harness.socket.emit("message", JSON.stringify({
         type: "stageClock",
-        payload: { mediaBusy: true, musicBusy: false, ttsBusy: false },
+        payload: { mediaBusy: true, musicBusy: false, notificationBusy: false },
       }));
     }
   }
@@ -599,7 +602,7 @@ test("audio captions stay in the Now Playing card instead of covering the artwor
 
 test("media overlay follows a configured server port once it responds", () => {
   const { location, sockets, socket } = createHarness();
-  const source = fs.readFileSync(__dirname + "/overlay.js", "utf8");
+  const source = fs.readFileSync(__dirname + "/../outputs/connection.js", "utf8");
   assert.match(source, /probeWatchdog[\s\S]*probe\.close\(\)/);
 
   socket.emit("message", JSON.stringify({
@@ -1123,7 +1126,7 @@ test("desktop media widget restores active media after its reconnect stageClock"
     assert.equal(widget.elements[selector].src, "");
     widget.sockets.at(-1).emit("message", JSON.stringify({
       type: "stageClock",
-      payload: { mediaBusy: false, musicBusy: false, ttsBusy: false },
+      payload: { mediaBusy: false, musicBusy: false, notificationBusy: false },
     }));
     assert.equal(widget.elements[selector].src, media.url);
     widget.socket.emit("close");
@@ -1135,7 +1138,7 @@ test("native hide discards deferred YouTube before authoritative idle hydration"
   const widget = createHarness("?secret=private&widget=1", "all");
   widget.socket.emit("message", JSON.stringify({
     type: "stageClock",
-    payload: { mediaBusy: false, musicBusy: true, ttsBusy: true },
+    payload: { mediaBusy: false, musicBusy: true, notificationBusy: true },
   }));
   widget.socket.emit("message", JSON.stringify({
     type: "musicPlay",
@@ -1153,7 +1156,7 @@ test("native hide discards deferred YouTube before authoritative idle hydration"
   reconnected.emit("open");
   reconnected.emit("message", JSON.stringify({
     type: "stageClock",
-    payload: { mediaBusy: false, musicBusy: false, ttsBusy: false },
+    payload: { mediaBusy: false, musicBusy: false, notificationBusy: false },
   }));
   await Promise.resolve();
 
@@ -1344,11 +1347,11 @@ test("reconnecting split outputs require one exclusive lease before resuming", (
 
   visualSocket.emit("message", JSON.stringify({
     type: "stageClock",
-    payload: { mediaBusy: false, musicBusy: false, ttsBusy: false },
+    payload: { mediaBusy: false, musicBusy: false, notificationBusy: false },
   }));
   audioSocket.emit("message", JSON.stringify({
     type: "stageClock",
-    payload: { mediaBusy: false, musicBusy: false, ttsBusy: false },
+    payload: { mediaBusy: false, musicBusy: false, notificationBusy: false },
   }));
   sendMediaGrant(visual, true, { videoBusy: true }, visualSocket);
   sendMediaGrant(audio, false, { videoBusy: true }, audioSocket);
@@ -1376,7 +1379,7 @@ test("combined widget waits for stageClock before resuming retained media after 
 
   reconnected.emit("message", JSON.stringify({
     type: "stageClock",
-    payload: { mediaBusy: false, musicBusy: false, ttsBusy: false },
+    payload: { mediaBusy: false, musicBusy: false, notificationBusy: false },
   }));
   assert.equal(widget.elements["#image"].src, "https://cdn.discordapp.com/retained.png");
 });
@@ -1385,7 +1388,7 @@ test("idle reconnect drops stale deferred YouTube", async () => {
   const widget = createHarness("?secret=private&widget=1", "all");
   widget.socket.emit("message", JSON.stringify({
     type: "stageClock",
-    payload: { mediaBusy: false, musicBusy: true, ttsBusy: true },
+    payload: { mediaBusy: false, musicBusy: true, notificationBusy: true },
   }));
   widget.socket.emit("message", JSON.stringify({
     type: "musicPlay",
@@ -1399,7 +1402,7 @@ test("idle reconnect drops stale deferred YouTube", async () => {
   reconnected.emit("open");
   reconnected.emit("message", JSON.stringify({
     type: "stageClock",
-    payload: { mediaBusy: false, musicBusy: false, ttsBusy: false },
+    payload: { mediaBusy: false, musicBusy: false, notificationBusy: false },
   }));
   await Promise.resolve();
 
@@ -1412,7 +1415,7 @@ test("active reconnect retains deferred YouTube until authoritative stageClock",
   const widget = createHarness("?secret=private&widget=1", "all");
   widget.socket.emit("message", JSON.stringify({
     type: "stageClock",
-    payload: { mediaBusy: false, musicBusy: true, ttsBusy: true },
+    payload: { mediaBusy: false, musicBusy: true, notificationBusy: true },
   }));
   widget.socket.emit("message", JSON.stringify({
     type: "musicPlay",
@@ -1430,7 +1433,7 @@ test("active reconnect retains deferred YouTube until authoritative stageClock",
 
   reconnected.emit("message", JSON.stringify({
     type: "stageClock",
-    payload: { mediaBusy: false, musicBusy: true, ttsBusy: false },
+    payload: { mediaBusy: false, musicBusy: true, notificationBusy: false },
   }));
   await Promise.resolve();
   assert.equal(widget.youtubePlayers.length, 1);
@@ -1559,11 +1562,11 @@ test("a stalled image advances to the next queued media", () => {
   assert.equal(elements["#image"].src, "https://cdn.discordapp.com/next.png");
 });
 
-test("media and YouTube wait while TTS holds the shared stage", () => {
+test("media and YouTube wait while a notification holds the shared stage", () => {
   const { context, elements, socket, youtubePlayers } = createHarness("?secret=private", "all");
   socket.emit("message", JSON.stringify({
     type: "stageClock",
-    payload: { mediaBusy: false, ttsBusy: true },
+    payload: { mediaBusy: false, notificationBusy: true },
   }));
   socket.emit("message", JSON.stringify({
     type: "media",
@@ -1584,7 +1587,7 @@ test("media and YouTube wait while TTS holds the shared stage", () => {
 
   socket.emit("message", JSON.stringify({
     type: "stageClock",
-    payload: { mediaBusy: false, ttsBusy: false },
+    payload: { mediaBusy: false, notificationBusy: false },
   }));
   assert.equal(vm.runInContext("youtubePlaybackId", context), "yt-deferred");
   assert.equal(elements["#image"].src, "");
@@ -1610,7 +1613,7 @@ test("media waits for the server stage grant before becoming visible", () => {
 
   socket.emit("message", JSON.stringify({
     type: "stageClock",
-    payload: { mediaBusy: true, musicBusy: false, ttsBusy: false },
+    payload: { mediaBusy: true, musicBusy: false, notificationBusy: false },
   }));
   assert.equal(elements["#image"].src, "https://cdn.discordapp.com/race.png");
 });
@@ -1619,7 +1622,7 @@ test("musicStop removes a matching deferred YouTube playback", async () => {
   const harness = createHarness("?secret=private&widget=1", "all");
   harness.socket.emit("message", JSON.stringify({
     type: "stageClock",
-    payload: { mediaBusy: false, musicBusy: true, ttsBusy: true },
+    payload: { mediaBusy: false, musicBusy: true, notificationBusy: true },
   }));
   harness.socket.emit("message", JSON.stringify({
     type: "musicPlay",
@@ -1634,7 +1637,7 @@ test("musicStop removes a matching deferred YouTube playback", async () => {
   assert.equal(vm.runInContext("deferredYoutubeQueue.length", harness.context), 0);
   harness.socket.emit("message", JSON.stringify({
     type: "stageClock",
-    payload: { mediaBusy: false, musicBusy: false, ttsBusy: false },
+    payload: { mediaBusy: false, musicBusy: false, notificationBusy: false },
   }));
   await Promise.resolve();
   assert.equal(harness.youtubePlayers.length, 0);
@@ -1644,7 +1647,7 @@ test("musicIdle drops deferred YouTube before resuming Discord media", async () 
   const harness = createHarness("?secret=private&widget=1", "all");
   harness.socket.emit("message", JSON.stringify({
     type: "stageClock",
-    payload: { mediaBusy: false, musicBusy: true, ttsBusy: true },
+    payload: { mediaBusy: false, musicBusy: true, notificationBusy: true },
   }));
   harness.socket.emit("message", JSON.stringify({
     type: "musicPlay",
@@ -1659,7 +1662,7 @@ test("musicIdle drops deferred YouTube before resuming Discord media", async () 
   assert.equal(vm.runInContext("deferredYoutubeQueue.length", harness.context), 0);
   harness.socket.emit("message", JSON.stringify({
     type: "stageClock",
-    payload: { mediaBusy: false, musicBusy: false, ttsBusy: false },
+    payload: { mediaBusy: false, musicBusy: false, notificationBusy: false },
   }));
   await Promise.resolve();
   assert.equal(harness.youtubePlayers.length, 0);
@@ -1672,7 +1675,7 @@ test("OBS /medias waits for YouTube musicBusy before showing images", () => {
 
   visual.socket.emit("message", JSON.stringify({
     type: "stageClock",
-    payload: { mediaBusy: false, musicBusy: true, ttsBusy: false },
+    payload: { mediaBusy: false, musicBusy: true, notificationBusy: false },
   }));
   sendMedia(visual, { kind: "image", url: "https://cdn.discordapp.com/queued.png" });
   assert.equal(visual.elements["#image"].src, "", "image started over active YouTube");
@@ -1690,7 +1693,7 @@ test("OBS /medias waits for YouTube musicBusy before showing images", () => {
 
   visual.socket.emit("message", JSON.stringify({
     type: "stageClock",
-    payload: { mediaBusy: false, musicBusy: false, ttsBusy: false },
+    payload: { mediaBusy: false, musicBusy: false, notificationBusy: false },
   }));
   assert.deepEqual(
     visual.socket.sent.at(-1),
@@ -1707,7 +1710,7 @@ test("OBS /youtube waits for peer mediaBusy before starting music", async () => 
   const youtube = createHarness("?secret=private", "youtube");
   youtube.socket.emit("message", JSON.stringify({
     type: "stageClock",
-    payload: { mediaBusy: true, musicBusy: false, ttsBusy: false },
+    payload: { mediaBusy: true, musicBusy: false, notificationBusy: false },
   }));
   youtube.socket.emit("message", JSON.stringify({
     type: "musicPlay",
@@ -1723,7 +1726,7 @@ test("OBS /youtube waits for peer mediaBusy before starting music", async () => 
 
   youtube.socket.emit("message", JSON.stringify({
     type: "stageClock",
-    payload: { mediaBusy: false, musicBusy: true, ttsBusy: false },
+    payload: { mediaBusy: false, musicBusy: true, notificationBusy: false },
   }));
   await Promise.resolve();
   assert.equal(vm.runInContext("youtubePlaybackId", youtube.context), "wait-media");
@@ -1735,14 +1738,14 @@ test("OBS /audios waits for YouTube before Discord file audio", () => {
   sendMediaClock(audio);
   audio.socket.emit("message", JSON.stringify({
     type: "stageClock",
-    payload: { mediaBusy: false, musicBusy: true, ttsBusy: false },
+    payload: { mediaBusy: false, musicBusy: true, notificationBusy: false },
   }));
   sendMedia(audio, { kind: "audio", url: "https://cdn.discordapp.com/track.mp3" });
   assert.equal(audio.elements["#audio"].src, "", "Discord audio started over YouTube");
 
   audio.socket.emit("message", JSON.stringify({
     type: "stageClock",
-    payload: { mediaBusy: false, musicBusy: false, ttsBusy: false },
+    payload: { mediaBusy: false, musicBusy: false, notificationBusy: false },
   }));
   assert.deepEqual(audio.socket.sent.at(-1), { type: "mediaClock", payload: { busy: true } });
   sendMediaGrant(audio, true, { audioBusy: true });
@@ -1754,14 +1757,14 @@ test("OBS /medias waits for peer Discord-audio mediaBusy before showing a GIF", 
   sendMediaClock(visual);
   visual.socket.emit("message", JSON.stringify({
     type: "stageClock",
-    payload: { mediaBusy: true, musicBusy: false, ttsBusy: false },
+    payload: { mediaBusy: true, musicBusy: false, notificationBusy: false },
   }));
   sendMedia(visual, { kind: "gif", url: "https://cdn.discordapp.com/overlap.gif" });
   assert.equal(visual.elements["#image"].src, "", "GIF started over peer Discord audio");
 
   visual.socket.emit("message", JSON.stringify({
     type: "stageClock",
-    payload: { mediaBusy: false, musicBusy: false, ttsBusy: false },
+    payload: { mediaBusy: false, musicBusy: false, notificationBusy: false },
   }));
   assert.deepEqual(visual.socket.sent.at(-1), { type: "mediaClock", payload: { busy: true } });
   sendMediaGrant(visual, true, { videoBusy: true });
@@ -1785,7 +1788,7 @@ test("OBS visual recovers when stageClock clears a missed musicIdle", () => {
   // Server watch clock recovers without a musicIdle relay event.
   visual.socket.emit("message", JSON.stringify({
     type: "stageClock",
-    payload: { mediaBusy: false, musicBusy: false, ttsBusy: false },
+    payload: { mediaBusy: false, musicBusy: false, notificationBusy: false },
   }));
   assert.deepEqual(visual.socket.sent.at(-1), { type: "mediaClock", payload: { busy: true } });
   sendMediaGrant(visual, true, { videoBusy: true });
@@ -1796,4 +1799,117 @@ test("the combined audio output no longer embeds the voice source", () => {
   const html = fs.readFileSync(__dirname + "/obs-audio.html", "utf8");
   assert.doesNotMatch(html, /src="\/tts"/);
   assert.match(html, /src="\/audios"/);
+});
+
+test("an OBS page reloads only when Relay restarted since it was opened", () => {
+  const { socket, location, context } = createHarness("?secret=private", "youtube");
+  const config = (payload) => socket.emit("message", JSON.stringify({ type: "config", payload }));
+  config({ relaySession: "first", musicObsGeometry: { contentScale: 150 } });
+  config({ relaySession: "first", musicObsGeometry: { contentScale: 200 } });
+  assert.equal(location.reloads, 0);
+  assert.equal(vm.runInContext("config.musicObsGeometry.contentScale", context), 200);
+
+  // Reconnected to a restarted (maybe updated) Relay: load the current page.
+  config({ relaySession: "second", musicObsGeometry: { contentScale: 300 } });
+  assert.equal(location.reloads, 1);
+  assert.equal(vm.runInContext("config.musicObsGeometry.contentScale", context), 200);
+});
+
+test("the OBS YouTube video has its own size, anchor and crop", () => {
+  const youtube = createHarness("?secret=private", "youtube");
+  const root = youtube.context.document.documentElement;
+  const config = (payload) => youtube.socket.emit("message", JSON.stringify({ type: "config", payload }));
+  config({ musicVideoObsGeometry: {} });
+  // Defaults keep the untouched full-canvas player.
+  assert.equal(root.classList.contains("youtube-video-sized"), false);
+
+  config({
+    mediaObsGeometry: { contentScale: 80, cropTop: 30 },
+    musicObsGeometry: { contentScale: 200, cropTop: 25 },
+    musicVideoObsGeometry: { contentScale: 60, anchor: "bottomRight", marginX: 40, marginY: 30, cropTop: 10, cropLeft: 5 },
+  });
+  assert.equal(root.classList.contains("youtube-video-sized"), true);
+  assert.equal(youtube.cssProperties["--video-scale"], "0.6");
+  assert.equal(youtube.cssProperties["--video-origin"], "right bottom");
+  assert.equal(youtube.cssProperties["--video-shift-x"], "-40px");
+  assert.equal(youtube.cssProperties["--video-shift-y"], "-30px");
+  assert.equal(youtube.cssProperties["--video-crop-top"], "10%");
+  assert.equal(youtube.cssProperties["--video-crop-left"], "5%");
+  // The crop applies to the video only, never to the whole canvas and card.
+  assert.equal(youtube.cssProperties["--crop-top"], "0%");
+  assert.equal(youtube.cssProperties["--credit-scale"], "2");
+  // The card follows the visible video: 60% anchored bottom right, 40/30px margins, crops.
+  assert.equal(youtube.cssProperties["--video-inset-left"], "max(0px, calc(43% + -40px))");
+  assert.equal(youtube.cssProperties["--video-inset-bottom"], "max(0px, calc(0% + 30px))");
+  assert.equal(youtube.cssProperties["--video-inset-top"], "max(0px, calc(46% + -30px))");
+  assert.equal(youtube.cssProperties["--video-inset-right"], "max(0px, calc(0% + 40px))");
+
+  config({ musicVideoObsGeometry: { contentScale: 300, anchor: "legacy" } });
+  assert.equal(youtube.cssProperties["--video-scale"], "3");
+  assert.equal(youtube.cssProperties["--video-origin"], "center center");
+  assert.equal(youtube.cssProperties["--video-shift-x"], "0px");
+
+  // The video alone can shrink to a small corner player, down to 10%.
+  config({ musicVideoObsGeometry: { contentScale: 20 } });
+  assert.equal(youtube.cssProperties["--video-scale"], "0.2");
+  config({ musicVideoObsGeometry: { contentScale: 5 } });
+  assert.equal(youtube.cssProperties["--video-scale"], "0.1");
+
+  // The media page and the Windows widget never move the YouTube player.
+  const media = createHarness("?secret=private", "visual");
+  media.socket.emit("message", JSON.stringify({ type: "config", payload: { musicVideoObsGeometry: { contentScale: 50 } } }));
+  assert.equal(media.cssProperties["--video-scale"], undefined);
+});
+
+test("the OBS YouTube card uses its own size and anchor, not the media settings", () => {
+  const preview = createHarness("?secret=private&preview=1&sample=music");
+  const credit = preview.elements["#youtube-credit"];
+  assert.equal(credit.hidden, false);
+  assert.equal(credit.classList.contains("is-visible"), true);
+
+  preview.socket.emit("message", JSON.stringify({
+    type: "config",
+    payload: {
+      mediaObsGeometry: { contentScale: 50 },
+      musicObsGeometry: { contentScale: 300, anchor: "bottomRight", marginX: 30, marginY: 60 },
+    },
+  }));
+  assert.equal(preview.cssProperties["--content-scale"], "3");
+  assert.equal(preview.cssProperties["--credit-scale"], "3");
+  // The card grows from its anchored corner: margins stay in canvas pixels.
+  assert.equal(credit.style.transformOrigin, "right bottom");
+  // Margins count from the visible YouTube video.
+  assert.equal(credit.style.right, "calc(var(--video-inset-right, 0px) + 30px)");
+  assert.equal(credit.style.bottom, "calc(var(--video-inset-bottom, 0px) + 60px)");
+  assert.equal(credit.style.left, "auto");
+  assert.equal(credit.style.top, "auto");
+
+  preview.socket.emit("message", JSON.stringify({
+    type: "config",
+    payload: { musicObsGeometry: { contentScale: 100, anchor: "legacy" } },
+  }));
+  assert.equal(preview.cssProperties["--credit-scale"], "1");
+  assert.equal(credit.style.transformOrigin, "");
+  assert.equal(credit.style.right, "");
+  assert.equal(credit.style.bottom, "");
+
+  // The YouTube page itself follows the same setting.
+  const youtube = createHarness("?secret=private", "youtube");
+  youtube.socket.emit("message", JSON.stringify({
+    type: "config",
+    payload: { mediaObsGeometry: { contentScale: 80 }, musicObsGeometry: { contentScale: 250, anchor: "topCenter", marginY: 25 } },
+  }));
+  const youtubeCredit = youtube.elements["#youtube-credit"];
+  assert.equal(youtube.cssProperties["--credit-scale"], "2.5");
+  assert.equal(youtubeCredit.style.transformOrigin, "center top");
+  assert.equal(youtubeCredit.style.marginInline, "auto");
+  assert.equal(youtubeCredit.style.top, "calc(var(--video-inset-top, 0px) + 25px)");
+
+  // The Windows widget card keeps its own layout.
+  const widget = createHarness("?secret=private&widget=1", "visual");
+  widget.socket.emit("message", JSON.stringify({
+    type: "config",
+    payload: { musicObsGeometry: { contentScale: 300, anchor: "topLeft" } },
+  }));
+  assert.equal(widget.cssProperties["--credit-scale"], undefined);
 });

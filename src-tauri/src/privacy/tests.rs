@@ -711,3 +711,23 @@ fn animated_image_requires_review_even_when_first_frame_ocr_succeeds() {
     let blocked = analyze_image_bytes(gif, Some("hitler"), &config);
     assert_eq!(action_for(&blocked, &config), PrivacyAction::Block);
 }
+
+#[cfg(target_os = "windows")]
+#[test]
+fn library_gifs_only_need_their_first_frame_scanned() {
+    let gif = include_bytes!("../../../outputs/samples/motion.gif");
+    let signals = inspect_image_windows(gif, true).expect("valid animated GIF fixture");
+    let mut config = config();
+    config.privacy_review_intermediate = false;
+    let report = analyze_image(gif, None, &config, true);
+    if signals.ocr_available {
+        assert!(!report.reasons.contains(&"scan_incomplete"));
+        assert_eq!(action_for(&report, &config), PrivacyAction::Allow);
+    } else {
+        // Without Windows OCR even the first frame is unread: review stays.
+        assert_eq!(action_for(&report, &config), PrivacyAction::Review);
+    }
+    // Every other check still applies.
+    let blocked = analyze_image(gif, Some("hitler"), &config, true);
+    assert_eq!(action_for(&blocked, &config), PrivacyAction::Block);
+}

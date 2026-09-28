@@ -9,6 +9,7 @@ fn input<'a>(lane: Lane, text: &'a str, now_ms: u64) -> GateInput<'a> {
         lane,
         user_id: USER,
         role_ids: &[],
+        staff: false,
         member_joined_ms: None,
         mention_count: 0,
         text,
@@ -413,4 +414,114 @@ fn decision_log_keeps_seven_days_and_summarises_the_last_day() {
     assert_eq!(reopened.entries().len(), 3);
     let saved = std::fs::read_to_string(path).unwrap();
     assert!(!saved.contains("text"));
+}
+
+#[test]
+fn a_mixed_message_passes_the_checks_of_its_text_and_its_media() {
+    let lanes = [Lane::Notifications, Lane::Media];
+    let now = 10 * DAY_MS;
+
+    // Text spam still applies when the message also carries a media.
+    let settings = ModerationSettings {
+        block_text_spam: true,
+        ..ModerationSettings::default()
+    };
+    let mut runtime = ModerationRuntime::default();
+    let mut shouting = input(Lane::Media, "THIS IS A VERY LOUD MESSAGE OK", now);
+    shouting.media_keys = vec!["a:cat.png:10".into()];
+    assert_eq!(
+        runtime.evaluate_lanes(&shouting, &lanes, &settings),
+        (GateDecision::Drop("caps_spam"), Lane::Notifications)
+    );
+    // A dropped message records nothing: the same media is not a duplicate later.
+    let settings = ModerationSettings {
+        block_duplicates: true,
+        ..ModerationSettings::default()
+    };
+    let mut calm = input(Lane::Media, "look at this", now);
+    calm.media_keys = vec!["a:cat.png:10".into()];
+    assert_eq!(
+        runtime.evaluate_lanes(&calm, &lanes, &settings).0,
+        GateDecision::Pass { trusted: false }
+    );
+
+    // Duplicate media are dropped even behind new text.
+    let mut again = input(Lane::Media, "and again", now + 1_000);
+    again.media_keys = vec!["a:cat.png:10".into()];
+    assert_eq!(
+        runtime.evaluate_lanes(&again, &lanes, &settings),
+        (GateDecision::Drop("duplicate"), Lane::Media)
+    );
+
+    // Each lane keeps its own cooldown; a mixed message needs both to be clear.
+    let settings = ModerationSettings {
+        user_cooldown_seconds: 60,
+        ..ModerationSettings::default()
+    };
+    let mut runtime = ModerationRuntime::default();
+    assert_eq!(
+        runtime
+            .evaluate_lanes(
+                &input(Lane::Media, "hello", now),
+                &[Lane::Notifications],
+                &settings
+            )
+            .0,
+        GateDecision::Pass { trusted: false }
+    );
+    assert_eq!(
+        runtime
+            .evaluate_lanes(
+                &input(Lane::Media, "", now + 1_000),
+                &[Lane::Media],
+                &settings
+            )
+            .0,
+        GateDecision::Pass { trusted: false }
+    );
+    assert_eq!(
+        runtime.evaluate_lanes(&input(Lane::Media, "hi", now + 2_000), &lanes, &settings),
+        (GateDecision::Drop("cooldown"), Lane::Notifications)
+    );
+
+    // Raid protection counts the media of mixed messages and holds them.
+    let settings = ModerationSettings {
+        raid_limit_per_minute: 1,
+        ..ModerationSettings::default()
+    };
+    let mut runtime = ModerationRuntime::default();
+    let first = input(Lane::Media, "one", now);
+    assert_eq!(
+        runtime.evaluate_lanes(&first, &lanes, &settings).0,
+        GateDecision::Pass { trusted: false }
+    );
+    let second = input(Lane::Media, "two", now + 1_000);
+    assert_eq!(
+        runtime.evaluate_lanes(&second, &lanes, &settings),
+        (GateDecision::Hold("raid"), Lane::Media)
+    );
+}
+
+#[test]
+fn a_message_feeding_several_lanes_keeps_every_applicable_word_filter() {
+    let config = config_with(ModerationSettings {
+        word_packs: vec![WordPack::Hate],
+        filter_scopes: FilterScopes {
+            media: false,
+            ..FilterScopes::default()
+        },
+        ..ModerationSettings::default()
+    });
+    assert!(!content_rules_enabled(&scope_config_for_lanes(
+        config.clone(),
+        &[Lane::Media]
+    )));
+    assert!(content_rules_enabled(&scope_config_for_lanes(
+        config.clone(),
+        &[Lane::Notifications, Lane::Media]
+    )));
+    assert!(content_rules_enabled(&scope_config_for_lanes(
+        config,
+        &[Lane::Notifications]
+    )));
 }

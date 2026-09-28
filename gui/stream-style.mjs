@@ -2,7 +2,7 @@
 // media captions look on stream. "auto" follows the Relay design and theme.
 
 export const streamStyles = ["auto", "graphite", "paper", "neo-brutalism", "gridline", "lumen", "signal", "subtitle"];
-export const streamBackgrounds = ["auto", "light", "dark"];
+const streamBackgrounds = ["auto", "light", "dark"];
 const designNames = {
   graphite: "Graphite", paper: "Paper", "neo-brutalism": "Neo-Brutalism",
   gridline: "Gridline", lumen: "Lumen", signal: "Signal",

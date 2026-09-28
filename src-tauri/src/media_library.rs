@@ -272,7 +272,7 @@ impl MediaLibrary {
         let name = sanitize_name(name, &item.extension)?;
         let mut next = state.items.clone();
         next[index].name = name;
-        next[index].updated_at_ms = now_millis();
+        next[index].updated_at_ms = crate::clock::now_ms();
         persist_manifest(&self.index_path, &next)?;
         state.items = next;
         state
@@ -327,7 +327,7 @@ impl MediaLibrary {
             return Err(MediaLibraryError::TooManyItems);
         }
         let id = next_id(&state.items);
-        let now = now_millis();
+        let now = crate::clock::now_ms();
         let item = MediaLibraryItem {
             id: id.clone(),
             name: validated.name,
@@ -839,13 +839,6 @@ fn random_id() -> String {
     hasher.update(counter.to_le_bytes());
     hasher.update(entropy.to_le_bytes());
     format!("{:x}", hasher.finalize())[..MEDIA_LIBRARY_ID_LENGTH].to_owned()
-}
-
-fn now_millis() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
 }
 
 #[cfg(test)]

@@ -15,8 +15,6 @@ const VIDEO_PROBE_BYTES: usize = 256 * 1024;
 const MAX_VIDEO_INPUT_BYTES: usize = 50 * 1024 * 1024;
 const MAX_VIDEO_OUTPUT_BYTES: usize = 60 * 1024 * 1024;
 const TRANSCODE_TIMEOUT: Duration = Duration::from_secs(120);
-#[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 static TRANSCODE_SLOT: Semaphore = Semaphore::const_new(1);
 
 pub enum VideoCompatibility {
@@ -146,7 +144,10 @@ fn transcode_to_h264(input: Vec<u8>) -> Result<Vec<u8>> {
     let output_path = temporary.path().join("output.mp4");
     fs::write(&input_path, input).context("failed to stage local video")?;
 
-    let mut command = Command::new("ffmpeg");
+    // Same lookup as audio trimming: PATH, then a WinGet install that an
+    // already-running Explorer PATH may not show yet.
+    let ffmpeg = crate::reaction_trim::ffmpeg_executable().unwrap_or_else(|| "ffmpeg".into());
+    let mut command = Command::new(ffmpeg);
     command
         .args(["-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-i"])
         .arg(&input_path)
@@ -184,11 +185,7 @@ fn transcode_to_h264(input: Vec<u8>) -> Result<Vec<u8>> {
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(CREATE_NO_WINDOW);
-    }
+    crate::hidden_process::hide_window(&mut command);
     let mut child = command.spawn().context("failed to start local FFmpeg")?;
     let deadline = Instant::now() + TRANSCODE_TIMEOUT;
     let status = loop {

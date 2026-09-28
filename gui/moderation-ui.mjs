@@ -1,8 +1,7 @@
 // Safety → Moderation: presets, message tester, word lists, advanced words,
 // decision log, held messages, Discord actions and keyboard review.
 
-export const moderationPresets = ["relaxed", "standard", "strict", "event"];
-export const wordPackIds = ["hate", "scams", "sexual", "harassment", "doxxing"];
+const wordPackIds = ["hate", "scams", "sexual", "harassment", "doxxing"];
 const OWN_PRESETS_KEY = "relay-moderation-presets";
 const OWN_PRESET_LIMIT = 12;
 const UNDO_WINDOW_MS = 30_000;

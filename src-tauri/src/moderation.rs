@@ -261,8 +261,14 @@ pub fn clear_content_rules(config: &mut AppConfig) {
 }
 
 /// Applies the per-channel filter scope (Moderation → word filters).
-pub fn scope_config(mut config: AppConfig, lane: Lane) -> AppConfig {
-    if !config.moderation.filter_scopes.covers(lane) {
+pub fn scope_config(config: AppConfig, lane: Lane) -> AppConfig {
+    scope_config_for_lanes(config, &[lane])
+}
+
+/// A message feeding several outputs keeps the rules of every scope it touches.
+pub fn scope_config_for_lanes(mut config: AppConfig, lanes: &[Lane]) -> AppConfig {
+    let scopes = config.moderation.filter_scopes;
+    if !lanes.iter().any(|lane| scopes.covers(*lane)) {
         clear_content_rules(&mut config);
     }
     config
@@ -449,6 +455,8 @@ pub struct GateInput<'a> {
     pub lane: Lane,
     pub user_id: u64,
     pub role_ids: &'a [String],
+    /// Server owner or member allowed to moderate it: trusted like a trusted member.
+    pub staff: bool,
     pub member_joined_ms: Option<u64>,
     pub mention_count: usize,
     pub text: &'a str,
@@ -499,64 +507,103 @@ pub struct BlockFollowUp {
 }
 
 impl ModerationRuntime {
+    #[cfg(test)]
     pub fn evaluate(&mut self, input: &GateInput, settings: &ModerationSettings) -> GateDecision {
+        self.evaluate_lanes(input, &[input.lane], settings).0
+    }
+
+    /// Checks one message against every lane it feeds, for example the text
+    /// and the attachments of a Relay channel message. The first drop wins,
+    /// then the first hold. A dropped message records nothing. Also returns
+    /// the lane that decided, for the decision log.
+    pub fn evaluate_lanes(
+        &mut self,
+        input: &GateInput,
+        lanes: &[Lane],
+        settings: &ModerationSettings,
+    ) -> (GateDecision, Lane) {
+        let first_lane = lanes.first().copied().unwrap_or(input.lane);
         self.prune(input.now_ms);
         let user = input.user_id.to_string();
         if settings.blocked_user_ids.contains(&user) {
-            return GateDecision::Drop("blocked_user");
+            return (GateDecision::Drop("blocked_user"), first_lane);
         }
-        let trusted = settings.trusted_user_ids.contains(&user)
+        let trusted = input.staff
+            || settings.trusted_user_ids.contains(&user)
             || input
                 .role_ids
                 .iter()
                 .any(|role| settings.trusted_role_ids.contains(role));
         if trusted {
-            self.last_accepted
-                .insert((input.lane, input.user_id), input.now_ms);
-            return GateDecision::Pass { trusted: true };
+            for lane in lanes {
+                self.last_accepted
+                    .insert((*lane, input.user_id), input.now_ms);
+            }
+            return (GateDecision::Pass { trusted: true }, first_lane);
         }
+        for lane in lanes {
+            if let Some(reason) = self.drop_reason(*lane, input, settings) {
+                return (GateDecision::Drop(reason), *lane);
+            }
+        }
+        let mut hold = None;
+        for lane in lanes {
+            self.last_accepted
+                .insert((*lane, input.user_id), input.now_ms);
+            if *lane == Lane::Media {
+                for key in &input.media_keys {
+                    self.recent_media.push_back((key.clone(), input.now_ms));
+                }
+            }
+            // Each lane runs its own checks, as it would alone (raid window included).
+            if let Some(reason) = self.hold_reason(*lane, input, settings) {
+                hold.get_or_insert((reason, *lane));
+            }
+        }
+        match hold {
+            Some((reason, lane)) => (GateDecision::Hold(reason), lane),
+            None => (GateDecision::Pass { trusted: false }, first_lane),
+        }
+    }
+
+    fn drop_reason(
+        &self,
+        lane: Lane,
+        input: &GateInput,
+        settings: &ModerationSettings,
+    ) -> Option<&'static str> {
         let cooldown_ms = u64::from(settings.user_cooldown_seconds) * 1_000;
         if cooldown_ms > 0
-            && matches!(input.lane, Lane::Media | Lane::Notifications)
+            && matches!(lane, Lane::Media | Lane::Notifications)
             && self
                 .last_accepted
-                .get(&(input.lane, input.user_id))
+                .get(&(lane, input.user_id))
                 .is_some_and(|last| input.now_ms.saturating_sub(*last) < cooldown_ms)
         {
-            return GateDecision::Drop("cooldown");
+            return Some("cooldown");
         }
         if settings.block_text_spam
-            && input.lane == Lane::Notifications
+            && lane == Lane::Notifications
             && let Some(reason) = text_spam_reason(input.text, input.mention_count)
         {
-            return GateDecision::Drop(reason);
+            return Some(reason);
         }
-        if settings.block_duplicates && input.lane == Lane::Media && !input.media_keys.is_empty() {
+        if settings.block_duplicates && lane == Lane::Media && !input.media_keys.is_empty() {
             let duplicate = input.media_keys.iter().all(|key| {
                 self.recent_media.iter().any(|(recent, at)| {
                     recent == key && input.now_ms.saturating_sub(*at) < DUPLICATE_WINDOW_MS
                 })
             });
             if duplicate {
-                return GateDecision::Drop("duplicate");
+                return Some("duplicate");
             }
         }
-        self.last_accepted
-            .insert((input.lane, input.user_id), input.now_ms);
-        if input.lane == Lane::Media {
-            for key in &input.media_keys {
-                self.recent_media.push_back((key.clone(), input.now_ms));
-            }
-        }
-        let hold = self.hold_reason(input, settings);
-        match hold {
-            Some(reason) => GateDecision::Hold(reason),
-            None => GateDecision::Pass { trusted: false },
-        }
+        None
     }
 
     fn hold_reason(
         &mut self,
+        lane: Lane,
         input: &GateInput,
         settings: &ModerationSettings,
     ) -> Option<&'static str> {
@@ -577,7 +624,7 @@ impl ModerationRuntime {
         {
             return Some("new_member");
         }
-        if input.lane == Lane::Media && settings.raid_limit_per_minute > 0 {
+        if lane == Lane::Media && settings.raid_limit_per_minute > 0 {
             self.media_window.push_back(input.now_ms);
             while self
                 .media_window

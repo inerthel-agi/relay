@@ -237,7 +237,7 @@ pub fn render_pcm_wav(
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    configure_hidden_window(&mut command);
+    crate::hidden_process::hide_window(&mut command);
     let child = command.spawn().context("Audio trimming requires FFmpeg.")?;
     let status =
         wait_for_process(child, RENDER_TIMEOUT).context("Unable to complete the audio trim.")?;
@@ -431,14 +431,6 @@ fn wait_for_process(mut child: Child, timeout: Duration) -> Result<ExitStatus> {
             bail!("FFmpeg timed out while trimming audio.");
         }
         thread::sleep(Duration::from_millis(50));
-    }
-}
-
-fn configure_hidden_window(command: &mut Command) {
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x0800_0000);
     }
 }
 

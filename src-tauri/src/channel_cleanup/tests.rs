@@ -19,7 +19,7 @@ fn retention_preserves_recent_future_and_welcome_messages() {
 fn channels_are_independent_and_disabled_by_default() {
     let mut config = AppConfig::default();
     assert!(rule(&config, ChannelKind::Media).is_none());
-    assert!(rule(&config, ChannelKind::Tts).is_none());
+    assert!(rule(&config, ChannelKind::FormerMessages).is_none());
     config.watched_channel_id = "2".into();
     config.media_cleanup_enabled = true;
     config.media_welcome_message_id = "7".into();
@@ -31,7 +31,7 @@ fn channels_are_independent_and_disabled_by_default() {
             reaction_protected: None,
         })
     );
-    assert!(rule(&config, ChannelKind::Tts).is_none());
+    assert!(rule(&config, ChannelKind::FormerMessages).is_none());
     config.media_welcome_message_id = "invalid".into();
     assert!(rule(&config, ChannelKind::Media).is_none());
 }

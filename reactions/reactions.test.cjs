@@ -2,7 +2,8 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const vm = require("node:vm");
 const fs = require("node:fs");
-const source = fs.readFileSync(__dirname + "/reactions.js", "utf8").replace(/connect\(\);\s*$/, "");
+const shared = fs.readFileSync(__dirname + "/../outputs/connection.js", "utf8");
+const source = shared + "\n" + fs.readFileSync(__dirname + "/reactions.js", "utf8").replace(/connect\(\);\s*$/, "");
 test("the idle reaction widget has no visible move arrow", () => {
   const html = fs.readFileSync(__dirname + "/index.html", "utf8");
   assert.doesNotMatch(html, /reaction-move|↔/);
@@ -97,6 +98,8 @@ test("reconnects back off and a moved server is probed before navigating", () =>
     RelayLayout: { position: () => null }, WebSocket: FakeSocket,
     setTimeout(fn, delay) { timers.push({ fn, delay }); return timers.length; }, clearTimeout() {},
   });
+  // In a browser, window.location and window.setTimeout are the globals themselves.
+  Object.assign(context.window, { location: context.location, setTimeout: context.setTimeout, clearTimeout: context.clearTimeout });
   vm.runInContext(source + "\nglobalThis.api = { connect };", context);
   context.api.connect();
   assert.match(sockets[0].url, /secret=url-secret/);
@@ -107,7 +110,7 @@ test("reconnects back off and a moved server is probed before navigating", () =>
   sockets[1].emit("close");
   assert.equal(timers.at(-1).delay, 2000);
 
-  sockets[1].emit("message", { data: JSON.stringify({ type: "serverMove", payload: { port: 4600 } }) });
+  sockets[1].emit("message", { data: JSON.stringify({ type: "config", payload: { port: 4600 } }) });
   sockets[1].emit("close");
   const probe = sockets.at(-1);
   assert.match(probe.url, /^ws:\/\/localhost:4600\/ws\?.*client=probe/);

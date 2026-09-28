@@ -1,7 +1,9 @@
 name: Verify
 
 on:
+  # Branches run once through their pull request; main runs after each merge.
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -20,15 +22,15 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install stable Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Set up Node.js 20
-        uses: actions/setup-node@v4
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 24
 
       - name: Check Rust formatting
         working-directory: src-tauri
@@ -54,6 +56,6 @@ jobs:
       - name: Test interface and browser sources
         shell: pwsh
         run: |
-          $testFiles = Get-ChildItem -Path gui, overlay, notifications, stickers, reactions -Filter *.test.cjs -File |
+          $testFiles = Get-ChildItem -Path gui-tests, overlay, notifications, stickers, reactions -Filter *.test.cjs -File |
             ForEach-Object { $_.FullName }
           node --test $testFiles

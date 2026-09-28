@@ -15,9 +15,9 @@ use serenity::{
         CreateInputText, CreateInteractionResponse, CreateInteractionResponseMessage,
         CreateMessage, CreateModal, CreateSelectMenu, CreateSelectMenuKind, CreateSelectMenuOption,
         EditInteractionResponse, EditMessage, EventHandler, GatewayIntents, GetMessages, GuildId,
-        InputTextStyle, Interaction, Message, MessageId, MessageUpdateEvent, ModalInteraction,
-        OnlineStatus, PermissionOverwrite, PermissionOverwriteType, Permissions, Ready,
-        StickerFormatType, User, UserId,
+        InputTextStyle, Interaction, Message, MessageId, MessageType, MessageUpdateEvent,
+        ModalInteraction, OnlineStatus, PermissionOverwrite, PermissionOverwriteType, Permissions,
+        Ready, StickerFormatType, User, UserId,
     },
     async_trait,
     cache::Cache,
@@ -229,18 +229,16 @@ impl EventHandler for Handler {
         }
 
         let role_ids = message_role_ids(&message);
-        let Some(lane) = lane_for_channel(&config, &channel_id) else {
-            return;
-        };
-        if !apply_moderation_gate(&self.core, &message, &role_ids, lane, &config) {
-            return;
-        }
-        let scoped_config = crate::moderation::scope_config(
-            privacy::scoped_config_for_roles(&config, &role_ids),
-            lane,
-        );
-
+        let staff = is_server_staff(&context.cache, &message);
         if !config.music_channel_id.is_empty() && channel_id == config.music_channel_id {
+            let lane = crate::moderation::Lane::Music;
+            if !apply_moderation_gate(&self.core, &message, &role_ids, staff, &[lane], &config) {
+                return;
+            }
+            let scoped_config = crate::moderation::scope_config(
+                privacy::scoped_config_for_roles(&config, &role_ids),
+                lane,
+            );
             if message.id.to_string() == config.music_welcome_message_id {
                 return;
             }
@@ -255,375 +253,15 @@ impl EventHandler for Handler {
             return;
         }
 
-        if !config.tts_channel_id.is_empty() && channel_id == config.tts_channel_id {
-            let text_report = classify_message_privacy(&message, &scoped_config);
-            if block_and_delete_message_if_needed(
-                &self.core,
-                &context.http,
-                &message,
-                &text_report,
-                &scoped_config,
-            )
-            .await
-            {
-                return;
-            }
-            if privacy::privacy_rules_enabled(&scoped_config)
-                && !scoped_config.moderation.review_text
-            {
-                let action = privacy::action_for(&text_report, &scoped_config);
-                if matches!(action, privacy::PrivacyAction::Review) {
-                    privacy::log_decision(&text_report, action);
-                    self.core.record_moderation(
-                        Some(crate::moderation::Lane::Notifications),
-                        crate::moderation::log::LogAction::Ignored,
-                        text_report.primary_reason().unwrap_or("privacy"),
-                        Some(message.author.id.to_string()),
-                    );
-                    return;
-                }
-            }
-            let stage_ticket =
-                if !message.content.trim().is_empty() || !message.sticker_items.is_empty() {
-                    Some(
-                        self.core
-                            .register_stage_output(
-                                message_timestamp(&message),
-                                &message.id.to_string(),
-                                0,
-                                StageLane::Tts,
-                            )
-                            .await,
-                    )
-                } else {
-                    None
-                };
-            let author = message_author(&message, &config);
-            let guild_tag = guild_tag_from_user(&message.author);
-            let mut sticker_segments = Vec::new();
-            for sticker in message.sticker_items.iter().take(3) {
-                let Some(url) = sticker.image_url() else {
-                    continue;
-                };
-                let (format, _) = sticker_format(sticker.format_type);
-                let sticker_text = format!("{}\n{}", message.content, sticker.name);
-                let (mut report, _) =
-                    inspect_sticker(&url, format, Some(&sticker_text), &scoped_config).await;
-                let current_config = self.core.config.read().await.clone();
-                let current_scoped_config =
-                    privacy::scoped_config_for_roles(&current_config, &role_ids);
-                report = reclassify_privacy_report(report, &sticker_text, &current_scoped_config);
-                if block_and_delete_message_if_needed(
-                    &self.core,
-                    &context.http,
-                    &message,
-                    &report,
-                    &current_scoped_config,
-                )
-                .await
-                {
-                    if let Some(ticket) = stage_ticket {
-                        self.core.cancel_stage_output(ticket).await;
-                    }
-                    return;
-                }
-                if privacy::privacy_rules_enabled(&current_scoped_config) {
-                    let action = privacy::action_for(&report, &current_scoped_config);
-                    if matches!(action, privacy::PrivacyAction::Review) {
-                        privacy::log_decision(&report, action);
-                        if let Some(ticket) = stage_ticket {
-                            self.core.cancel_stage_output(ticket).await;
-                        }
-                        return;
-                    }
-                }
-                sticker_segments.push(sticker_visual_segment(
-                    sticker.name.clone(),
-                    Some(url),
-                    sticker.format_type,
-                ));
-            }
-            if !sticker_segments.is_empty() {
-                let mut segments = match message.content.trim() {
-                    "" => Vec::new(),
-                    content => parse_visual_segments(content)
-                        .unwrap_or_else(|| plain_text_segments(content.into())),
-                };
-                segments.append(&mut sticker_segments);
-                let Some(ticket) = stage_ticket else {
-                    return;
-                };
-                self.core
-                    .publish_visual_tts_if_allowed_with_ticket_and_roles(
-                        ticket,
-                        message.id.to_string(),
-                        message.content.clone(),
-                        author,
-                        guild_tag,
-                        message_timestamp(&message),
-                        segments,
-                        &role_ids,
-                    )
-                    .await;
-                return;
-            }
-            if let Some(segments) = parse_visual_segments(&message.content) {
-                let Some(ticket) = stage_ticket else {
-                    return;
-                };
-                self.core
-                    .publish_visual_tts_if_allowed_with_ticket_and_roles(
-                        ticket,
-                        message.id.to_string(),
-                        message.content.clone(),
-                        author,
-                        guild_tag,
-                        message_timestamp(&message),
-                        segments,
-                        &role_ids,
-                    )
-                    .await;
-                return;
-            }
-            if let Some(text) = prepare_tts_text(&message.content, config.tts_character_limit) {
-                let Some(ticket) = stage_ticket else {
-                    return;
-                };
-                self.core
-                    .publish_visual_tts_if_allowed_with_ticket_and_roles(
-                        ticket,
-                        message.id.to_string(),
-                        text.clone(),
-                        author,
-                        guild_tag,
-                        message_timestamp(&message),
-                        plain_text_segments(text),
-                        &role_ids,
-                    )
-                    .await;
-            } else if let Some(ticket) = stage_ticket {
-                self.core.cancel_stage_output(ticket).await;
-            }
-            return;
-        }
-
-        if config.watched_channel_id.is_empty() || channel_id != config.watched_channel_id {
-            return;
-        }
-        let message_report = classify_message_privacy(&message, &scoped_config);
-        if block_and_delete_message_if_needed(
+        route_relay_message(
             &self.core,
             &context.http,
             &message,
-            &message_report,
-            &scoped_config,
+            &config,
+            &role_ids,
+            staff,
         )
-        .await
-        {
-            return;
-        }
-        let media_text = prepare_media_text(&message.content);
-        let timestamp = message_timestamp(&message);
-        let message_id = message.id.to_string();
-        let mut stage_tickets = Vec::new();
-        let mut sticker_tickets = Vec::new();
-        for (index, sticker) in message.sticker_items.iter().take(3).enumerate() {
-            if sticker.image_url().is_none() {
-                continue;
-            }
-            let ticket = self
-                .core
-                .register_stage_output(timestamp, &message_id, 100 + index as u16, StageLane::Media)
-                .await;
-            stage_tickets.push(ticket);
-            sticker_tickets.push((index, ticket));
-        }
-        let mut attachment_tickets = Vec::new();
-        for (index, _) in message
-            .attachments
-            .iter()
-            .filter_map(|item| classify_attachment(item).map(|kind| (item, kind)))
-            .take(3)
-            .enumerate()
-        {
-            let ticket = self
-                .core
-                .register_stage_output(timestamp, &message_id, 200 + index as u16, StageLane::Media)
-                .await;
-            stage_tickets.push(ticket);
-            attachment_tickets.push(ticket);
-        }
-
-        for (index, sticker) in message.sticker_items.iter().take(3).enumerate() {
-            let Some(url) = sticker.image_url() else {
-                continue;
-            };
-            let (format, _) = sticker_format(sticker.format_type);
-            let stage_ticket = sticker_tickets
-                .iter()
-                .find_map(|(ticket_index, ticket)| (*ticket_index == index).then_some(*ticket))
-                .expect("recognized sticker has a stage ticket");
-            let sticker_text = format!("{}\n{}", message.content, sticker.name);
-            let (privacy_report, bytes) =
-                inspect_sticker(&url, format, Some(&sticker_text), &scoped_config).await;
-            let current_config = self.core.config.read().await.clone();
-            let current_scoped_config =
-                privacy::scoped_config_for_roles(&current_config, &role_ids);
-            let privacy_report =
-                reclassify_privacy_report(privacy_report, &sticker_text, &current_scoped_config);
-            if block_and_delete_message_if_needed(
-                &self.core,
-                &context.http,
-                &message,
-                &privacy_report,
-                &current_scoped_config,
-            )
-            .await
-            {
-                cancel_stage_tickets(&self.core, &stage_tickets).await;
-                return;
-            }
-            self.core
-                .submit_sticker_with_ticket_and_roles(
-                    stage_ticket,
-                    StickerEvent {
-                        id: sticker.id.to_string(),
-                        name: sticker.name.clone(),
-                        format: format.into(),
-                        url,
-                        cached_media_id: None,
-                        author: message_author(&message, &config),
-                        timestamp: message_timestamp(&message),
-                        message_id: message.id.to_string(),
-                    },
-                    Some(&sticker_text),
-                    bytes,
-                    Some(privacy_report),
-                    &role_ids,
-                )
-                .await;
-        }
-
-        for attachment in message
-            .attachments
-            .iter()
-            .filter_map(|item| classify_attachment(item).map(|kind| (item, kind)))
-            .take(3)
-            .enumerate()
-        {
-            let (index, (attachment, kind)) = attachment;
-            let stage_ticket = attachment_tickets[index];
-            let mut audio_metadata = if matches!(kind, MediaKind::Audio) {
-                artwork::extract(&attachment.url).await.ok()
-            } else {
-                None
-            };
-            let mut event = MediaEvent {
-                kind,
-                url: attachment.url.clone(),
-                proxy_url: attachment.proxy_url.clone(),
-                filename: attachment.filename.clone(),
-                content_type: attachment.content_type.clone().unwrap_or_default(),
-                artwork_id: None,
-                audio_id: None,
-                cached_media_id: None,
-                title: audio_metadata
-                    .as_ref()
-                    .and_then(|metadata| metadata.title.clone()),
-                artist: audio_metadata
-                    .as_ref()
-                    .and_then(|metadata| metadata.artist.clone()),
-                text: media_text.clone(),
-                author: message_author(&message, &config),
-                timestamp: message.timestamp.unix_timestamp().max(0) as u64 * 1_000,
-                message_id: message.id.to_string(),
-            };
-            let attachment_text = format!(
-                "{}\n{}\n{}",
-                attachment_privacy_text(&message.content, &event.filename),
-                event.title.as_deref().unwrap_or_default(),
-                event.artist.as_deref().unwrap_or_default()
-            );
-            let mut privacy_report = if matches!(kind, MediaKind::Image | MediaKind::Gif) {
-                if attachment.size as usize > privacy::MAX_IMAGE_BYTES {
-                    privacy::image_limit_report(Some(&attachment_text), &scoped_config)
-                } else {
-                    privacy::analyze_remote_image(
-                        &event.url,
-                        &event.proxy_url,
-                        Some(&attachment_text),
-                        &scoped_config,
-                    )
-                    .await
-                }
-            } else {
-                privacy::classify_text(Some(&attachment_text), &scoped_config)
-            };
-            if let Some(embedded) = audio_metadata
-                .as_ref()
-                .and_then(|metadata| metadata.artwork.as_ref())
-            {
-                privacy_report.merge(
-                    privacy::analyze_image_bytes_async(
-                        &embedded.bytes,
-                        Some(&attachment_text),
-                        &scoped_config,
-                    )
-                    .await,
-                );
-            }
-            let current_config = self.core.config.read().await.clone();
-            let current_scoped_config =
-                privacy::scoped_config_for_roles(&current_config, &role_ids);
-            let privacy_report =
-                reclassify_privacy_report(privacy_report, &attachment_text, &current_scoped_config);
-            if block_and_delete_message_if_needed(
-                &self.core,
-                &context.http,
-                &message,
-                &privacy_report,
-                &current_scoped_config,
-            )
-            .await
-            {
-                cancel_stage_tickets(&self.core, &stage_tickets).await;
-                return;
-            }
-            if let Some(embedded) = audio_metadata
-                .as_mut()
-                .and_then(|metadata| metadata.artwork.take())
-            {
-                let id = attachment.id.to_string();
-                self.core.cache_artwork(id.clone(), embedded).await;
-                event.artwork_id = Some(id);
-            }
-            if let Some(metadata) = audio_metadata.as_mut() {
-                let id = attachment.id.to_string();
-                let content_type = attachment
-                    .content_type
-                    .clone()
-                    .unwrap_or_else(|| "application/octet-stream".into());
-                self.core
-                    .cache_audio(
-                        id.clone(),
-                        content_type,
-                        std::mem::take(&mut metadata.audio),
-                    )
-                    .await;
-                event.audio_id = Some(id);
-            }
-            self.core
-                .submit_analyzed_media_with_ticket_and_roles(
-                    stage_ticket,
-                    event,
-                    Some(privacy_report),
-                    Some(&message.content),
-                    &role_ids,
-                )
-                .await;
-        }
-
-        submit_embedded_gifs(&self.core, &context.http, &message).await;
+        .await;
     }
 
     async fn message_update(
@@ -634,7 +272,8 @@ impl EventHandler for Handler {
         event: MessageUpdateEvent,
     ) {
         if let Some(message) = new {
-            submit_embedded_gifs(&self.core, &context.http, &message).await;
+            let staff = is_server_staff(&context.cache, &message);
+            submit_embedded_gifs(&self.core, &context.http, &message, staff).await;
             return;
         }
         if event.embeds.is_none() {
@@ -645,7 +284,8 @@ impl EventHandler for Handler {
             return;
         }
         if let Ok(message) = context.http.get_message(event.channel_id, event.id).await {
-            submit_embedded_gifs(&self.core, &context.http, &message).await;
+            let staff = is_server_staff(&context.cache, &message);
+            submit_embedded_gifs(&self.core, &context.http, &message, staff).await;
             return;
         }
         // A partial update cannot establish the member's moderation context.
@@ -901,7 +541,7 @@ async fn follow_up_block(
     config: &AppConfig,
 ) {
     use crate::moderation::log::LogAction;
-    let lane = lane_for_channel(config, &message.channel_id.to_string());
+    let lane = decision_log_lane(config, message);
     let author_id = message.author.id.to_string();
     core.record_moderation(
         lane,
@@ -963,23 +603,627 @@ fn message_author(message: &Message, config: &AppConfig) -> AuthorIdentity {
     )
 }
 
-fn lane_for_channel(config: &AppConfig, channel_id: &str) -> Option<crate::moderation::Lane> {
+/// Lane recorded in the decision log for a message of this channel.
+fn decision_log_lane(config: &AppConfig, message: &Message) -> Option<crate::moderation::Lane> {
     use crate::moderation::Lane;
-    [
-        (&config.music_channel_id, Lane::Music),
-        (&config.tts_channel_id, Lane::Notifications),
-        (&config.watched_channel_id, Lane::Media),
-    ]
-    .into_iter()
-    .find_map(|(id, lane)| (!id.is_empty() && id == channel_id).then_some(lane))
+    let channel_id = message.channel_id.to_string();
+    if !config.music_channel_id.is_empty() && config.music_channel_id == channel_id {
+        return Some(Lane::Music);
+    }
+    let feeds = config.channel_feeds(&channel_id)?;
+    let has_media = !message.attachments.is_empty()
+        || !message.sticker_items.is_empty()
+        || !message.embeds.is_empty();
+    Some(if feeds.media && (has_media || !feeds.notifications) {
+        Lane::Media
+    } else {
+        Lane::Notifications
+    })
 }
 
-/// Runs the spam, trust and account checks. Returns false when the message is ignored.
+/// Handles a message of the Relay channel, or of a former channel that waits
+/// for the user's choice. Messages of any other channel are ignored.
+async fn route_relay_message(
+    core: &Arc<AppCore>,
+    http: &Http,
+    message: &Message,
+    config: &AppConfig,
+    role_ids: &[String],
+    staff: bool,
+) {
+    let Some(feeds) = config.channel_feeds(&message.channel_id.to_string()) else {
+        return;
+    };
+    let plan = RelayMessagePlan::new(message, feeds);
+    if !apply_moderation_gate(core, message, role_ids, staff, &plan.lanes, config) {
+        return;
+    }
+    if feeds.media {
+        relay_channel_message(core, http, message, config, role_ids, staff, &plan).await;
+    } else {
+        former_message_channel(core, http, message, config, role_ids).await;
+    }
+}
+
+const GIF_PROVIDER_HOSTS: [&str; 3] = ["tenor.com", "giphy.com", "klipy.com"];
+
+/// What one message of a Relay channel feeds, decided before any download or scan.
+#[derive(Debug, Default)]
+struct RelayMessagePlan {
+    /// Moderation lanes the message is checked against, the notification first.
+    lanes: Vec<crate::moderation::Lane>,
+    /// Notification text. `None` for media-only messages, commands, system
+    /// messages, messages holding only GIF links and former media channels.
+    notification_text: Option<String>,
+    /// Supported attachments as (index in the message, kind): Discord order, at most three.
+    attachments: Vec<(usize, MediaKind)>,
+}
+
+impl RelayMessagePlan {
+    fn new(message: &Message, feeds: crate::config::ChannelFeeds) -> Self {
+        use crate::moderation::Lane;
+        if !feeds.media {
+            return Self {
+                lanes: vec![Lane::Notifications],
+                ..Self::default()
+            };
+        }
+        let notification_text = if feeds.notifications {
+            notification_text(message)
+        } else {
+            None
+        };
+        let attachments = message
+            .attachments
+            .iter()
+            .enumerate()
+            .filter_map(|(index, attachment)| {
+                classify_attachment(attachment).map(|kind| (index, kind))
+            })
+            .take(3)
+            .collect();
+        // Links can still bring a GIF embed with a later update.
+        let may_carry_media = !message.attachments.is_empty()
+            || !message.sticker_items.is_empty()
+            || !message.embeds.is_empty()
+            || message.content.contains("https://")
+            || message.content.contains("http://");
+        let mut lanes = Vec::new();
+        if notification_text.is_some() {
+            lanes.push(Lane::Notifications);
+        }
+        if may_carry_media || notification_text.is_none() {
+            lanes.push(Lane::Media);
+        }
+        Self {
+            lanes,
+            notification_text,
+            attachments,
+        }
+    }
+}
+
+/// Notification text of a Relay channel message: regular messages and replies
+/// only, never a command, and without the GIF links relayed as media.
+fn notification_text(message: &Message) -> Option<String> {
+    if !matches!(
+        message.kind,
+        MessageType::Regular | MessageType::InlineReply
+    ) {
+        return None;
+    }
+    let text = without_gif_links(&message.content, &message.embeds);
+    let text = text.trim();
+    (!text.is_empty() && !looks_like_command(text)).then(|| text.to_owned())
+}
+
+/// A slash command typed as text, such as `/relay status`.
+fn looks_like_command(text: &str) -> bool {
+    let Some(name) = text
+        .split_whitespace()
+        .next()
+        .and_then(|token| token.strip_prefix('/'))
+    else {
+        return false;
+    };
+    name.chars()
+        .next()
+        .is_some_and(|character| character.is_ascii_alphabetic())
+        && name
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+}
+
+fn without_gif_links<'a>(
+    content: &'a str,
+    embeds: &[serenity::all::Embed],
+) -> std::borrow::Cow<'a, str> {
+    let is_gif_token = |token: &str| {
+        token
+            .split(['(', ')', '<', '>'])
+            .any(|part| is_gif_link(part, embeds))
+    };
+    if !content.split_whitespace().any(is_gif_token) {
+        return std::borrow::Cow::Borrowed(content);
+    }
+    std::borrow::Cow::Owned(
+        content
+            .lines()
+            .map(|line| {
+                line.split_whitespace()
+                    .filter(|token| !is_gif_token(token))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+    )
+}
+
+/// A GIF served by a public GIF library over HTTPS (not a file uploaded to Discord).
+fn is_gif_library_url(value: &str) -> bool {
+    reqwest::Url::parse(value).is_ok_and(|url| url.scheme() == "https" && gif_library_host(&url))
+}
+
+fn gif_library_host(url: &reqwest::Url) -> bool {
+    let host = url.host_str().unwrap_or_default().to_ascii_lowercase();
+    GIF_PROVIDER_HOSTS
+        .iter()
+        .any(|provider| host == *provider || host.ends_with(&format!(".{provider}")))
+}
+
+fn is_gif_link(value: &str, embeds: &[serenity::all::Embed]) -> bool {
+    let Ok(url) = reqwest::Url::parse(value) else {
+        return false;
+    };
+    if !matches!(url.scheme(), "http" | "https") {
+        return false;
+    }
+    url_has_extension(url.as_str(), "gif")
+        || gif_library_host(&url)
+        || embeds
+            .iter()
+            .any(|embed| embed.url.as_deref() == Some(value) && embedded_gif(embed).is_some())
+}
+
+/// Relays one Relay channel message: the text as a notification, then each
+/// supported sticker, attachment and GIF once, in Discord order. The
+/// notification is released after every media check, so a blocked part keeps
+/// the whole message off stream.
+async fn relay_channel_message(
+    core: &Arc<AppCore>,
+    http: &Http,
+    message: &Message,
+    config: &AppConfig,
+    role_ids: &[String],
+    staff: bool,
+    plan: &RelayMessagePlan,
+) {
+    let role_config = privacy::scoped_config_for_roles(config, role_ids);
+    // The message text is checked with the rules of every output it feeds.
+    let message_config =
+        crate::moderation::scope_config_for_lanes(role_config.clone(), &plan.lanes);
+    let message_report = classify_message_privacy(message, &message_config);
+    if block_and_delete_message_if_needed(core, http, message, &message_report, &message_config)
+        .await
+    {
+        return;
+    }
+    let scoped_config =
+        crate::moderation::scope_config(role_config, crate::moderation::Lane::Media);
+    // The notification already shows the text: media cards do not repeat it.
+    let media_text = if plan.notification_text.is_some() {
+        None
+    } else {
+        prepare_media_text(&message.content)
+    };
+    let timestamp = message_timestamp(message);
+    let message_id = message.id.to_string();
+    let notification_ticket = match plan.notification_text {
+        Some(_) => Some(
+            core.register_stage_output(timestamp, &message_id, 0, StageLane::Notification)
+                .await,
+        ),
+        None => None,
+    };
+    let mut stage_tickets = notification_ticket.into_iter().collect::<Vec<_>>();
+    let mut sticker_tickets = Vec::new();
+    for (index, sticker) in message.sticker_items.iter().take(3).enumerate() {
+        if sticker.image_url().is_none() {
+            continue;
+        }
+        let ticket = core
+            .register_stage_output(timestamp, &message_id, 100 + index as u16, StageLane::Media)
+            .await;
+        stage_tickets.push(ticket);
+        sticker_tickets.push((index, ticket));
+    }
+    let mut attachment_tickets = Vec::new();
+    for index in 0..plan.attachments.len() {
+        let ticket = core
+            .register_stage_output(timestamp, &message_id, 200 + index as u16, StageLane::Media)
+            .await;
+        stage_tickets.push(ticket);
+        attachment_tickets.push(ticket);
+    }
+
+    for (index, sticker) in message.sticker_items.iter().take(3).enumerate() {
+        let Some(url) = sticker.image_url() else {
+            continue;
+        };
+        let (format, _) = sticker_format(sticker.format_type);
+        let stage_ticket = sticker_tickets
+            .iter()
+            .find_map(|(ticket_index, ticket)| (*ticket_index == index).then_some(*ticket))
+            .expect("recognized sticker has a stage ticket");
+        let sticker_text = format!("{}\n{}", message.content, sticker.name);
+        let (privacy_report, bytes) =
+            inspect_sticker(&url, format, Some(&sticker_text), &scoped_config).await;
+        let current_config = core.config.read().await.clone();
+        let current_scoped_config = privacy::scoped_config_for_roles(&current_config, role_ids);
+        let privacy_report =
+            reclassify_privacy_report(privacy_report, &sticker_text, &current_scoped_config);
+        if block_and_delete_message_if_needed(
+            core,
+            http,
+            message,
+            &privacy_report,
+            &current_scoped_config,
+        )
+        .await
+        {
+            cancel_stage_tickets(core, &stage_tickets).await;
+            return;
+        }
+        core.submit_sticker_with_ticket_and_roles(
+            stage_ticket,
+            StickerEvent {
+                id: sticker.id.to_string(),
+                name: sticker.name.clone(),
+                format: format.into(),
+                url,
+                cached_media_id: None,
+                author: message_author(message, config),
+                timestamp: message_timestamp(message),
+                message_id: message.id.to_string(),
+            },
+            Some(&sticker_text),
+            bytes,
+            Some(privacy_report),
+            role_ids,
+        )
+        .await;
+    }
+
+    for (index, (attachment_index, kind)) in plan.attachments.iter().copied().enumerate() {
+        let attachment = &message.attachments[attachment_index];
+        let stage_ticket = attachment_tickets[index];
+        let mut audio_metadata = if matches!(kind, MediaKind::Audio) {
+            artwork::extract(&attachment.url).await.ok()
+        } else {
+            None
+        };
+        let mut event = MediaEvent {
+            kind,
+            url: attachment.url.clone(),
+            proxy_url: attachment.proxy_url.clone(),
+            filename: attachment.filename.clone(),
+            content_type: attachment.content_type.clone().unwrap_or_default(),
+            artwork_id: None,
+            audio_id: None,
+            cached_media_id: None,
+            title: audio_metadata
+                .as_ref()
+                .and_then(|metadata| metadata.title.clone()),
+            artist: audio_metadata
+                .as_ref()
+                .and_then(|metadata| metadata.artist.clone()),
+            text: media_text.clone(),
+            author: message_author(message, config),
+            timestamp: message.timestamp.unix_timestamp().max(0) as u64 * 1_000,
+            message_id: message.id.to_string(),
+        };
+        let attachment_text = format!(
+            "{}\n{}\n{}",
+            attachment_privacy_text(&message.content, &event.filename),
+            event.title.as_deref().unwrap_or_default(),
+            event.artist.as_deref().unwrap_or_default()
+        );
+        let mut privacy_report = if matches!(kind, MediaKind::Image | MediaKind::Gif) {
+            if attachment.size as usize > privacy::MAX_IMAGE_BYTES {
+                privacy::image_limit_report(Some(&attachment_text), &scoped_config)
+            } else {
+                privacy::analyze_remote_image(
+                    &event.url,
+                    &event.proxy_url,
+                    Some(&attachment_text),
+                    &scoped_config,
+                )
+                .await
+            }
+        } else {
+            privacy::classify_text(Some(&attachment_text), &scoped_config)
+        };
+        if let Some(embedded) = audio_metadata
+            .as_ref()
+            .and_then(|metadata| metadata.artwork.as_ref())
+        {
+            privacy_report.merge(
+                privacy::analyze_image_bytes_async(
+                    &embedded.bytes,
+                    Some(&attachment_text),
+                    &scoped_config,
+                )
+                .await,
+            );
+        }
+        let current_config = core.config.read().await.clone();
+        let current_scoped_config = privacy::scoped_config_for_roles(&current_config, role_ids);
+        let privacy_report =
+            reclassify_privacy_report(privacy_report, &attachment_text, &current_scoped_config);
+        if block_and_delete_message_if_needed(
+            core,
+            http,
+            message,
+            &privacy_report,
+            &current_scoped_config,
+        )
+        .await
+        {
+            cancel_stage_tickets(core, &stage_tickets).await;
+            return;
+        }
+        if let Some(embedded) = audio_metadata
+            .as_mut()
+            .and_then(|metadata| metadata.artwork.take())
+        {
+            let id = attachment.id.to_string();
+            core.cache_artwork(id.clone(), embedded).await;
+            event.artwork_id = Some(id);
+        }
+        if let Some(metadata) = audio_metadata.as_mut() {
+            let id = attachment.id.to_string();
+            let content_type = attachment
+                .content_type
+                .clone()
+                .unwrap_or_else(|| "application/octet-stream".into());
+            core.cache_audio(
+                id.clone(),
+                content_type,
+                std::mem::take(&mut metadata.audio),
+            )
+            .await;
+            event.audio_id = Some(id);
+        }
+        core.submit_analyzed_media_with_ticket_and_roles(
+            stage_ticket,
+            event,
+            Some(privacy_report),
+            Some(&message.content),
+            role_ids,
+        )
+        .await;
+    }
+
+    if submit_embedded_gifs(core, http, message, staff).await {
+        cancel_stage_tickets(core, &stage_tickets).await;
+        return;
+    }
+    if let (Some(text), Some(ticket)) = (plan.notification_text.as_deref(), notification_ticket) {
+        publish_notification(core, message, config, role_ids, ticket, text).await;
+    }
+}
+
+async fn publish_notification(
+    core: &AppCore,
+    message: &Message,
+    config: &AppConfig,
+    role_ids: &[String],
+    ticket: StageTicket,
+    text: &str,
+) {
+    let (text, segments) = match parse_visual_segments(text) {
+        Some(segments) => (text.to_owned(), segments),
+        None => match prepare_notification_text(text, config.notification_character_limit) {
+            Some(text) => (text.clone(), plain_text_segments(text)),
+            None => {
+                core.cancel_stage_output(ticket).await;
+                return;
+            }
+        },
+    };
+    core.publish_notification_card_if_allowed_with_ticket_and_roles(
+        ticket,
+        message.id.to_string(),
+        text,
+        message_author(message, config),
+        guild_tag_from_user(&message.author),
+        message_timestamp(message),
+        segments,
+        role_ids,
+    )
+    .await;
+}
+
+/// A former message channel kept until the user chooses the Relay channel:
+/// its messages stay notifications only, as before 1.4.1.
+async fn former_message_channel(
+    core: &Arc<AppCore>,
+    http: &Http,
+    message: &Message,
+    config: &AppConfig,
+    role_ids: &[String],
+) {
+    let scoped_config = crate::moderation::scope_config(
+        privacy::scoped_config_for_roles(config, role_ids),
+        crate::moderation::Lane::Notifications,
+    );
+    let text_report = classify_message_privacy(message, &scoped_config);
+    if block_and_delete_message_if_needed(core, http, message, &text_report, &scoped_config).await {
+        return;
+    }
+    if privacy::privacy_rules_enabled(&scoped_config) && !scoped_config.moderation.review_text {
+        let action = privacy::action_for(&text_report, &scoped_config);
+        if matches!(action, privacy::PrivacyAction::Review) {
+            privacy::log_decision(&text_report, action);
+            core.record_moderation(
+                Some(crate::moderation::Lane::Notifications),
+                crate::moderation::log::LogAction::Ignored,
+                text_report.primary_reason().unwrap_or("privacy"),
+                Some(message.author.id.to_string()),
+            );
+            return;
+        }
+    }
+    let stage_ticket = if !message.content.trim().is_empty() || !message.sticker_items.is_empty() {
+        Some(
+            core.register_stage_output(
+                message_timestamp(message),
+                &message.id.to_string(),
+                0,
+                StageLane::Notification,
+            )
+            .await,
+        )
+    } else {
+        None
+    };
+    let author = message_author(message, config);
+    let guild_tag = guild_tag_from_user(&message.author);
+    let mut sticker_segments = Vec::new();
+    for sticker in message.sticker_items.iter().take(3) {
+        let Some(url) = sticker.image_url() else {
+            continue;
+        };
+        let (format, _) = sticker_format(sticker.format_type);
+        let sticker_text = format!("{}\n{}", message.content, sticker.name);
+        let (mut report, _) =
+            inspect_sticker(&url, format, Some(&sticker_text), &scoped_config).await;
+        let current_config = core.config.read().await.clone();
+        let current_scoped_config = privacy::scoped_config_for_roles(&current_config, role_ids);
+        report = reclassify_privacy_report(report, &sticker_text, &current_scoped_config);
+        if block_and_delete_message_if_needed(core, http, message, &report, &current_scoped_config)
+            .await
+        {
+            if let Some(ticket) = stage_ticket {
+                core.cancel_stage_output(ticket).await;
+            }
+            return;
+        }
+        if privacy::privacy_rules_enabled(&current_scoped_config) {
+            let action = privacy::action_for(&report, &current_scoped_config);
+            if matches!(action, privacy::PrivacyAction::Review) {
+                privacy::log_decision(&report, action);
+                if let Some(ticket) = stage_ticket {
+                    core.cancel_stage_output(ticket).await;
+                }
+                return;
+            }
+        }
+        sticker_segments.push(sticker_visual_segment(
+            sticker.name.clone(),
+            Some(url),
+            sticker.format_type,
+        ));
+    }
+    if !sticker_segments.is_empty() {
+        let mut segments = match message.content.trim() {
+            "" => Vec::new(),
+            content => parse_visual_segments(content)
+                .unwrap_or_else(|| plain_text_segments(content.into())),
+        };
+        segments.append(&mut sticker_segments);
+        let Some(ticket) = stage_ticket else {
+            return;
+        };
+        core.publish_notification_card_if_allowed_with_ticket_and_roles(
+            ticket,
+            message.id.to_string(),
+            message.content.clone(),
+            author,
+            guild_tag,
+            message_timestamp(message),
+            segments,
+            role_ids,
+        )
+        .await;
+        return;
+    }
+    if let Some(segments) = parse_visual_segments(&message.content) {
+        let Some(ticket) = stage_ticket else {
+            return;
+        };
+        core.publish_notification_card_if_allowed_with_ticket_and_roles(
+            ticket,
+            message.id.to_string(),
+            message.content.clone(),
+            author,
+            guild_tag,
+            message_timestamp(message),
+            segments,
+            role_ids,
+        )
+        .await;
+        return;
+    }
+    if let Some(text) =
+        prepare_notification_text(&message.content, config.notification_character_limit)
+    {
+        let Some(ticket) = stage_ticket else {
+            return;
+        };
+        core.publish_notification_card_if_allowed_with_ticket_and_roles(
+            ticket,
+            message.id.to_string(),
+            text.clone(),
+            author,
+            guild_tag,
+            message_timestamp(message),
+            plain_text_segments(text),
+            role_ids,
+        )
+        .await;
+    } else if let Some(ticket) = stage_ticket {
+        core.cancel_stage_output(ticket).await;
+    }
+}
+
+/// Permissions that let a member moderate the server. Such members skip the
+/// spam, cooldown and review checks like trusted members; privacy rules still apply.
+const STAFF_PERMISSIONS: Permissions = Permissions::ADMINISTRATOR
+    .union(Permissions::MANAGE_GUILD)
+    .union(Permissions::MANAGE_MESSAGES);
+
+/// Server owner, or member whose roles grant a staff permission (from the cache).
+fn is_server_staff(cache: &Cache, message: &Message) -> bool {
+    let (Some(guild_id), Some(member)) = (message.guild_id, message.member.as_ref()) else {
+        return false;
+    };
+    let Some(guild) = cache.guild(guild_id) else {
+        return false;
+    };
+    let everyone = serenity::all::RoleId::new(guild_id.get());
+    let permissions = std::iter::once(&everyone)
+        .chain(member.roles.iter())
+        .filter_map(|role| guild.roles.get(role))
+        .fold(Permissions::empty(), |granted, role| {
+            granted | role.permissions
+        });
+    staff_member(guild.owner_id == message.author.id, permissions)
+}
+
+fn staff_member(owner: bool, permissions: Permissions) -> bool {
+    owner || permissions.intersects(STAFF_PERMISSIONS)
+}
+
+/// Runs the spam, trust and account checks of every lane the message feeds.
+/// Returns false when the message is ignored.
 fn apply_moderation_gate(
     core: &AppCore,
     message: &Message,
     role_ids: &[String],
-    lane: crate::moderation::Lane,
+    staff: bool,
+    lanes: &[crate::moderation::Lane],
     config: &AppConfig,
 ) -> bool {
     use crate::moderation::{GateDecision, GateInput, Lane, MessageVerdict};
@@ -1017,9 +1261,10 @@ fn apply_moderation_gate(
         + message.mention_roles.len()
         + if message.mention_everyone { 10 } else { 0 };
     let input = GateInput {
-        lane,
+        lane: lanes.first().copied().unwrap_or(Lane::Media),
         user_id: message.author.id.get(),
         role_ids,
+        staff,
         member_joined_ms: message
             .member
             .as_ref()
@@ -1030,8 +1275,8 @@ fn apply_moderation_gate(
         media_keys,
         now_ms: now_ms(),
     };
-    let decision = match core.moderation.lock() {
-        Ok(mut runtime) => runtime.evaluate(&input, &config.moderation),
+    let (decision, lane) = match core.moderation.lock() {
+        Ok(mut runtime) => runtime.evaluate_lanes(&input, lanes, &config.moderation),
         Err(_) => return false,
     };
     let (hold, trusted) = match decision {
@@ -1054,7 +1299,7 @@ fn apply_moderation_gate(
             return false;
         }
         // Music has no review queue: holds only apply to media and notifications.
-        GateDecision::Hold(_) if lane == Lane::Music => (None, false),
+        GateDecision::Hold(_) if lanes.contains(&Lane::Music) => (None, false),
         GateDecision::Hold(reason) => (Some(reason), false),
         GateDecision::Pass { trusted } => (None, trusted),
     };
@@ -1381,6 +1626,8 @@ async fn discover_channels(
     channels
 }
 
+const RELAY_CHANNEL_CHOICE_PENDING: &str = "Relay found two former channels, one for media and one for messages. Choose the Relay channel in the Relay application first.";
+
 const MISSING_CHANNEL_WARNING: &str = "A selected Discord channel is private or inaccessible. Add Relay or its role to the channel permissions.";
 
 async fn warn_if_watched_channel_missing(core: &Arc<AppCore>) {
@@ -1388,7 +1635,7 @@ async fn warn_if_watched_channel_missing(core: &Arc<AppCore>) {
         let config = core.config.read().await;
         [
             config.watched_channel_id.clone(),
-            config.tts_channel_id.clone(),
+            config.former_message_channel_id.clone(),
             config.music_channel_id.clone(),
         ]
     };
@@ -1450,7 +1697,7 @@ fn relay_command(config: &AppConfig) -> CreateCommand {
             CreateCommandOption::new(
                 CommandOptionType::SubCommand,
                 "channel",
-                "Set the channel whose media is relayed to OBS",
+                "Set the channel whose messages and media are relayed to OBS",
             )
             .add_sub_option(
                 CreateCommandOption::new(CommandOptionType::Channel, "channel", "Channel to watch")
@@ -1542,7 +1789,7 @@ fn relay_command(config: &AppConfig) -> CreateCommand {
         .add_option(CreateCommandOption::new(
             CommandOptionType::SubCommand,
             "lock",
-            "Toggle the configured media channel lock",
+            "Toggle the Relay channel lock",
         ))
         .add_option(
             CreateCommandOption::new(
@@ -1593,13 +1840,10 @@ fn relay_command(config: &AppConfig) -> CreateCommand {
 }
 
 pub async fn sync_relay_command_schema(core: &Arc<AppCore>, config: &AppConfig) -> Result<()> {
-    let http = {
-        let runtime = core.bot_runtime.lock().await;
-        runtime
-            .as_ref()
-            .map(|runtime| runtime.http.clone())
-            .context("the Discord bot is not running")?
-    };
+    let http = core
+        .discord_http()
+        .await
+        .context("the Discord bot is not running")?;
     if !core.bot_status.read().await.connected {
         bail!("the Discord bot is not connected");
     }
@@ -1703,9 +1947,14 @@ async fn handle_relay(
                     _ => None,
                 })
                 .context("a channel is required")?;
+            if config.relay_channel_conflict() {
+                return Ok(RELAY_CHANNEL_CHOICE_PENDING.into());
+            }
             core.update_config(|config| config.watched_channel_id = channel_id.clone())
                 .await?;
-            Ok(format!("Relay channel set to <#{channel_id}>."))
+            Ok(format!(
+                "Relay channel set to <#{channel_id}>. Its messages and media are relayed."
+            ))
         }
         "url" => {
             let config = core.config.read().await.clone();
@@ -1713,13 +1962,9 @@ async fn handle_relay(
         }
         "show" => {
             let config = core.config.read().await.clone();
-            let channel = if config.watched_channel_id.is_empty() {
-                "not configured".to_owned()
-            } else {
-                format!("<#{}>", config.watched_channel_id)
-            };
             Ok(format!(
-                "Channel: {channel}\n{}",
+                "Relay channel: {}\n{}",
+                relay_channel_summary(&config),
                 connection_details(&config)
             ))
         }
@@ -2144,9 +2389,9 @@ fn replace_configured_channel_id(
         config.media_cleanup_enabled = false;
         config.media_welcome_message_id.clear();
     }
-    if config.tts_channel_id == old_channel_id {
-        config.tts_cleanup_enabled = false;
-        config.tts_welcome_message_id.clear();
+    if config.former_message_channel_id == old_channel_id {
+        config.former_message_cleanup_enabled = false;
+        config.former_message_welcome_message_id.clear();
     }
     if config.music_channel_id == old_channel_id {
         config.music_cleanup_enabled = false;
@@ -2154,7 +2399,7 @@ fn replace_configured_channel_id(
     }
     for channel_id in [
         &mut config.watched_channel_id,
-        &mut config.tts_channel_id,
+        &mut config.former_message_channel_id,
         &mut config.music_channel_id,
         &mut config.honeypot_channel_id,
     ] {
@@ -2255,7 +2500,6 @@ async fn relay_status(core: &AppCore) -> Result<String> {
         &bot,
         &server,
         moderation_pending,
-        core.tts_pending_count(),
     ))
 }
 
@@ -2264,7 +2508,6 @@ fn format_relay_status(
     bot: &BotStatus,
     server: &ServerStatus,
     moderation_pending: usize,
-    tts_pending: usize,
 ) -> String {
     let bot_state = if bot.connected {
         bot.username
@@ -2274,16 +2517,7 @@ fn format_relay_status(
     } else {
         "disconnected".into()
     };
-    let media_channel = if config.watched_channel_id.is_empty() {
-        "not configured".into()
-    } else {
-        format!("<#{}>", config.watched_channel_id)
-    };
-    let tts_channel = if config.tts_channel_id.is_empty() {
-        "disabled".into()
-    } else {
-        format!("<#{}>", config.tts_channel_id)
-    };
+    let relay_channel = relay_channel_summary(config);
     let moderation = if config.moderation_enabled {
         format!("enabled ({moderation_pending} pending)")
     } else {
@@ -2299,10 +2533,8 @@ fn format_relay_status(
         "**Relay status**\n\
          Bot: {bot_state}\n\
          Local server: {}\n\
-         Media channel: {media_channel}\n\
-         Message channel: {tts_channel}\n\
+         Relay channel: {relay_channel}\n\
          Moderation: {moderation}\n\
-         Messages preparing: {tts_pending}\n\
          Media widget: {media_widget}\n\
          Notification widget: {notification_widget}\n\
          **Connected outputs (OBS / widget / preview)**\n\
@@ -2320,6 +2552,19 @@ fn format_relay_status(
         output_status(&server.outputs.notification),
         output_status(&server.outputs.sticker),
     )
+}
+
+fn relay_channel_summary(config: &AppConfig) -> String {
+    if config.relay_channel_conflict() {
+        format!(
+            "choice pending in the Relay application (media <#{}>, messages <#{}>)",
+            config.watched_channel_id, config.former_message_channel_id
+        )
+    } else if config.watched_channel_id.is_empty() {
+        "not configured".into()
+    } else {
+        format!("<#{}>", config.watched_channel_id)
+    }
 }
 
 fn widget_status(visible: bool, locked: bool) -> &'static str {
@@ -2358,7 +2603,6 @@ fn output_test_target(value: &str) -> Option<OutputTestTarget> {
     match value {
         "visual" | "media" => Some(OutputTestTarget::Visual),
         "audio" => Some(OutputTestTarget::Audio),
-        "tts" => Some(OutputTestTarget::Notification),
         "notification" => Some(OutputTestTarget::Notification),
         "sticker" => Some(OutputTestTarget::Sticker),
         _ => None,
@@ -2372,7 +2616,6 @@ fn connected_output_count(server: &ServerStatus, target: OutputTestTarget) -> us
     let status = match target {
         OutputTestTarget::Visual => &server.outputs.visual,
         OutputTestTarget::Audio => &server.outputs.audio,
-        OutputTestTarget::Tts => &server.outputs.tts,
         OutputTestTarget::Notification => &server.outputs.notification,
         OutputTestTarget::Sticker => &server.outputs.sticker,
     };
@@ -2383,7 +2626,6 @@ fn output_test_label(target: OutputTestTarget) -> &'static str {
     match target {
         OutputTestTarget::Visual => "media",
         OutputTestTarget::Audio => "audio",
-        OutputTestTarget::Tts => "notifications",
         OutputTestTarget::Notification => "notification",
         OutputTestTarget::Sticker => "sticker",
     }
@@ -2421,7 +2663,7 @@ async fn toggle_channel_lock(
         return Ok(format!("<#{0}> is unlocked.", snapshot.channel_id));
     }
     if config.watched_channel_id.is_empty() {
-        bail!("configure a media channel before locking it");
+        bail!("configure the Relay channel before locking it");
     }
 
     let channel_id = ChannelId::new(config.watched_channel_id.parse()?);
@@ -2540,16 +2782,12 @@ fn connection_details(config: &AppConfig) -> String {
         "Relay URL: `http://127.0.0.1:{}`\nVisual overlay: `{}`\nAudio overlay: `{}`",
         config.port,
         overlay_url(config),
-        audio_overlay_url(config)
+        crate::widget::obs_audio_url(config.port)
     )
 }
 
 fn overlay_url(config: &AppConfig) -> String {
     crate::widget::obs_visual_url(config.port)
-}
-
-fn audio_overlay_url(config: &AppConfig) -> String {
-    format!("http://127.0.0.1:{}/obs/audio", config.port)
 }
 
 fn classify_attachment(attachment: &serenity::all::Attachment) -> Option<MediaKind> {
@@ -2569,14 +2807,23 @@ struct DeferredEmbedMessage {
     author: serenity::all::User,
     timestamp: u64,
     content: String,
+    /// Media card text; `None` when the notification already shows the text.
+    caption: Option<String>,
     embeds: Vec<serenity::all::Embed>,
     role_ids: Vec<String>,
 }
 
-async fn submit_embedded_gifs(core: &Arc<AppCore>, http: &Http, message: &Message) {
+/// Relays the GIF embeds and links of a media channel message. Returns true
+/// when one of them blocked the message.
+async fn submit_embedded_gifs(
+    core: &Arc<AppCore>,
+    http: &Http,
+    message: &Message,
+    staff: bool,
+) -> bool {
     let config = core.config.read().await.clone();
     if message.author.bot || message.channel_id.to_string() != config.watched_channel_id {
-        return;
+        return false;
     }
     let role_ids = message_role_ids(message);
     if core.moderation_verdict(&message.id.to_string()).is_none()
@@ -2587,17 +2834,22 @@ async fn submit_embedded_gifs(core: &Arc<AppCore>, http: &Http, message: &Messag
             .and_then(|member| member.joined_at)
             .is_none()
     {
-        return;
+        return false;
     }
     if !apply_moderation_gate(
         core,
         message,
         &role_ids,
-        crate::moderation::Lane::Media,
+        staff,
+        &[crate::moderation::Lane::Media],
         &config,
     ) {
-        return;
+        return false;
     }
+    let notifies = config
+        .channel_feeds(&message.channel_id.to_string())
+        .is_some_and(|feeds| feeds.notifications)
+        && notification_text(message).is_some();
     submit_deferred_embeds(
         core,
         http,
@@ -2607,16 +2859,26 @@ async fn submit_embedded_gifs(core: &Arc<AppCore>, http: &Http, message: &Messag
             author: message.author.clone(),
             timestamp: message.timestamp.unix_timestamp().max(0) as u64 * 1_000,
             content: message.content.clone(),
+            caption: if notifies {
+                None
+            } else {
+                prepare_media_text(&message.content)
+            },
             embeds: message.embeds.clone(),
             role_ids: message_role_ids(message),
         },
     )
-    .await;
+    .await
 }
 
-async fn submit_deferred_embeds(core: &Arc<AppCore>, http: &Http, message: DeferredEmbedMessage) {
+/// Returns true when the message was blocked.
+async fn submit_deferred_embeds(
+    core: &Arc<AppCore>,
+    http: &Http,
+    message: DeferredEmbedMessage,
+) -> bool {
     if message.author.bot {
-        return;
+        return false;
     }
     let config = core.config.read().await.clone();
     let scoped_config = crate::moderation::scope_config(
@@ -2624,7 +2886,7 @@ async fn submit_deferred_embeds(core: &Arc<AppCore>, http: &Http, message: Defer
         crate::moderation::Lane::Media,
     );
     if config.watched_channel_id.is_empty() || message.channel_id != config.watched_channel_id {
-        return;
+        return false;
     }
     let message_report = classify_privacy_values(
         &message.content,
@@ -2635,9 +2897,9 @@ async fn submit_deferred_embeds(core: &Arc<AppCore>, http: &Http, message: Defer
     if privacy_action_is_blocked(&message_report, &scoped_config) {
         delete_deferred_message_if_needed(core, http, &message, &message_report, &scoped_config)
             .await;
-        return;
+        return true;
     }
-    let media_text = prepare_media_text(&message.content);
+    let media_text = message.caption.clone();
     for (index, embed) in message_gifs(&message.content, &message.embeds)
         .into_iter()
         .enumerate()
@@ -2688,6 +2950,14 @@ async fn submit_deferred_embeds(core: &Arc<AppCore>, http: &Http, message: Defer
             .starts_with("image/")
         {
             match downloaded.as_deref() {
+                Some(bytes) if is_gif_library_url(&event.url) => {
+                    privacy::analyze_library_gif_async(
+                        bytes,
+                        Some(&message.content),
+                        &scoped_config,
+                    )
+                    .await
+                }
                 Some(bytes) => {
                     privacy::analyze_image_bytes_async(
                         bytes,
@@ -2723,7 +2993,7 @@ async fn submit_deferred_embeds(core: &Arc<AppCore>, http: &Http, message: Defer
                 &current_scoped_config,
             )
             .await;
-            return;
+            return true;
         }
         core.submit_analyzed_media_with_text_and_roles(
             event,
@@ -2733,6 +3003,7 @@ async fn submit_deferred_embeds(core: &Arc<AppCore>, http: &Http, message: Defer
         )
         .await;
     }
+    false
 }
 
 async fn delete_deferred_message_if_needed(
@@ -2964,7 +3235,7 @@ fn classify_media(filename: &str, content_type: Option<&str>) -> Option<MediaKin
     }
 }
 
-fn prepare_tts_text(content: &str, character_limit: u32) -> Option<String> {
+fn prepare_notification_text(content: &str, character_limit: u32) -> Option<String> {
     let content = content.trim();
     if content.is_empty() {
         return None;

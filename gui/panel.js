@@ -83,11 +83,11 @@ const inviteUrlElement = $("#invite-url");
 const openInviteButton = $("#open-invite");
 const channelElement = $("#channel");
 const refreshChannelsButton = $("#refresh-channels");
-const ttsChannelElement = $("#tts-channel");
+const relayChannelChoiceElement = $("#relay-channel-choice");
+const keepMediaChannelButton = $("#relay-channel-keep-media");
+const keepMessageChannelButton = $("#relay-channel-keep-messages");
 const mediaCleanupEnabledElement = $("#media-cleanup-enabled");
 const mediaWelcomeMessageElement = $("#media-welcome-message");
-const ttsCleanupEnabledElement = $("#tts-cleanup-enabled");
-const ttsWelcomeMessageElement = $("#tts-welcome-message");
 const musicChannelElement = $("#music-channel");
 const musicWelcomeElement = $("#music-welcome-message");
 const musicCleanupEnabledElement = $("#music-cleanup-enabled");
@@ -100,10 +100,10 @@ const portElement = $("#port");
 const mediaVolumeElement = $("#media-volume");
 const mediaVolumeValueElement = $("#media-volume-value");
 const widgetSoundEnabledElement = $("#widget-sound-enabled");
-const ttsCharacterLimitElement = $("#tts-character-limit");
-const ttsQueueLimitElement = $("#tts-queue-limit");
+const notificationCharacterLimitElement = $("#notification-character-limit");
+const notificationQueueLimitElement = $("#notification-queue-limit");
 const notificationDurationElement = $("#notification-duration");
-const ttsNotificationsObsElement = $("#tts-notifications-obs");
+const notificationsObsElement = $("#notifications-obs");
 const showAuthorElement = $("#show-author");
 const showMediaTextObsElement = $("#show-media-text-obs");
 const showMediaTextWidgetElement = $("#show-media-text-widget");
@@ -120,6 +120,7 @@ const privacyCategoryElements = $$('input[name="privacy-category"]');
 const privacyCustomPatternsElement = $("#privacy-custom-patterns");
 const privacyAllowlistElement = $("#privacy-allowlist");
 const privacyConceptsElement = $("#privacy-concepts");
+const privacySimilarityBoostElement = $("#privacy-similarity-boost");
 const privacyExemptRoleIdsElement = $("#privacy-exempt-role-ids");
 const moderationSaveStateElement = $("#moderation-save-state");
 const moderationCountElement = $("#moderation-count");
@@ -283,7 +284,7 @@ const audioPlaybackTargets = new Map();
 let currentAudioPlayback;
 let nowPlayingArtworkRequest = 0;
 const artworkCache = new Map();
-let currentAppVersion = "1.4.0";
+let currentAppVersion = "1.4.1";
 let bundledChangelogMarkdown = "";
 let latestUpdate;
 let updateUiState = { kind: "idle" };
@@ -501,7 +502,7 @@ function applyLanguage() {
     setWidgetState(bootstrap.widget);
     setNotificationWidgetState(bootstrap.notificationWidget);
     populateChannels(channelElement, bootstrap.channels, channelElement.value, t("selectChannel"));
-    populateChannels(ttsChannelElement, bootstrap.channels, ttsChannelElement.value, t("ttsDisabled"));
+    updateRelayChannelChoice(bootstrap.config);
     populateChannels(musicChannelElement, bootstrap.channels, musicChannelElement.value, t("musicDisabled"));
     populateChannels(honeypotChannelElement, bootstrap.channels, honeypotChannelElement.value, t("honeypotDisabled"));
     renderHistory();
@@ -685,8 +686,23 @@ const outputGeometryTargets = {
   mediaWidget: { configKey: "mediaWidgetGeometry", titleKey: "mediaWidgetOutput", previewKey: "overlayUrl", widget: "media" },
   notificationObs: { configKey: "notificationObsGeometry", titleKey: "notificationObsOutput", previewKey: "notificationUrl" },
   notificationWidget: { configKey: "notificationWidgetGeometry", titleKey: "notificationWidgetOutput", previewKey: "notificationUrl", widget: "notification" },
+  // The YouTube video can shrink to a small corner player (Rust YOUTUBE_VIDEO_MIN_SCALE).
+  musicVideoObs: { configKey: "musicVideoObsGeometry", titleKey: "musicVideoObsOutput", previewKey: "overlayUrl", sample: "music", minScale: 10 },
+  // The card is text only: the crop belongs to the YouTube video.
+  musicObs: { configKey: "musicObsGeometry", titleKey: "musicObsOutput", previewKey: "overlayUrl", sample: "music", noCrop: true },
 };
 const outputGeometryTimers = new Map();
+
+// Output size (Rust `OutputGeometry::validate` uses the same bound).
+const MAX_CONTENT_SCALE = 400;
+
+/** Margins only move an anchored output; "Current layout" keeps its fixed place. */
+function syncGeometryMargins(card) {
+  const anchored = card.querySelector("[data-output-anchor]").value !== "legacy";
+  for (const input of $$('[data-geometry-field="marginX"], [data-geometry-field="marginY"]', card)) {
+    input.disabled = !anchored;
+  }
+}
 
 function geometryControl(field, labelKey, minimum, maximum) {
   return `
@@ -728,11 +744,11 @@ function initializeOutputGeometryControls() {
           <label class="field"><span data-i18n="outputAnchor"></span><select data-output-anchor><option value="legacy" data-i18n="anchorLegacy"></option><option value="topLeft" data-i18n="anchorTopLeft"></option><option value="topCenter" data-i18n="anchorTopCenter"></option><option value="topRight" data-i18n="anchorTopRight"></option><option value="center" data-i18n="anchorCenter"></option><option value="bottomLeft" data-i18n="anchorBottomLeft"></option><option value="bottomCenter" data-i18n="anchorBottomCenter"></option><option value="bottomRight" data-i18n="anchorBottomRight"></option></select></label>
 ${geometryControl("marginX", "marginX", 0, 200)}
 ${geometryControl("marginY", "marginY", 0, 200)}
-${geometryControl("contentScale", "contentScale", 50, 200)}
-          ${geometryControl("cropTop", "cropTop", 0, 40)}
+${geometryControl("contentScale", "contentScale", metadata.minScale ?? 50, MAX_CONTENT_SCALE)}
+          ${metadata.noCrop ? "" : `${geometryControl("cropTop", "cropTop", 0, 40)}
           ${geometryControl("cropRight", "cropRight", 0, 40)}
           ${geometryControl("cropBottom", "cropBottom", 0, 40)}
-          ${geometryControl("cropLeft", "cropLeft", 0, 40)}
+          ${geometryControl("cropLeft", "cropLeft", 0, 40)}`}
         </div>
         <button class="button button--quiet" data-reset-geometry type="button" data-i18n="resetOutput"></button>
       </details>`;
@@ -741,7 +757,10 @@ ${geometryControl("contentScale", "contentScale", 50, 200)}
   for (const card of $$("[data-geometry-target]", outputGeometryGridElement)) {
     const target = card.dataset.geometryTarget;
     initializePresets(card, target);
-    card.querySelector("[data-output-anchor]").addEventListener("change", () => queueOutputGeometrySave(target));
+    card.querySelector("[data-output-anchor]").addEventListener("change", () => {
+      syncGeometryMargins(card);
+      queueOutputGeometrySave(target);
+    });
     for (const input of $$('[data-geometry-field]', card)) {
       input.addEventListener("input", () => {
         const peer = card.querySelector(
@@ -778,6 +797,7 @@ function applyOutputGeometryTarget(config, target, force = false) {
   for (const input of $$('[data-geometry-field]', card)) {
     input.value = String(values[input.dataset.geometryField]);
   }
+  syncGeometryMargins(card);
   if (target === "mediaWidget") {
     card.querySelector('[data-size-field="width"]').value = String(Math.round(config.widgetWidth ?? 640));
     card.querySelector('[data-size-field="height"]').value = String(Math.round(config.widgetHeight ?? 360));
@@ -796,15 +816,16 @@ function applyOutputGeometryConfig(config, force = false) {
 
 function outputGeometryPayload(target) {
   const card = outputGeometryGridElement.querySelector(`[data-geometry-target="${target}"]`);
+  // Fields hidden for this output (crop of the text-only card) save as 0.
   const value = (field, minimum, maximum) => clamp(
-    card.querySelector(`[data-geometry-field="${field}"][data-geometry-kind="number"]`).value,
+    card.querySelector(`[data-geometry-field="${field}"][data-geometry-kind="number"]`)?.value ?? minimum,
     minimum,
     maximum,
   );
   const payload = {
     target,
     geometry: {
-      contentScale: value("contentScale", 50, 200),
+      contentScale: value("contentScale", outputGeometryTargets[target].minScale ?? 50, MAX_CONTENT_SCALE),
       anchor: card.querySelector("[data-output-anchor]").value,
       marginX: value("marginX", 0, 200),
       marginY: value("marginY", 0, 200),
@@ -856,6 +877,7 @@ function setOutputGeometryDefaults(target) {
   for (const input of $$('[data-geometry-field]', card)) {
     input.value = ({ contentScale: "100", marginX: "12", marginY: "16" })[input.dataset.geometryField] || "0";
   }
+  syncGeometryMargins(card);
   if (target === "mediaWidget") {
     card.querySelector('[data-size-field="width"]').value = "640";
     card.querySelector('[data-size-field="height"]').value = "360";
@@ -875,6 +897,7 @@ function setOutputGeometryPreviewUrls() {
     const path = metadata.previewKey === "notificationUrl" ? "/notifications" : "/medias";
     const url = new URL(`http://127.0.0.1:${port}${path}`);
     url.searchParams.set("preview", "1");
+    if (metadata.sample) url.searchParams.set("sample", metadata.sample);
     if (metadata.widget === "media") {
       url.searchParams.set("widget", "1");
       url.searchParams.set("locked", "1");
@@ -1077,7 +1100,7 @@ function renderOutputReadiness(status = {}) {
     if (card) {
       let diagnostic = card.querySelector(".output-diagnostic");
       if (!diagnostic) { diagnostic = document.createElement("p"); diagnostic.className = "output-diagnostic"; card.append(diagnostic); }
-      const disabled = target === "notification" && !bootstrap?.config?.ttsNotificationsObsEnabled && widgetClients === 0;
+      const disabled = target === "notification" && !bootstrap?.config?.notificationsObsEnabled && widgetClients === 0;
       diagnostic.textContent = !status.connected ? t("serverOffline") : disabled ? t("diagnosticDisabled")
         : !liveOutputConnected ? t("diagnosticWaiting") : t("diagnosticReady");
       card.classList.toggle("is-live", liveOutputConnected);
@@ -1186,8 +1209,6 @@ function applyConfig(config) {
   const drafts = [...dirtyForms].map(captureFormDraft);
   mediaCleanupEnabledElement.checked = Boolean(config.mediaCleanupEnabled);
   mediaWelcomeMessageElement.value = config.mediaWelcomeMessageId || "";
-  ttsCleanupEnabledElement.checked = Boolean(config.ttsCleanupEnabled);
-  ttsWelcomeMessageElement.value = config.ttsWelcomeMessageId || "";
   durationElement.value = String(config.displayDurationMs / 1000);
   gifDurationElement.value = String((config.gifDurationMs ?? config.displayDurationMs) / 1000);
   stickerDurationElement.value = String((config.stickerDurationMs ?? 8000) / 1000);
@@ -1195,12 +1216,12 @@ function applyConfig(config) {
   mediaVolumeElement.value = String(config.mediaVolume ?? 50);
   mediaVolumeValueElement.value = `${mediaVolumeElement.value}%`;
   mediaVolumeValueElement.textContent = `${mediaVolumeElement.value}%`;
-  ttsCharacterLimitElement.value = String(config.ttsCharacterLimit ?? 0);
-  ttsQueueLimitElement.value = String(config.ttsQueueLimit ?? 50);
+  notificationCharacterLimitElement.value = String(config.notificationCharacterLimit ?? 0);
+  notificationQueueLimitElement.value = String(config.notificationQueueLimit ?? 50);
   notificationDurationElement.value = String((config.notificationDurationMs ?? 8000) / 1000);
   widgetSoundEnabledElement.checked = Boolean(config.widgetSoundEnabled);
   applyNotificationSoundConfig(config);
-  ttsNotificationsObsElement.checked = Boolean(config.ttsNotificationsObsEnabled);
+  notificationsObsElement.checked = Boolean(config.notificationsObsEnabled);
   botOnlineStatusElement.value = config.botOnlineStatus || "online";
   botActivityTypeElement.value = config.botActivityType || "custom";
   botActivityTextElement.value = config.botActivityText || "";
@@ -1216,6 +1237,7 @@ function applyConfig(config) {
   privacyScanEnabledElement.checked = Boolean(config.privacyScanEnabled);
   privacyProtectionLevelElement.value = config.privacyProtectionLevel || "balanced";
   privacyBlockThresholdElement.value = config.privacyBlockThreshold || "high";
+  privacySimilarityBoostElement.value = String(config.privacySimilarityBoost ?? 4);
   privacyReviewIntermediateElement.checked = config.privacyReviewIntermediate !== false;
   privacyAutoDeleteBlockedMessagesElement.checked = config.privacyAutoDeleteBlockedMessages !== false;
   const enabledCategories = new Set(
@@ -1230,7 +1252,7 @@ function applyConfig(config) {
   privacyExemptRoleIdsElement.value = filterRoleIdsToInput(config.privacyFilterExemptRoleIds);
   moderationUi?.fillForm(config);
   populateChannels(channelElement, bootstrap?.channels || [], config.watchedChannelId, t("selectChannel"));
-  populateChannels(ttsChannelElement, bootstrap?.channels || [], config.ttsChannelId, t("ttsDisabled"));
+  updateRelayChannelChoice(config);
   musicWelcomeElement.value = config.musicWelcomeMessageId || "";
   musicCleanupEnabledElement.checked = Boolean(config.musicCleanupEnabled);
   populateChannels(musicChannelElement, bootstrap?.channels || [], config.musicChannelId, t("musicDisabled"));
@@ -1256,6 +1278,25 @@ function applyConfig(config) {
   mediaVolumeValueElement.value = `${mediaVolumeElement.value}%`;
   mediaVolumeValueElement.textContent = `${mediaVolumeElement.value}%`;
   updateBotActivityAvailability();
+}
+
+/** Two different former channels (media, messages) wait for the user's choice.
+ * Until then the Relay channel selector stays locked and each channel keeps its former role. */
+function updateRelayChannelChoice(config) {
+  const media = config?.watchedChannelId || "";
+  const messages = config?.formerMessageChannelId || "";
+  const pending = Boolean(media && messages && media !== messages);
+  relayChannelChoiceElement.hidden = !pending;
+  channelElement.disabled = pending;
+  if (!pending) return;
+  const label = (id) => {
+    const channel = (bootstrap?.channels || []).find((item) => item.id === id);
+    return channel ? `# ${channel.name}` : id;
+  };
+  keepMediaChannelButton.dataset.channelId = media;
+  keepMediaChannelButton.textContent = t("relayChannelKeepMedia").replace("{channel}", label(media));
+  keepMessageChannelButton.dataset.channelId = messages;
+  keepMessageChannelButton.textContent = t("relayChannelKeepMessages").replace("{channel}", label(messages));
 }
 
 function setCredentials(status) {
@@ -1824,25 +1865,24 @@ function readConfigDraft(form, filterOnly = false) {
   if (form === messagesForm) {
     return {
       notificationDurationMs: Number(notificationDurationElement.value) * 1000,
-      ttsCharacterLimit: Number(ttsCharacterLimitElement.value),
-      ttsQueueLimit: Number(ttsQueueLimitElement.value),
-      ttsNotificationsObsEnabled: ttsNotificationsObsElement.checked,
+      notificationCharacterLimit: Number(notificationCharacterLimitElement.value),
+      notificationQueueLimit: Number(notificationQueueLimitElement.value),
+      notificationsObsEnabled: notificationsObsElement.checked,
     };
   }
   if (form === routingForm) {
-    return {
-      watchedChannelId: channelElement.value,
+    const draft = {
       mediaCleanupEnabled: mediaCleanupEnabledElement.checked,
       mediaWelcomeMessageId: mediaWelcomeMessageElement.value.trim(),
-      ttsChannelId: ttsChannelElement.value,
-      ttsCleanupEnabled: ttsCleanupEnabledElement.checked,
-      ttsWelcomeMessageId: ttsWelcomeMessageElement.value.trim(),
       musicChannelId: musicChannelElement.value,
       musicWelcomeMessageId: musicWelcomeElement.value.trim(),
       musicCleanupEnabled: musicCleanupEnabledElement.checked,
       honeypotChannelId: honeypotChannelElement.value,
       honeypotAction: honeypotActionElement.value,
     };
+    // A locked selector waits for the choice buttons, which save the channel themselves.
+    if (!channelElement.disabled) draft.watchedChannelId = channelElement.value;
+    return draft;
   }
   if (form === systemForm) {
     return { port: Number(portElement.value) };
@@ -1863,6 +1903,7 @@ function readConfigDraft(form, filterOnly = false) {
       privacyProtectionLevel: privacyProtectionLevelElement.value,
       privacyEnabledCategories: privacyCategoryElements.filter((input) => input.checked).map((input) => input.value),
       privacyBlockThreshold: privacyBlockThresholdElement.value,
+      privacySimilarityBoost: Math.min(100, Math.max(1, Math.round(Number(privacySimilarityBoostElement.value) || 4))),
       privacyReviewIntermediate: privacyReviewIntermediateElement.checked,
       privacyAutoDeleteBlockedMessages: privacyAutoDeleteBlockedMessagesElement.checked,
       privacyAllowlist: privacyListFromInput(privacyAllowlistElement.value),
@@ -2012,13 +2053,12 @@ async function refreshRuntimeStatus() {
     }
     const channelsSignature = JSON.stringify(status.channels);
     const selectingChannel = document.activeElement === channelElement
-      || document.activeElement === ttsChannelElement
       || document.activeElement === musicChannelElement
       || document.activeElement === honeypotChannelElement;
     if (channelsSignature !== lastChannelsSignature && !selectingChannel) {
       lastChannelsSignature = channelsSignature;
       populateChannels(channelElement, status.channels, channelElement.value, t("selectChannel"));
-      populateChannels(ttsChannelElement, status.channels, ttsChannelElement.value, t("ttsDisabled"));
+      updateRelayChannelChoice(bootstrap?.config);
       populateChannels(musicChannelElement, status.channels, musicChannelElement.value, t("musicDisabled"));
       populateChannels(honeypotChannelElement, status.channels, honeypotChannelElement.value, t("honeypotDisabled"));
     }
@@ -2336,7 +2376,7 @@ refreshChannelsButton.addEventListener("click", async () => {
     const channels = await invoke("refresh_channels");
     bootstrap.channels = channels;
     populateChannels(channelElement, channels, channelElement.value, t("selectChannel"));
-    populateChannels(ttsChannelElement, channels, ttsChannelElement.value, t("ttsDisabled"));
+    updateRelayChannelChoice(bootstrap.config);
     populateChannels(musicChannelElement, channels, musicChannelElement.value, t("musicDisabled"));
     populateChannels(honeypotChannelElement, channels, honeypotChannelElement.value, t("honeypotDisabled"));
     setSaveState(saveStateElement, "saved", t("channelsRefreshed"));
@@ -2346,6 +2386,26 @@ refreshChannelsButton.addEventListener("click", async () => {
     refreshChannelsButton.disabled = false;
   }
 });
+
+for (const button of [keepMediaChannelButton, keepMessageChannelButton]) {
+  button.addEventListener("click", async () => {
+    const channelId = button.dataset.channelId;
+    if (!channelId) return;
+    keepMediaChannelButton.disabled = true;
+    keepMessageChannelButton.disabled = true;
+    setSaveState(saveStateElement, "saving");
+    try {
+      // Queued behind pending form saves so an older draft cannot undo the choice.
+      await queueConfigSave(async () => applyBootstrap(await invoke("choose_relay_channel", { channelId })));
+      setSaveState(saveStateElement, "saved", t("relayChannelChosen"));
+    } catch (error) {
+      setSaveState(saveStateElement, "error", String(error));
+    } finally {
+      keepMediaChannelButton.disabled = false;
+      keepMessageChannelButton.disabled = false;
+    }
+  });
+}
 
 mediaForm.addEventListener("submit", async (event) => {
   event.preventDefault();

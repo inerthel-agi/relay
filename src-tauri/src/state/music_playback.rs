@@ -38,11 +38,7 @@ impl AppCore {
         let ticket = self
             .register_stage_output(order_timestamp, order_id, 300, StageLane::Music)
             .await;
-        let result = if policy == MusicQueuePolicy::default() {
-            music.start(selection, mode)
-        } else {
-            music.start_with_policy(selection, mode, policy)
-        };
+        let result = music.start_with_policy(selection, mode, policy);
         if let crate::music::MusicStartResult::Queued { playback, .. } = &result {
             self.music_stage_tickets
                 .lock()
@@ -95,11 +91,7 @@ impl AppCore {
         let ticket = self
             .register_stage_output(order_timestamp, order_id, 300, StageLane::Music)
             .await;
-        let result = if policy == MusicQueuePolicy::default() {
-            music.start_custom(selection, start_seconds, end_seconds)
-        } else {
-            music.start_custom_with_policy(selection, start_seconds, end_seconds, policy)
-        };
+        let result = music.start_custom_with_policy(selection, start_seconds, end_seconds, policy);
         if let Ok(crate::music::MusicStartResult::Queued { playback, .. }) = &result {
             self.music_stage_tickets
                 .lock()
@@ -333,7 +325,7 @@ impl AppCore {
             let _ = self.relay_tx.send(RelayEvent::MusicStop(MusicStopEvent {
                 playback_id: stopped.playback.playback_id.clone(),
             }));
-            // Always idle after a full clear so TTS/notification clients resume
+            // Always idle after a full clear so notification clients resume
             // even when the following Clear event is coalesced or lagged.
             let _ = self.relay_tx.send(RelayEvent::MusicIdle);
             return Some(stopped.playback.clone());
@@ -423,10 +415,7 @@ impl AppCore {
             return;
         }
         drop(config);
-        let http = {
-            let runtime = self.bot_runtime.lock().await;
-            runtime.as_ref().map(|runtime| runtime.http.clone())
-        };
+        let http = self.discord_http().await;
         let Some(http) = http else {
             return;
         };

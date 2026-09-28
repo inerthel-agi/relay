@@ -50,7 +50,7 @@ Notifications, the music card, media captions and the YouTube credit read `--out
 ## Interface
 
 - 14 pages in five task groups: Get started (Overview, Discord, Help), Content (Messages, Media, Music, Sounds and reactions), Broadcast (OBS & widgets, History), Safety (Moderation, Commands), App (Personalization, Changelog, About).
-- Overview is a setup checklist (bot, invitation, media channel, OBS sources, test) followed by a dashboard. Relay opens there until the bot and media channel are set, then on the last visited page (`relay-last-page`).
+- Overview is a setup checklist (bot, invitation, Relay channel, OBS sources, test) followed by a dashboard. Relay opens there until the bot and Relay channel are set, then on the last visited page (`relay-last-page`).
 - The Discord page owns the connection and every channel select. Module pages show a `.channel-link` row that opens it.
 - Internal links use `data-go-to-page` and optionally `data-go-to-target`, which opens enclosing `<details>` and highlights the target.
 - Sidebar items may carry a `.navigation__badge`; top bar status pills are buttons that open their page.
