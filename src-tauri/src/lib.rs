@@ -781,9 +781,12 @@ mod external_link_tests {
         assert!(source.contains("ExtractIconExW"));
         assert!(source.contains("SetClassLongPtrW(hwnd, GCLP_HICON"));
         assert!(source.contains("SetClassLongPtrW(hwnd, GCLP_HICONSM"));
-        assert!(source.contains("for icon_type in [ICON_SMALL, ICON_SMALL2]"));
-        let legacy_clear = ["[ICON_SMALL, ICON_BIG, ", "ICON_SMALL2]"].concat();
-        assert!(!source.contains(&legacy_clear));
+        assert!(source.contains("for icon_type in [ICON_SMALL, ICON_BIG]"));
+        // WM_SETICON with ICON_SMALL2 erases the big icon and blanks taskbar previews.
+        let invalid_clear = ["ICON_BIG, ", "ICON_SMALL2]"].concat();
+        assert!(!source.contains(&invalid_clear));
+        assert!(!source.contains(&["[ICON_SMALL, ", "ICON_SMALL2]"].concat()));
+        assert!(source.contains("SetWindowSubclass(hwnd, Some(taskbar_icon_proc)"));
         assert!(source.contains("(DWMWA_TEXT_COLOR, colorref(caption))"));
         assert!(include_str!("../Cargo.toml").contains("\"Win32_UI_Shell\""));
         assert!(!include_bytes!("../icons/icon.ico").is_empty());
@@ -793,51 +796,29 @@ mod external_link_tests {
 #[cfg(target_os = "windows")]
 fn hide_main_titlebar_identity(window: &WebviewWindow) -> windows::core::Result<()> {
     use windows::Win32::Foundation::{LPARAM, WPARAM};
+    use windows::Win32::UI::Shell::SetWindowSubclass;
     use windows::Win32::UI::WindowsAndMessaging::{
         GCLP_HICON, GCLP_HICONSM, GWL_EXSTYLE, GetWindowLongPtrW, ICON_BIG, ICON_SMALL,
-        ICON_SMALL2, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
-        SendMessageW, SetClassLongPtrW, SetWindowLongPtrW, SetWindowPos, WM_GETICON, WM_SETICON,
-        WS_EX_DLGMODALFRAME,
+        SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SendMessageW,
+        SetClassLongPtrW, SetWindowLongPtrW, SetWindowPos, WM_SETICON, WS_EX_DLGMODALFRAME,
     };
 
     let hwnd = main_window_handle(window)?;
     unsafe {
         let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
         SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style | WS_EX_DLGMODALFRAME.0 as isize);
-        let big_icon = SendMessageW(
-            hwnd,
-            WM_GETICON,
-            Some(WPARAM(ICON_BIG as usize)),
-            Some(LPARAM(0)),
-        )
-        .0;
-        let small_icon = SendMessageW(
-            hwnd,
-            WM_GETICON,
-            Some(WPARAM(ICON_SMALL as usize)),
-            Some(LPARAM(0)),
-        )
-        .0;
-        if big_icon == 0 {
-            let taskbar_icon = if small_icon != 0 {
-                small_icon
-            } else {
-                executable_large_icon().map_or(0, |icon| icon.0 as isize)
-            };
-            if taskbar_icon != 0 {
-                SetClassLongPtrW(hwnd, GCLP_HICON, taskbar_icon);
-                SendMessageW(
-                    hwnd,
-                    WM_SETICON,
-                    Some(WPARAM(ICON_BIG as usize)),
-                    Some(LPARAM(taskbar_icon)),
-                );
-            }
+        // The caption draws any icon stored on the window, so none is stored.
+        // The taskbar and its previews ask through WM_GETICON instead: the
+        // subclass answers with the Relay icon (1.4.1 left previews blank).
+        let _ = SetWindowSubclass(hwnd, Some(taskbar_icon_proc), TASKBAR_ICON_SUBCLASS, 0);
+        if let Some((large, _)) = executable_icons() {
+            SetClassLongPtrW(hwnd, GCLP_HICON, large);
         }
         if let Some(icon) = transparent_titlebar_icon() {
             SetClassLongPtrW(hwnd, GCLP_HICONSM, icon.0 as isize);
         }
-        for icon_type in [ICON_SMALL, ICON_SMALL2] {
+        // WM_SETICON only knows ICON_SMALL and ICON_BIG; ICON_SMALL2 is for WM_GETICON.
+        for icon_type in [ICON_SMALL, ICON_BIG] {
             SendMessageW(
                 hwnd,
                 WM_SETICON,
@@ -881,22 +862,68 @@ fn schedule_main_titlebar_identity(window: WebviewWindow) {
 }
 
 #[cfg(target_os = "windows")]
-fn executable_large_icon() -> Option<windows::Win32::UI::WindowsAndMessaging::HICON> {
+const TASKBAR_ICON_SUBCLASS: usize = 0x5245_4c59;
+
+#[cfg(target_os = "windows")]
+unsafe extern "system" fn taskbar_icon_proc(
+    hwnd: windows::Win32::Foundation::HWND,
+    message: u32,
+    wparam: windows::Win32::Foundation::WPARAM,
+    lparam: windows::Win32::Foundation::LPARAM,
+    _subclass: usize,
+    _data: usize,
+) -> windows::Win32::Foundation::LRESULT {
+    use windows::Win32::{
+        Foundation::LRESULT,
+        UI::{
+            Shell::DefSubclassProc,
+            WindowsAndMessaging::{ICON_BIG, WM_GETICON},
+        },
+    };
+
+    if message == WM_GETICON
+        && let Some((large, small)) = executable_icons()
+    {
+        return LRESULT(if wparam.0 == ICON_BIG as usize {
+            large
+        } else {
+            small
+        });
+    }
+    unsafe { DefSubclassProc(hwnd, message, wparam, lparam) }
+}
+
+/// Large and small icons embedded in relay.exe, loaded once.
+#[cfg(target_os = "windows")]
+fn executable_icons() -> Option<(isize, isize)> {
     use std::os::windows::ffi::OsStrExt;
     use windows::{
         Win32::UI::{Shell::ExtractIconExW, WindowsAndMessaging::HICON},
         core::PCWSTR,
     };
 
-    let executable = env::current_exe().ok()?;
-    let path = executable
-        .as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect::<Vec<_>>();
-    let mut icon = HICON(std::ptr::null_mut());
-    let extracted = unsafe { ExtractIconExW(PCWSTR(path.as_ptr()), 0, Some(&mut icon), None, 1) };
-    (extracted > 0 && !icon.is_invalid()).then_some(icon)
+    static ICONS: OnceLock<Option<(isize, isize)>> = OnceLock::new();
+    *ICONS.get_or_init(|| {
+        let executable = env::current_exe().ok()?;
+        let path = executable
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect::<Vec<_>>();
+        let mut large = HICON(std::ptr::null_mut());
+        let mut small = HICON(std::ptr::null_mut());
+        let extracted = unsafe {
+            ExtractIconExW(
+                PCWSTR(path.as_ptr()),
+                0,
+                Some(&mut large),
+                Some(&mut small),
+                1,
+            )
+        };
+        (extracted > 0 && !large.is_invalid() && !small.is_invalid())
+            .then_some((large.0 as isize, small.0 as isize))
+    })
 }
 
 #[cfg(target_os = "windows")]

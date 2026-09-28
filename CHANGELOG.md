@@ -19,6 +19,10 @@ This changelog is maintained in English. Interface translations are maintained i
 
 - Replaced legacy branding in public metadata, documentation and test fixtures with inerthel.
 
+#### Fixed
+
+- Restored the Relay logo next to the `Relay` title in Windows taskbar previews; the app's own title bar still shows no icon.
+
 ## [1.4.0] - 2026-09-26
 
 ### English
