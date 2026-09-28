@@ -1,6 +1,5 @@
 "use strict";
-const secret = new URLSearchParams(location.search).get("secret")
-  || document.querySelector('meta[name="relay-secret"]')?.content || "";
+const secret = RelayConnection.secret(new URLSearchParams(location.search));
 const widget = new URLSearchParams(location.search).get("client") === "widget";
 const audioOnly = widget && new URLSearchParams(location.search).get("audioOnly") === "1";
 const card = document.querySelector("#reaction");
@@ -72,23 +71,18 @@ function scheduleReconnect() {
   reconnectTimer = setTimeout(() => { reconnectTimer = undefined; connect(); }, reconnectDelayMs);
   reconnectDelayMs = Math.min(reconnectDelayMs * 2, 10000);
 }
-// OBS never retries a failed page load, so probe the moved server before navigating.
 function moveToPendingPort() {
-  const next = new URL(location.href); next.port = String(pendingPort);
-  const probe = new WebSocket(socketUrl(`${location.hostname}:${pendingPort}`, "probe"));
-  let ready = false;
-  const watchdog = setTimeout(() => { if (!ready) probe.close(); }, 5000);
-  probe.addEventListener("open", () => { ready = true; clearTimeout(watchdog); probe.close(); location.replace(next.href); });
-  probe.addEventListener("close", () => { clearTimeout(watchdog); if (!ready) setTimeout(moveToPendingPort, 1000); });
+  RelayConnection.moveToPort(pendingPort, (host) => socketUrl(host, "probe"));
 }
+// Reloads a page kept open across a Relay restart (often an update).
+const reloadAfterRelayRestart = RelayConnection.reloadOnRestart();
 function connect() {
   socket = new WebSocket(socketUrl(location.host, widget ? "widget" : "obs"));
   socket.addEventListener("open", () => { reconnectDelayMs = 1000; });
   socket.addEventListener("message", event => {
     let message; try { message = JSON.parse(event.data); } catch { return; }
     if (message.type === "reaction") play(message.payload);
-    if (message.type === "config") { config = message.payload; if (Number.isInteger(config.port) && config.port > 0 && config.port <= 65535 && String(config.port) !== location.port) pendingPort = config.port; sound.muted = widget && !audioOnly && !config.widgetSoundEnabled; position(); }
-    if (message.type === "serverMove" && Number.isInteger(message.payload?.port) && message.payload.port > 0 && message.payload.port <= 65535) pendingPort = message.payload.port;
+    if (message.type === "config") { if (reloadAfterRelayRestart(message.payload?.relaySession)) return; config = message.payload; if (Number.isInteger(config.port) && config.port > 0 && config.port <= 65535 && String(config.port) !== location.port) pendingPort = config.port; sound.muted = widget && !audioOnly && !config.widgetSoundEnabled; position(); }
     if (message.type === "clear") finish(true);
   });
   socket.addEventListener("close", () => { finish(); if (pendingPort) moveToPendingPort(); else scheduleReconnect(); });

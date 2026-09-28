@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use serde::Serialize;
 use tauri::{
     AppHandle, LogicalSize, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow,
-    WebviewWindowBuilder, WindowSizeConstraints,
+    WebviewWindowBuilder,
 };
 
 use crate::{
@@ -94,7 +94,7 @@ pub async fn set_locked(
         }
         core.update_config(|config| config.notification_widget_locked = locked)
             .await?;
-        apply_lock(&window, locked)?;
+        crate::widget::apply_lock(&window, locked)?;
     } else {
         core.update_config(|config| config.notification_widget_locked = locked)
             .await?;
@@ -128,7 +128,7 @@ pub fn apply_configured_size(
     preserve_right_edge: bool,
 ) -> Result<()> {
     if let Some(window) = app.get_webview_window(WINDOW_LABEL) {
-        apply_monitor_constraints(&window, MIN_WIDGET_HEIGHT)?;
+        crate::widget::apply_monitor_constraints(&window)?;
         let scale = window.scale_factor().unwrap_or(1.0);
         if let (Ok(current_size), Ok(current_pos)) = (window.inner_size(), window.outer_position())
         {
@@ -303,20 +303,14 @@ fn preserve_or_rescue_position(
 }
 
 pub async fn refresh(app: &AppHandle, core: &Arc<AppCore>) -> Result<()> {
-    if let Some(window) = app.get_webview_window(WINDOW_LABEL) {
-        let url: tauri::Url = widget_url(core).await?.parse()?;
-        if crate::widget::needs_navigation(&window, &url) {
-            window.navigate(url)?;
-        }
-    }
-    Ok(())
+    crate::widget::navigate_open_window(app, WINDOW_LABEL, widget_url(core).await?)
 }
 
 async fn ensure_window(app: &AppHandle, core: Arc<AppCore>) -> Result<WebviewWindow> {
     if let Some(window) = app.get_webview_window(WINDOW_LABEL) {
         // Do not rewrite saved x/y here; a refit can clamp against stale
         // geometry and wipe the user's placement across relaunch.
-        apply_monitor_constraints(&window, MIN_WIDGET_HEIGHT)?;
+        crate::widget::apply_monitor_constraints(&window)?;
         return Ok(window);
     }
 
@@ -348,8 +342,8 @@ async fn ensure_window(app: &AppHandle, core: Arc<AppCore>) -> Result<WebviewWin
         .build()?;
 
     window.set_position(position)?;
-    apply_lock(&window, config.notification_widget_locked)?;
-    apply_monitor_constraints(&window, MIN_WIDGET_HEIGHT)?;
+    crate::widget::apply_lock(&window, config.notification_widget_locked)?;
+    crate::widget::apply_monitor_constraints(&window)?;
     watch_geometry(&window, core.clone());
     // Persist only when rescue changed placement; never rewrite a valid edge dock.
     if saved_position(&config) != Some((position.x, position.y)) {
@@ -359,33 +353,18 @@ async fn ensure_window(app: &AppHandle, core: Arc<AppCore>) -> Result<WebviewWin
     Ok(window)
 }
 
-fn apply_lock(window: &WebviewWindow, locked: bool) -> Result<()> {
-    window.set_resizable(!locked)?;
-    window.set_focusable(!locked)?;
-    window.set_ignore_cursor_events(locked)?;
-    window.eval(format!(
-        "window.setWidgetLocked?.({})",
-        if locked { "true" } else { "false" }
-    ))?;
-    Ok(())
-}
-
 fn watch_geometry(window: &WebviewWindow, core: Arc<AppCore>) {
     let window = window.clone();
     window.clone().on_window_event(move |event| match event {
         tauri::WindowEvent::Moved(position) => {
-            if let Some(minimum_height) = configured_minimum_height(&core) {
-                let _ = apply_monitor_constraints(&window, minimum_height);
-            }
+            let _ = crate::widget::apply_monitor_constraints(&window);
             persist_position(core.clone(), *position);
         }
         tauri::WindowEvent::Resized(size) => {
             persist_size(core.clone(), &window, *size);
         }
         tauri::WindowEvent::ScaleFactorChanged { .. } => {
-            if let Some(minimum_height) = configured_minimum_height(&core) {
-                let _ = apply_monitor_constraints(&window, minimum_height);
-            }
+            let _ = crate::widget::apply_monitor_constraints(&window);
         }
         _ => {}
     });
@@ -516,26 +495,6 @@ fn resolved_geometry(
         )
     };
     Ok((position, max_width, max_height))
-}
-
-fn configured_minimum_height(_core: &Arc<AppCore>) -> Option<f64> {
-    Some(MIN_WIDGET_HEIGHT)
-}
-
-fn apply_monitor_constraints(window: &WebviewWindow, minimum_height: f64) -> Result<()> {
-    let monitor = window
-        .current_monitor()?
-        .context("no display is available")?;
-    let area = monitor.work_area();
-    let scale = monitor.scale_factor();
-    let max_height = area.size.height as f64 / scale;
-    window.set_size_constraints(WindowSizeConstraints {
-        min_width: Some(tauri::LogicalUnit::new(MIN_WIDGET_WIDTH).into()),
-        min_height: Some(tauri::LogicalUnit::new(minimum_height.min(max_height)).into()),
-        max_width: Some(tauri::LogicalUnit::new(area.size.width as f64 / scale).into()),
-        max_height: Some(tauri::LogicalUnit::new(max_height).into()),
-    })?;
-    Ok(())
 }
 
 async fn update_visibility(core: &Arc<AppCore>, visible: bool) -> Result<()> {

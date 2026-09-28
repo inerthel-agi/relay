@@ -65,9 +65,9 @@ Notes:
 - Search prefers **relevance** (like youtube.com). Newest uploads only fill gaps afterward.
 - Results shorter than **60 seconds** or longer than **5 minutes** are filtered out (cuts Shorts spam; keeps jukebox-length tracks).
 - Titles with Shorts/fyp hashtag spam are dropped.
-- Add **Relay Visual** from the Music / Overview pages (`http://localhost:<port>/obs/visual`, suggested 1920×1080) and enable **Control audio via OBS**. Use `localhost` (not `127.0.0.1`) so YouTube allows the embed. Jukebox video is included in that composite — remove any old separate `/youtube` source to avoid double audio.
-- Also add **Relay Audio** (`http://127.0.0.1:<port>/obs/audio`) for Discord file audio + TTS voice.
-- Size the Windows **Now Playing** card under Music → **Overlay OBS / Windows**.
+- Add **Relay Visual** from the OBS & widgets page (`http://localhost:<port>/obs/visual`, suggested 1920×1080) and enable **Control audio via OBS**. Use `localhost` (not `127.0.0.1`) so YouTube allows the embed. Jukebox video is included in that composite — remove any old separate `/youtube` source to avoid double audio.
+- Also add **Relay Audio** (`http://127.0.0.1:<port>/obs/audio`) for Discord audio files.
+- Size the YouTube video and its **Now playing** card for OBS under OBS & widgets → **Size and crop** (YouTube video in OBS, YouTube card in OBS).
 - Stop with Discord **Skip**, the panel skip control, or your global skip shortcut.
 
 ---
@@ -80,7 +80,7 @@ Notes:
 | `403` / accessNotConfigured | API enabled on the **same** project as the key |
 | Quota errors | [YouTube Data API quotas](https://console.cloud.google.com/apis/api/youtube.googleapis.com/quotas) |
 | Empty results | Query too vague, or only videos outside the 60s–5min jukebox window matched |
-| OBS YouTube / Visual black or silent | Use `http://localhost:<port>/obs/visual` (not `127.0.0.1`); copy the URL from Overview or Music. Enable **Control audio via OBS**. Remove duplicate old `/youtube` sources. |
+| OBS YouTube / Visual black or silent | Use `http://localhost:<port>/obs/visual` (not `127.0.0.1`); copy the URL from OBS & widgets. Enable **Control audio via OBS**. Remove duplicate old `/youtube` sources. |
 | Leaked key | Create a **new** key in Google Cloud, save it in Relay, delete the old key |
 
 The free quota is usually enough for personal streaming.

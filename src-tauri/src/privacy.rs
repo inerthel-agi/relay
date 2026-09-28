@@ -719,9 +719,20 @@ pub fn image_limit_report(text: Option<&str>, config: &AppConfig) -> PrivacyRepo
     report
 }
 
-/// Deterministic in-memory image analysis entry point used by the bot and
-/// fixtures. It never returns image bytes, EXIF values, or OCR text.
+/// Deterministic in-memory image analysis used by test fixtures; the app goes
+/// through the async entry points. It never returns image bytes, EXIF values,
+/// or OCR text.
+#[cfg(test)]
 pub fn analyze_image_bytes(bytes: &[u8], text: Option<&str>, config: &AppConfig) -> PrivacyReport {
+    analyze_image(bytes, text, config, false)
+}
+
+fn analyze_image(
+    bytes: &[u8],
+    text: Option<&str>,
+    config: &AppConfig,
+    library_gif: bool,
+) -> PrivacyReport {
     let mut report = classify_text(text, config);
     if !config.privacy_scan_enabled {
         return report;
@@ -789,11 +800,12 @@ pub fn analyze_image_bytes(bytes: &[u8], text: Option<&str>, config: &AppConfig)
             config,
         );
     }
-    // OCR inspects only frame zero; later animation frames still need review.
+    // OCR inspects only frame zero; later animation frames still need review,
+    // except for GIFs from a public GIF library.
     if exif.incomplete
         || signals.exif_incomplete
         || signals.ocr_truncated
-        || (ocr_requested && signals.frame_count > 1)
+        || (ocr_requested && signals.frame_count > 1 && !library_gif)
     {
         report.merge(PrivacyReport::low("scan_incomplete"));
     }
@@ -837,6 +849,25 @@ pub async fn analyze_image_bytes_async(
     text: Option<&str>,
     config: &AppConfig,
 ) -> PrivacyReport {
+    analyze_image_async(bytes, text, config, false).await
+}
+
+/// Same scan for a GIF served by a public GIF library (Tenor, Giphy, Klipy):
+/// OCR of its first frame is enough, so its later frames do not force a review.
+pub async fn analyze_library_gif_async(
+    bytes: &[u8],
+    text: Option<&str>,
+    config: &AppConfig,
+) -> PrivacyReport {
+    analyze_image_async(bytes, text, config, true).await
+}
+
+async fn analyze_image_async(
+    bytes: &[u8],
+    text: Option<&str>,
+    config: &AppConfig,
+    library_gif: bool,
+) -> PrivacyReport {
     if !config.privacy_scan_enabled {
         return classify_text(text, config);
     }
@@ -853,7 +884,7 @@ pub async fn analyze_image_bytes_async(
         IMAGE_SCAN_TIMEOUT,
         tokio::task::spawn_blocking(move || {
             let _permit = permit;
-            analyze_image_bytes(&bytes, text.as_deref(), &config)
+            analyze_image(&bytes, text.as_deref(), &config, library_gif)
         }),
     )
     .await

@@ -445,6 +445,7 @@ impl MusicState {
         self.take_selection(selection_id, user_id)
     }
 
+    #[cfg(test)]
     pub fn start(
         &mut self,
         selection: MusicSelection,
@@ -474,6 +475,7 @@ impl MusicState {
         }
     }
 
+    #[cfg(test)]
     pub fn start_custom(
         &mut self,
         selection: MusicSelection,

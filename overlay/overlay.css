@@ -54,7 +54,6 @@ html.overlay-preview body {
 .audio-card__label,
 .audio-card__title,
 .audio-card__artist,
-.author__name,
 .overlay__caption {
   font-size: calc(1em * var(--font-scale));
 }
@@ -135,6 +134,19 @@ html.widget-edit .widget-move-layer {
   background: transparent;
 }
 
+/* Size and crop → YouTube video in OBS. The API swaps the player node for each
+   video, so the id carries the setting; unset while the defaults are kept. */
+html.youtube-video-sized #youtube-player {
+  clip-path: inset(var(--video-crop-top) var(--video-crop-right) var(--video-crop-bottom) var(--video-crop-left));
+  transform: translate(var(--video-shift-x), var(--video-shift-y)) scale(var(--video-scale));
+  transform-origin: var(--video-origin);
+}
+
+/* Panel preview stand-in for the YouTube video. */
+.youtube-player--sample {
+  background: url("/output-samples/landscape") center / contain no-repeat;
+}
+
 .youtube-player--obs iframe {
   width: 100% !important;
   height: 100% !important;
@@ -145,12 +157,14 @@ html.widget-edit .widget-move-layer {
 /* Compact OBS credit; widget mode expands this into a complete Now Playing card. */
 .youtube-credit {
   position: absolute;
-  left: 1.25rem;
-  bottom: 1.25rem;
+  /* Follows the visible YouTube video (the whole canvas unless resized). */
+  left: calc(var(--video-inset-left, 0px) + 1.25rem);
+  bottom: calc(var(--video-inset-bottom, 0px) + 1.25rem);
   z-index: 2;
   display: grid;
   gap: 0.2rem;
-  max-width: min(420px, calc(100% - 2.5rem));
+  /* Scaled by the YouTube card setting: keep it inside the video. */
+  max-width: min(420px, calc((100% - var(--video-inset-left, 0px) - var(--video-inset-right, 0px) - 2.5rem) / var(--credit-scale, 1)));
   padding: 0.7rem 0.95rem;
   border: var(--out-border) solid var(--out-line);
   border-radius: var(--out-radius);
@@ -162,7 +176,8 @@ html.widget-edit .widget-move-layer {
   font-family: var(--out-font);
   opacity: 0;
   pointer-events: none;
-  transform: translateY(6px);
+  transform: translateY(6px) scale(var(--credit-scale, 1));
+  transform-origin: left bottom;
   transition: opacity 220ms ease, transform 220ms ease;
 }
 
@@ -174,7 +189,7 @@ html.widget-edit .widget-move-layer {
 
 .youtube-credit.is-visible {
   opacity: 1;
-  transform: translateY(0);
+  transform: translateY(0) scale(var(--credit-scale, 1));
 }
 
 .youtube-credit[hidden] {

@@ -175,11 +175,8 @@ async fn bot_http(core: &AppCore) -> Result<std::sync::Arc<Http>, String> {
     if !core.bot_status.read().await.connected {
         return Err("Connect the Discord bot to verify the protected message.".into());
     }
-    core.bot_runtime
-        .lock()
+    core.discord_http()
         .await
-        .as_ref()
-        .map(|runtime| runtime.http.clone())
         .ok_or_else(|| "Connect the Discord bot to verify the protected message.".into())
 }
 

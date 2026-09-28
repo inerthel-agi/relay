@@ -13,11 +13,11 @@ fn creates_and_round_trips_default_config() {
         music_reject_duplicate_pending: true,
         reactions: crate::reactions::ReactionSettings::default(),
         watched_channel_id: "123456789012345678".into(),
-        tts_channel_id: "223456789012345678".into(),
+        former_message_channel_id: "223456789012345678".into(),
         media_cleanup_enabled: true,
         media_welcome_message_id: "623456789012345678".into(),
-        tts_cleanup_enabled: true,
-        tts_welcome_message_id: String::new(),
+        former_message_cleanup_enabled: true,
+        former_message_welcome_message_id: String::new(),
         music_channel_id: "323456789012345678".into(),
         music_cleanup_enabled: true,
         music_welcome_message_id: "523456789012345678".into(),
@@ -31,9 +31,9 @@ fn creates_and_round_trips_default_config() {
         media_volume: 65,
         skip_shortcut: "control+shift+KeyK".into(),
         panic_shortcut: "control+shift+KeyP".into(),
-        tts_character_limit: 280,
-        tts_queue_limit: 24,
-        tts_notifications_obs_enabled: true,
+        notification_character_limit: 280,
+        notification_queue_limit: 24,
+        notifications_obs_enabled: true,
         bot_online_status: "idle".into(),
         bot_activity_type: "watching".into(),
         bot_activity_text: "the media queue".into(),
@@ -119,6 +119,17 @@ fn creates_and_round_trips_default_config() {
             content_scale: 90,
             ..OutputGeometry::default()
         },
+        music_obs_geometry: OutputGeometry {
+            anchor: OutputAnchor::BottomCenter,
+            content_scale: 250,
+            ..OutputGeometry::default()
+        },
+        music_video_obs_geometry: OutputGeometry {
+            anchor: OutputAnchor::TopRight,
+            content_scale: 60,
+            crop_top: 10,
+            ..OutputGeometry::default()
+        },
         notification_sound_enabled: true,
         notification_sound_obs_enabled: true,
         notification_sound_path: Some("C:/sounds/ping.mp3".into()),
@@ -202,7 +213,7 @@ fn rejects_invalid_config() {
 
     let duplicate_channels = AppConfig {
         watched_channel_id: "123456789012345678".into(),
-        tts_channel_id: "123456789012345678".into(),
+        former_message_channel_id: "123456789012345678".into(),
         ..AppConfig::default()
     };
     assert!(duplicate_channels.validate().is_err());
@@ -225,7 +236,7 @@ fn rejects_invalid_config() {
 
     let invalid_scale = AppConfig {
         notification_widget_geometry: OutputGeometry {
-            content_scale: 201,
+            content_scale: 401,
             ..OutputGeometry::default()
         },
         ..AppConfig::default()
@@ -473,7 +484,7 @@ fn keeps_custom_notification_widget_size() {
 fn migrates_legacy_config_without_overwriting_relay_config() {
     let root = tempfile::tempdir().unwrap();
     let legacy_directory = root.path().join(LEGACY_CONFIG_DIRECTORIES[0]);
-    let relay_directory = root.path().join("eu.stealthylabs.relay");
+    let relay_directory = root.path().join(APP_IDENTIFIER);
     let legacy = AppConfig {
         watched_channel_id: "123456789012345678".into(),
         ..AppConfig::default()
@@ -495,7 +506,7 @@ fn migrates_legacy_config_without_overwriting_relay_config() {
 
     let relay = AppConfig {
         watched_channel_id: "323456789012345678".into(),
-        tts_channel_id: "423456789012345678".into(),
+        former_message_channel_id: "423456789012345678".into(),
         ..AppConfig::default()
     };
     ConfigStore::new(relay_directory.join("config.json"))
@@ -527,6 +538,40 @@ fn legacy_output_geometry_keeps_its_layout_and_rejects_invalid_margins() {
 }
 
 #[test]
+fn only_the_youtube_video_can_shrink_below_half_size() {
+    let small = OutputGeometry {
+        content_scale: 20,
+        ..OutputGeometry::default()
+    };
+    let config = AppConfig {
+        music_video_obs_geometry: small,
+        ..Default::default()
+    };
+    assert!(config.validate().is_ok());
+    let too_small = OutputGeometry {
+        content_scale: YOUTUBE_VIDEO_MIN_SCALE - 1,
+        ..small
+    };
+    assert!(
+        AppConfig {
+            music_video_obs_geometry: too_small,
+            ..Default::default()
+        }
+        .validate()
+        .is_err()
+    );
+    // Every other output keeps its 50% floor, the YouTube card included.
+    assert!(
+        AppConfig {
+            music_obs_geometry: small,
+            ..Default::default()
+        }
+        .validate()
+        .is_err()
+    );
+}
+
+#[test]
 fn music_cleanup_accepts_an_optional_welcome_message() {
     let mut config = AppConfig {
         music_cleanup_enabled: true,
@@ -545,8 +590,8 @@ fn music_cleanup_accepts_an_optional_welcome_message() {
 #[test]
 fn legacy_speech_setting_is_ignored_on_load() {
     let config = AppConfig {
-        tts_channel_id: "123456789012345678".into(),
-        tts_cleanup_enabled: true,
+        former_message_channel_id: "123456789012345678".into(),
+        former_message_cleanup_enabled: true,
         ..Default::default()
     };
     let mut value = serde_json::to_value(&config).unwrap();
@@ -558,6 +603,356 @@ fn legacy_speech_setting_is_ignored_on_load() {
             .get("ttsSpeechEnabled")
             .is_none()
     );
-    assert_eq!(loaded.tts_channel_id, config.tts_channel_id);
-    assert!(loaded.tts_cleanup_enabled);
+    // The only former channel becomes the Relay channel with its cleanup.
+    assert_eq!(loaded.watched_channel_id, config.former_message_channel_id);
+    assert!(loaded.media_cleanup_enabled);
+    assert!(loaded.former_message_channel_id.is_empty());
+}
+
+const MEDIA_CHANNEL: &str = "123456789012345678";
+const MESSAGE_CHANNEL: &str = "223456789012345678";
+const MEDIA_WELCOME: &str = "323456789012345678";
+const MESSAGE_WELCOME: &str = "423456789012345678";
+
+/// Writes a pre-1.4.1 file as it was saved, without the current validation.
+fn write_former_config(path: &Path, fields: serde_json::Value) {
+    let mut value = serde_json::to_value(AppConfig::default()).unwrap();
+    // A pre-1.4.1 file only has the former names of the renamed settings.
+    for (old, new) in RENAMED_KEYS {
+        let previous = value.as_object_mut().unwrap().remove(new).unwrap();
+        value[old] = previous;
+    }
+    for (key, field) in fields.as_object().unwrap() {
+        value[key] = field.clone();
+    }
+    fs::write(path, serde_json::to_vec_pretty(&value).unwrap()).unwrap();
+}
+
+/// The first load rewrites the settings renamed in 1.4.1, and only those.
+fn assert_saved_with_current_names(path: &Path) {
+    let saved: serde_json::Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+    for (old, new) in RENAMED_KEYS {
+        assert!(saved.get(old).is_none(), "{old} is renamed");
+        assert!(saved.get(new).is_some(), "{new} is saved");
+    }
+}
+
+/// Loads the file like three application restarts and checks it settles after the first.
+fn load_three_times(path: &Path) -> AppConfig {
+    let store = ConfigStore::new(path.to_path_buf());
+    let first = store.load().unwrap();
+    let saved = fs::read(path).unwrap();
+    for _ in 0..2 {
+        assert_eq!(store.load().unwrap(), first);
+        assert_eq!(fs::read(path).unwrap(), saved);
+    }
+    first
+}
+
+#[test]
+fn a_single_former_message_channel_becomes_the_relay_channel() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("config.json");
+    write_former_config(
+        &path,
+        serde_json::json!({
+            "ttsChannelId": MESSAGE_CHANNEL,
+            "ttsCleanupEnabled": true,
+            "ttsWelcomeMessageId": MESSAGE_WELCOME,
+        }),
+    );
+    let config = load_three_times(&path);
+    assert_eq!(config.watched_channel_id, MESSAGE_CHANNEL);
+    assert!(config.media_cleanup_enabled);
+    assert_eq!(config.media_welcome_message_id, MESSAGE_WELCOME);
+    assert!(config.former_message_channel_id.is_empty());
+    assert!(!config.former_message_cleanup_enabled);
+    assert!(config.former_message_welcome_message_id.is_empty());
+    assert!(!config.relay_channel_conflict());
+}
+
+#[test]
+fn a_single_former_media_channel_stays_the_relay_channel() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("config.json");
+    write_former_config(
+        &path,
+        serde_json::json!({
+            "watchedChannelId": MEDIA_CHANNEL,
+            "mediaCleanupEnabled": true,
+            "mediaWelcomeMessageId": MEDIA_WELCOME,
+        }),
+    );
+    let config = load_three_times(&path);
+    assert_saved_with_current_names(&path);
+    assert_eq!(config.watched_channel_id, MEDIA_CHANNEL);
+    assert!(config.media_cleanup_enabled);
+    assert_eq!(config.media_welcome_message_id, MEDIA_WELCOME);
+}
+
+#[test]
+fn two_identical_former_channels_are_unified() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("config.json");
+    write_former_config(
+        &path,
+        serde_json::json!({
+            "watchedChannelId": MEDIA_CHANNEL,
+            "ttsChannelId": MEDIA_CHANNEL,
+            "ttsCleanupEnabled": true,
+            "ttsWelcomeMessageId": MESSAGE_WELCOME,
+        }),
+    );
+    // Rejected before 1.4.1, so such a file could only come from a manual edit.
+    assert!(
+        AppConfig {
+            watched_channel_id: MEDIA_CHANNEL.into(),
+            former_message_channel_id: MEDIA_CHANNEL.into(),
+            ..AppConfig::default()
+        }
+        .validate()
+        .is_err()
+    );
+    let config = load_three_times(&path);
+    assert_eq!(config.watched_channel_id, MEDIA_CHANNEL);
+    assert!(config.former_message_channel_id.is_empty());
+    assert!(config.media_cleanup_enabled);
+    assert_eq!(config.media_welcome_message_id, MESSAGE_WELCOME);
+}
+
+#[test]
+fn two_different_former_channels_wait_for_an_explicit_choice() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("config.json");
+    write_former_config(
+        &path,
+        serde_json::json!({
+            "watchedChannelId": MEDIA_CHANNEL,
+            "mediaWelcomeMessageId": MEDIA_WELCOME,
+            "ttsChannelId": MESSAGE_CHANNEL,
+            "ttsCleanupEnabled": true,
+            "ttsWelcomeMessageId": MESSAGE_WELCOME,
+        }),
+    );
+    let config = load_three_times(&path);
+    assert_saved_with_current_names(&path);
+    assert!(config.relay_channel_conflict());
+    assert_eq!(config.watched_channel_id, MEDIA_CHANNEL);
+    assert_eq!(config.former_message_channel_id, MESSAGE_CHANNEL);
+    assert!(config.former_message_cleanup_enabled);
+    // Until the choice, each channel keeps its former single role.
+    assert_eq!(
+        config.channel_feeds(MEDIA_CHANNEL),
+        Some(ChannelFeeds {
+            notifications: false,
+            media: true
+        })
+    );
+    assert_eq!(
+        config.channel_feeds(MESSAGE_CHANNEL),
+        Some(ChannelFeeds {
+            notifications: true,
+            media: false
+        })
+    );
+
+    let mut refused = config.clone();
+    assert!(refused.choose_relay_channel("523456789012345678").is_err());
+    assert_eq!(refused, config);
+
+    let mut keep_messages = config.clone();
+    keep_messages.choose_relay_channel(MESSAGE_CHANNEL).unwrap();
+    assert_eq!(keep_messages.watched_channel_id, MESSAGE_CHANNEL);
+    assert!(keep_messages.media_cleanup_enabled);
+    assert_eq!(keep_messages.media_welcome_message_id, MESSAGE_WELCOME);
+    assert!(keep_messages.former_message_channel_id.is_empty());
+    assert!(!keep_messages.former_message_cleanup_enabled);
+    assert!(keep_messages.choose_relay_channel(MESSAGE_CHANNEL).is_err());
+
+    let mut keep_media = config.clone();
+    keep_media.choose_relay_channel(MEDIA_CHANNEL).unwrap();
+    assert_eq!(keep_media.watched_channel_id, MEDIA_CHANNEL);
+    assert!(!keep_media.media_cleanup_enabled);
+    assert_eq!(keep_media.media_welcome_message_id, MEDIA_WELCOME);
+    assert!(keep_media.former_message_channel_id.is_empty());
+
+    // The choice is saved once and survives restarts.
+    ConfigStore::new(path.clone()).save(&keep_messages).unwrap();
+    let chosen = load_three_times(&path);
+    assert_eq!(chosen, keep_messages);
+    assert_eq!(
+        chosen.channel_feeds(MESSAGE_CHANNEL),
+        Some(ChannelFeeds {
+            notifications: true,
+            media: true
+        })
+    );
+    assert_eq!(chosen.channel_feeds(MEDIA_CHANNEL), None);
+}
+
+#[test]
+fn only_the_relay_channel_feeds_the_unified_flow() {
+    let config = AppConfig {
+        watched_channel_id: MEDIA_CHANNEL.into(),
+        music_channel_id: MESSAGE_CHANNEL.into(),
+        ..AppConfig::default()
+    };
+    assert_eq!(
+        config.channel_feeds(MEDIA_CHANNEL),
+        Some(ChannelFeeds {
+            notifications: true,
+            media: true
+        })
+    );
+    assert_eq!(config.channel_feeds(MESSAGE_CHANNEL), None);
+    assert_eq!(config.channel_feeds("523456789012345678"), None);
+    assert_eq!(config.channel_feeds(""), None);
+    assert_eq!(AppConfig::default().channel_feeds(""), None);
+}
+
+#[test]
+fn legacy_directory_migration_never_brings_back_a_former_message_channel() {
+    let root = tempfile::tempdir().unwrap();
+    let legacy_directory = root.path().join(LEGACY_CONFIG_DIRECTORIES[0]);
+    let relay_directory = root.path().join(APP_IDENTIFIER);
+    fs::create_dir_all(&legacy_directory).unwrap();
+    write_former_config(
+        &legacy_directory.join("config.json"),
+        serde_json::json!({
+            "watchedChannelId": "523456789012345678",
+            "ttsChannelId": MESSAGE_CHANNEL,
+        }),
+    );
+    ConfigStore::new(relay_directory.join("config.json"))
+        .save(&AppConfig {
+            watched_channel_id: MEDIA_CHANNEL.into(),
+            ..AppConfig::default()
+        })
+        .unwrap();
+    // The migration runs on every launch; the Relay channel stays unified.
+    for _ in 0..3 {
+        migrate_legacy_config(&relay_directory).unwrap();
+    }
+    let config = load_three_times(&relay_directory.join("config.json"));
+    assert_eq!(config.watched_channel_id, MEDIA_CHANNEL);
+    assert!(config.former_message_channel_id.is_empty());
+    assert!(!config.relay_channel_conflict());
+
+    // A configuration without a Relay channel keeps both legacy channels for the choice.
+    ConfigStore::new(relay_directory.join("config.json"))
+        .save(&AppConfig::default())
+        .unwrap();
+    migrate_legacy_config(&relay_directory).unwrap();
+    let config = load_three_times(&relay_directory.join("config.json"));
+    assert_eq!(config.watched_channel_id, "523456789012345678");
+    assert_eq!(config.former_message_channel_id, MESSAGE_CHANNEL);
+    assert!(config.relay_channel_conflict());
+    // Once chosen, later launches keep the choice.
+    let mut chosen = config;
+    chosen.choose_relay_channel(MESSAGE_CHANNEL).unwrap();
+    ConfigStore::new(relay_directory.join("config.json"))
+        .save(&chosen)
+        .unwrap();
+    migrate_legacy_config(&relay_directory).unwrap();
+    assert_eq!(
+        load_three_times(&relay_directory.join("config.json")),
+        chosen
+    );
+
+    // A fresh install takes the legacy channels, unified when only one is set.
+    write_former_config(
+        &legacy_directory.join("config.json"),
+        serde_json::json!({ "ttsChannelId": MESSAGE_CHANNEL }),
+    );
+    fs::remove_file(relay_directory.join("config.json")).unwrap();
+    migrate_legacy_config(&relay_directory).unwrap();
+    let config = load_three_times(&relay_directory.join("config.json"));
+    assert_eq!(config.watched_channel_id, MESSAGE_CHANNEL);
+    assert!(config.former_message_channel_id.is_empty());
+}
+
+#[test]
+fn the_app_identifier_matches_the_tauri_configuration() {
+    let tauri: serde_json::Value =
+        serde_json::from_str(include_str!("../../tauri.conf.json")).unwrap();
+    assert_eq!(tauri["identifier"], APP_IDENTIFIER);
+    assert_ne!(APP_IDENTIFIER, PREVIOUS_APP_IDENTIFIER);
+}
+
+#[test]
+fn previous_app_folders_are_copied_once_and_kept() {
+    let root = tempfile::tempdir().unwrap();
+    let previous = root.path().join(PREVIOUS_APP_IDENTIFIER);
+    let current = root.path().join(APP_IDENTIFIER);
+    fs::create_dir_all(previous.join("library").join("items")).unwrap();
+    fs::write(previous.join("config.json"), b"{}").unwrap();
+    fs::write(
+        previous.join("library").join("items").join("a.bin"),
+        b"media",
+    )
+    .unwrap();
+
+    assert!(copy_previous_app_folder(&previous, &current).unwrap());
+    assert_eq!(fs::read(current.join("config.json")).unwrap(), b"{}");
+    assert_eq!(
+        fs::read(current.join("library").join("items").join("a.bin")).unwrap(),
+        b"media"
+    );
+    assert!(
+        previous.join("config.json").is_file(),
+        "the old folder stays"
+    );
+
+    // Later launches never overwrite the new folder.
+    fs::write(current.join("config.json"), b"new").unwrap();
+    assert!(!copy_previous_app_folder(&previous, &current).unwrap());
+    assert_eq!(fs::read(current.join("config.json")).unwrap(), b"new");
+    // Nothing to copy on a fresh install.
+    assert!(
+        !copy_previous_app_folder(&root.path().join("missing"), &root.path().join("other"))
+            .unwrap()
+    );
+}
+
+#[test]
+fn an_interrupted_app_folder_copy_is_retried() {
+    let root = tempfile::tempdir().unwrap();
+    let previous = root.path().join(PREVIOUS_APP_IDENTIFIER);
+    let current = root.path().join(APP_IDENTIFIER);
+    fs::create_dir_all(&previous).unwrap();
+    fs::write(previous.join("config.json"), b"{}").unwrap();
+    let staging = root.path().join(format!("{APP_IDENTIFIER}.migrating"));
+    fs::create_dir_all(&staging).unwrap();
+    fs::write(staging.join("partial.json"), b"half").unwrap();
+
+    assert!(copy_previous_app_folder(&previous, &current).unwrap());
+    assert!(current.join("config.json").is_file());
+    assert!(!current.join("partial.json").exists());
+    assert!(!staging.exists());
+}
+
+#[test]
+fn output_content_scale_reaches_four_hundred_percent() {
+    let geometry = |content_scale| OutputGeometry {
+        content_scale,
+        ..OutputGeometry::default()
+    };
+    assert!(geometry(400).validate().is_ok());
+    assert!(geometry(50).validate().is_ok());
+    assert!(geometry(401).validate().is_err());
+    assert!(geometry(49).validate().is_err());
+}
+
+#[test]
+fn a_file_with_both_names_of_a_renamed_setting_still_loads() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("config.json");
+    let mut value = serde_json::to_value(AppConfig::default()).unwrap();
+    value["notificationQueueLimit"] = serde_json::json!(7);
+    value["ttsQueueLimit"] = serde_json::json!(40);
+    fs::write(&path, serde_json::to_vec_pretty(&value).unwrap()).unwrap();
+    // The current name wins and the stray former key is dropped.
+    let config = load_three_times(&path);
+    assert_eq!(config.notification_queue_limit, 7);
+    assert_saved_with_current_names(&path);
 }

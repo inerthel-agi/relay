@@ -22,8 +22,8 @@ use crate::{
     custom_commands::CustomCommandDefinition,
     model::{
         AudioControlAction, AudioControlEvent, AuthorIdentity, BotStatus, ChannelSummary,
-        GuildTagIdentity, InterfacePreferences, MediaEvent, MediaKind, OutputTestEvent,
-        OutputTestTarget, PendingMedia, RelayEvent, ServerStatus, StickerEvent, TtsEvent,
+        GuildTagIdentity, InterfacePreferences, MediaEvent, MediaKind, NotificationEvent,
+        OutputTestEvent, OutputTestTarget, PendingMedia, RelayEvent, ServerStatus, StickerEvent,
         VisualSegment,
     },
     notification_widget::{self, NotificationWidgetState},
@@ -66,16 +66,13 @@ pub struct RuntimeStatus {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PanelConfig {
+    /// The Relay channel. The former message channel is only changed by
+    /// `choose_relay_channel`, so panel fields for it are ignored.
     watched_channel_id: String,
-    tts_channel_id: String,
     #[serde(default)]
     media_cleanup_enabled: bool,
     #[serde(default)]
     media_welcome_message_id: String,
-    #[serde(default)]
-    tts_cleanup_enabled: bool,
-    #[serde(default)]
-    tts_welcome_message_id: String,
     #[serde(default)]
     music_channel_id: String,
     #[serde(default)]
@@ -92,9 +89,9 @@ pub struct PanelConfig {
     sticker_duration_ms: u64,
     notification_duration_ms: u64,
     media_volume: u8,
-    tts_character_limit: u32,
-    tts_queue_limit: u8,
-    tts_notifications_obs_enabled: bool,
+    notification_character_limit: u32,
+    notification_queue_limit: u8,
+    notifications_obs_enabled: bool,
     bot_online_status: String,
     bot_activity_type: String,
     bot_activity_text: String,
@@ -145,6 +142,8 @@ pub enum OutputTarget {
     MediaWidget,
     NotificationObs,
     NotificationWidget,
+    MusicObs,
+    MusicVideoObs,
 }
 
 #[tauri::command]
@@ -441,6 +440,8 @@ pub async fn set_output_geometry(
                 OutputTarget::NotificationWidget => {
                     config.notification_widget_geometry = geometry;
                 }
+                OutputTarget::MusicObs => config.music_obs_geometry = geometry,
+                OutputTarget::MusicVideoObs => config.music_video_obs_geometry = geometry,
             }
             if let Some((width, height, keep_ratio)) = media_size {
                 config.widget_width = width;
@@ -470,7 +471,6 @@ pub async fn save_credentials(
     core: State<'_, Arc<AppCore>>,
     client_id: String,
     token: String,
-    youtube_api_key: Option<String>,
 ) -> Result<Bootstrap, String> {
     if token.trim().is_empty() {
         let Some((stored, _source)) = load_discord_credentials().map_err(display_error)? else {
@@ -485,9 +485,7 @@ pub async fn save_credentials(
         save_discord_credentials(&DiscordCredentials { client_id, token })
             .map_err(display_error)?;
     }
-    if let Some(youtube_api_key) = youtube_api_key {
-        save_youtube_api_key(&youtube_api_key).map_err(display_error)?;
-    }
+    // The YouTube API key has its own command (store_youtube_api_key).
     start_bot(core.inner().clone())
         .await
         .map_err(display_error)?;
@@ -507,6 +505,10 @@ pub async fn apply_config(
     mut config: PanelConfig,
 ) -> Result<Bootstrap, String> {
     let previous = core.config.read().await.clone();
+    if previous.relay_channel_conflict() && config.watched_channel_id != previous.watched_channel_id
+    {
+        return Err("Choose which former channel Relay keeps before changing it.".into());
+    }
     config.music_welcome_message_id = crate::music_cleanup::protected_message_id(
         &config.music_welcome_message_id,
         &config.music_channel_id,
@@ -514,10 +516,6 @@ pub async fn apply_config(
     config.media_welcome_message_id = crate::channel_cleanup::welcome_message_id(
         &config.media_welcome_message_id,
         &config.watched_channel_id,
-    )?;
-    config.tts_welcome_message_id = crate::channel_cleanup::welcome_message_id(
-        &config.tts_welcome_message_id,
-        &config.tts_channel_id,
     )?;
     if config.media_cleanup_enabled
         && (!previous.media_cleanup_enabled
@@ -532,19 +530,6 @@ pub async fn apply_config(
         )
         .await?;
     }
-    if config.tts_cleanup_enabled
-        && (!previous.tts_cleanup_enabled
-            || previous.tts_channel_id != config.tts_channel_id
-            || previous.tts_welcome_message_id != config.tts_welcome_message_id)
-    {
-        crate::channel_cleanup::verify_welcome(
-            &core,
-            true,
-            &config.tts_channel_id,
-            &config.tts_welcome_message_id,
-        )
-        .await?;
-    }
     if crate::music_cleanup::requires_verification(
         &previous,
         config.music_cleanup_enabled,
@@ -552,11 +537,8 @@ pub async fn apply_config(
         &config.music_welcome_message_id,
     ) {
         let http = core
-            .bot_runtime
-            .lock()
+            .discord_http()
             .await
-            .as_ref()
-            .map(|runtime| runtime.http.clone())
             .ok_or("Connect the bot before enabling music cleanup.")?;
         let channel = config
             .music_channel_id
@@ -578,11 +560,9 @@ pub async fn apply_config(
     let next = core
         .update_config(|current| {
             current.watched_channel_id = config.watched_channel_id;
-            current.tts_channel_id = config.tts_channel_id;
             current.media_cleanup_enabled = config.media_cleanup_enabled;
             current.media_welcome_message_id = config.media_welcome_message_id;
-            current.tts_cleanup_enabled = config.tts_cleanup_enabled;
-            current.tts_welcome_message_id = config.tts_welcome_message_id;
+            current.unify_relay_channels();
             current.music_channel_id = config.music_channel_id;
             current.music_cleanup_enabled = config.music_cleanup_enabled;
             current.music_welcome_message_id = config.music_welcome_message_id;
@@ -594,9 +574,9 @@ pub async fn apply_config(
             current.sticker_duration_ms = config.sticker_duration_ms;
             current.notification_duration_ms = config.notification_duration_ms;
             current.media_volume = config.media_volume;
-            current.tts_character_limit = config.tts_character_limit;
-            current.tts_queue_limit = config.tts_queue_limit;
-            current.tts_notifications_obs_enabled = config.tts_notifications_obs_enabled;
+            current.notification_character_limit = config.notification_character_limit;
+            current.notification_queue_limit = config.notification_queue_limit;
+            current.notifications_obs_enabled = config.notifications_obs_enabled;
             current.bot_online_status = config.bot_online_status;
             current.bot_activity_type = config.bot_activity_type;
             current.bot_activity_text = config.bot_activity_text.trim().to_owned();
@@ -654,6 +634,29 @@ pub async fn apply_config(
     notification_widget::refresh(&app, &core)
         .await
         .map_err(display_error)?;
+    build_bootstrap(&app, &core).await.map_err(display_error)
+}
+
+/// Resolves two different former channels: the chosen one becomes the Relay channel.
+#[tauri::command]
+pub async fn choose_relay_channel(
+    app: AppHandle,
+    core: State<'_, Arc<AppCore>>,
+    channel_id: String,
+) -> Result<Bootstrap, String> {
+    // Refuse an invalid choice before saving anything.
+    core.config
+        .read()
+        .await
+        .clone()
+        .choose_relay_channel(&channel_id)
+        .map_err(display_error)?;
+    core.update_config(|current| {
+        // Checked above; if the channels changed meanwhile, nothing is chosen.
+        let _ = current.choose_relay_channel(&channel_id);
+    })
+    .await
+    .map_err(display_error)?;
     build_bootstrap(&app, &core).await.map_err(display_error)
 }
 
@@ -853,8 +856,8 @@ pub async fn set_skip_shortcut(
 
     let manager = app.global_shortcut();
     let _ = manager.unregister(previous_shortcut);
-    if let Err(error) = register_skip_handler(&app, manager, shortcut, core.inner().clone()) {
-        let _ = register_skip_handler(&app, manager, previous_shortcut, core.inner().clone());
+    if let Err(error) = register_skip_handler(manager, shortcut, core.inner().clone()) {
+        let _ = register_skip_handler(manager, previous_shortcut, core.inner().clone());
         return Err(error);
     }
     let next = match core
@@ -864,15 +867,14 @@ pub async fn set_skip_shortcut(
         Ok(config) => config,
         Err(_) => {
             let _ = manager.unregister(shortcut);
-            let _ = register_skip_handler(&app, manager, previous_shortcut, core.inner().clone());
+            let _ = register_skip_handler(manager, previous_shortcut, core.inner().clone());
             return Err("The media skip shortcut could not be saved.".into());
         }
     };
     Ok(next)
 }
 
-fn register_skip_handler(
-    _app: &AppHandle,
+pub(crate) fn register_skip_handler(
     manager: &tauri_plugin_global_shortcut::GlobalShortcut<tauri::Wry>,
     shortcut: Shortcut,
     core: Arc<AppCore>,
@@ -1100,7 +1102,7 @@ pub async fn preview_output_sample(
                 OutputTestTarget::Visual
             },
             media: Some(media),
-            tts: None,
+            notification: None,
             sticker: None,
         })));
     Ok(())
@@ -1122,7 +1124,7 @@ pub(crate) async fn emit_output_test(
         OutputTestTarget::Visual => OutputTestEvent {
             target,
             media: Some(test_media(MediaKind::Image, "Relay visual test", None)),
-            tts: None,
+            notification: None,
             sticker: None,
         },
         OutputTestTarget::Audio => {
@@ -1135,14 +1137,14 @@ pub(crate) async fn emit_output_test(
                     "Relay audio test",
                     Some(TEST_AUDIO_ID.into()),
                 )),
-                tts: None,
+                notification: None,
                 sticker: None,
             }
         }
-        OutputTestTarget::Notification | OutputTestTarget::Tts => OutputTestEvent {
+        OutputTestTarget::Notification => OutputTestEvent {
             target: OutputTestTarget::Notification,
             media: None,
-            tts: Some(TtsEvent {
+            notification: Some(NotificationEvent {
                 id: "relay-test-notification".into(),
                 text: "Relay notification test".into(),
                 author,
@@ -1150,9 +1152,7 @@ pub(crate) async fn emit_output_test(
                     name: "RE".into(),
                     badge_url: None,
                 }),
-                content_type: String::new(),
                 timestamp: 0,
-                visual_only: true,
                 segments: vec![VisualSegment {
                     kind: "text".into(),
                     value: "Relay notification test".into(),
@@ -1165,7 +1165,7 @@ pub(crate) async fn emit_output_test(
         OutputTestTarget::Sticker => OutputTestEvent {
             target,
             media: None,
-            tts: None,
+            notification: None,
             sticker: Some(StickerEvent {
                 id: "relay-test-sticker".into(),
                 name: "Relay sticker test".into(),
@@ -1178,8 +1178,8 @@ pub(crate) async fn emit_output_test(
             }),
         },
     };
-    if let Some(tts) = event.tts.as_ref() {
-        core.remember_authoritative_tts(tts).await;
+    if let Some(notification) = event.notification.as_ref() {
+        core.remember_authoritative_notification(notification).await;
     }
     let _ = core.relay_tx.send(RelayEvent::TestOutput(Box::new(event)));
     Ok(())
@@ -1470,7 +1470,7 @@ async fn build_bootstrap(app: &AppHandle, core: &Arc<AppCore>) -> anyhow::Result
         .map(|client_id| invite_url(client_id, &config));
     Ok(Bootstrap {
         overlay_url: widget::obs_visual_url(config.port),
-        audio_url: short_overlay_url(config.port, "obs/audio"),
+        audio_url: widget::obs_audio_url(config.port),
         ws_url: format!(
             "ws://127.0.0.1:{}/ws?role=panel&token={}",
             config.port, core.panel_token
@@ -1486,10 +1486,6 @@ async fn build_bootstrap(app: &AppHandle, core: &Arc<AppCore>) -> anyhow::Result
         history: core.history.read().await.iter().cloned().collect(),
         pending_media: core.pending_media.read().await.iter().cloned().collect(),
     })
-}
-
-fn short_overlay_url(port: u16, path: &str) -> String {
-    format!("http://127.0.0.1:{port}/{path}")
 }
 
 /// Legacy dedicated YouTube URL (still served). Kept for tests and migration docs;

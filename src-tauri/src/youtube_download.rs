@@ -324,7 +324,7 @@ fn expand_archive(archive: &Path, destination: &Path) -> Result<(), String> {
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    configure_hidden_window(&mut command);
+    crate::hidden_process::hide_window(&mut command);
     let child = command
         .spawn()
         .map_err(|_| "FFmpeg could not be extracted.".to_string())?;
@@ -412,7 +412,7 @@ fn runtime_supported_blocking(kind: &str, path: &Path) -> bool {
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .stdout(Stdio::piped());
-    configure_hidden_window(&mut command);
+    crate::hidden_process::hide_window(&mut command);
     let Ok(output) = command.output() else {
         return false;
     };
@@ -654,7 +654,7 @@ fn run_ytdlp_blocking(executable: &Path, args: &[OsString]) -> Result<(), String
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    configure_hidden_window(&mut command);
+    crate::hidden_process::hide_window(&mut command);
     let child = command
         .spawn()
         .map_err(|_| "yt-dlp could not be started.".to_string())?;
@@ -762,14 +762,6 @@ fn unique_path(directory: &Path, prefix: &str) -> Result<PathBuf, String> {
         }
     }
     Err("Unable to create a private temporary file.".into())
-}
-
-fn configure_hidden_window(command: &mut Command) {
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x0800_0000);
-    }
 }
 
 fn temporary_directory(prefix: &str) -> Result<PathBuf, String> {

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data: http://127.0.0.1:* http://localhost:* https://cdn.discordapp.com https://media.discordapp.net https://*.discordapp.net https://*.klipy.com https://i.ytimg.com; media-src http://127.0.0.1:* http://localhost:* https://cdn.discordapp.com https://media.discordapp.net https://*.klipy.com; connect-src ws://127.0.0.1:* ws://localhost:*; frame-src http://127.0.0.1:* http://localhost:*"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data: blob: http://127.0.0.1:* http://localhost:* https://cdn.discordapp.com https://media.discordapp.net https://*.discordapp.net https://*.klipy.com https://media.tenor.com https://i.ytimg.com; media-src blob: http://127.0.0.1:* http://localhost:* https://cdn.discordapp.com https://media.discordapp.net https://*.discordapp.net https://*.klipy.com https://media.tenor.com; connect-src ws://127.0.0.1:* ws://localhost:*; frame-src http://127.0.0.1:* http://localhost:*"
     >
     <title>Relay</title>
     <link rel="stylesheet" href="./panel.css">
@@ -126,7 +126,7 @@
               aria-expanded="false"
               aria-controls="update-menu"
             >
-              <span><span class="version__platform">Windows · </span>v<span data-app-version>1.4.0</span></span>
+              <span><span class="version__platform">Windows · </span>v<span data-app-version>1.4.1</span></span>
               <span id="update-available-dot" class="update-available-dot" hidden></span>
               <svg class="update-check__icon" viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M20 6v5h-5M4 18v-5h5M6.1 9a7 7 0 0 1 11.3-2.1L20 11M4 13l2.6 4.1A7 7 0 0 0 17.9 15"/>
@@ -311,15 +311,6 @@
                   <i aria-hidden="true"></i>
                 </summary>
                 <ol class="setup-steps settings-disclosure__content">
-                <li class="setup-step" data-setup-step="notifications" data-setup-optional>
-                  <span class="setup-step__marker" aria-hidden="true"></span>
-                  <span class="setup-step__copy">
-                    <strong data-i18n="setupNotificationsTitle"></strong>
-                    <small data-i18n="setupNotificationsHelp"></small>
-                  </span>
-                  <span class="setup-step__state" data-setup-state></span>
-                  <button class="button button--quiet" type="button" data-go-to-page="discord" data-go-to-target="tts-channel" data-i18n="setupOpen">Open</button>
-                </li>
                 <li class="setup-step" data-setup-step="music" data-setup-optional>
                   <span class="setup-step__marker" aria-hidden="true"></span>
                   <span class="setup-step__copy">
@@ -489,16 +480,27 @@
               <p class="section-copy" data-i18n="channelsCopy">Pick which Discord channel feeds each feature. Leave a channel empty to turn that feature off.</p>
               <form id="routing-form" class="channel-groups">
                 <fieldset class="channel-group">
-                  <legend data-i18n="channelGroupMedia">Media to OBS</legend>
+                  <legend data-i18n="channelGroupRelay">Messages and media to OBS</legend>
+                  <div id="relay-channel-choice" class="channel-choice" role="alert" hidden>
+                    <p class="channel-choice__copy">
+                      <strong data-i18n="relayChannelChoiceTitle">Choose the Relay channel</strong>
+                      <span data-i18n="relayChannelChoiceCopy">Relay now reads messages and media from one channel. Your media and message channels were different. Until you choose, each keeps working as before.</span>
+                    </p>
+                    <span class="channel-choice__actions">
+                      <button id="relay-channel-keep-media" class="button button--primary" type="button"></button>
+                      <button id="relay-channel-keep-messages" class="button button--quiet" type="button"></button>
+                    </span>
+                  </div>
                   <label class="field field--wide">
-                    <span data-i18n="mediaChannel">Media channel</span>
+                    <span data-i18n="relayChannel">Relay channel</span>
                     <select id="channel" name="watchedChannelId">
                       <option value="">Select a visible text channel</option>
                     </select>
+                    <small data-i18n="relayChannelHelp">Text becomes a notification. Images, GIFs, videos, audio and stickers go to their outputs.</small>
                   </label>
                   <label class="setting-row setting-row--switch field--wide">
                     <span>
-                      <strong data-i18n="mediaCleanup24h">Delete media channel messages after 24 hours</strong>
+                      <strong data-i18n="mediaCleanup24h">Delete Relay channel messages after 24 hours</strong>
                       <small data-i18n="channelCleanup24hHelp">Checks every 5 minutes while Relay runs. Deletes messages older than 24 hours, except the protected welcome message. Requires Manage Messages.</small>
                     </span>
                     <span class="switch">
@@ -507,32 +509,8 @@
                     </span>
                   </label>
                   <label class="field field--wide">
-                    <span data-i18n="mediaWelcomeMessage">Media welcome message (optional)</span>
+                    <span data-i18n="mediaWelcomeMessage">Relay channel welcome message (optional)</span>
                     <input id="media-welcome-message" type="text" autocomplete="off" spellcheck="false" data-i18n-placeholder="musicWelcomePlaceholder" placeholder="Discord message link or ID">
-                    <small data-i18n="channelWelcomeOptionalHelp">Leave empty only if no message needs to be kept. A supplied message must belong to this channel.</small>
-                  </label>
-                </fieldset>
-                <fieldset class="channel-group">
-                  <legend data-i18n="channelGroupNotifications">Message notifications</legend>
-                  <label class="field field--wide">
-                    <span data-i18n="ttsChannel">Message notification channel</span>
-                    <select id="tts-channel" name="ttsChannelId">
-                      <option value="">Message notifications disabled</option>
-                    </select>
-                  </label>
-                  <label class="setting-row setting-row--switch field--wide">
-                    <span>
-                      <strong data-i18n="ttsCleanup24h">Delete notification messages after 24 hours</strong>
-                      <small data-i18n="channelCleanup24hHelp">Checks every 5 minutes while Relay runs. Deletes messages older than 24 hours, except the protected welcome message. Requires Manage Messages.</small>
-                    </span>
-                    <span class="switch">
-                      <input id="tts-cleanup-enabled" type="checkbox">
-                      <span class="switch__track" aria-hidden="true"></span>
-                    </span>
-                  </label>
-                  <label class="field field--wide">
-                    <span data-i18n="ttsWelcomeMessage">Notification channel welcome message (optional)</span>
-                    <input id="tts-welcome-message" type="text" autocomplete="off" spellcheck="false" data-i18n-placeholder="musicWelcomePlaceholder" placeholder="Discord message link or ID">
                     <small data-i18n="channelWelcomeOptionalHelp">Leave empty only if no message needs to be kept. A supplied message must belong to this channel.</small>
                   </label>
                 </fieldset>
@@ -619,16 +597,16 @@
               <div class="section-heading">
                 <div>
                   <span class="section-number">01</span>
-                  <h3 data-i18n="ttsSpeech">Message notifications</h3>
+                  <h3 data-i18n="messageNotifications">Message notifications</h3>
                 </div>
                 <span id="messages-save-state" class="save-state" role="status"></span>
               </div>
-              <p class="section-copy" data-i18n="ttsSpeechHelp">Message notifications remain visual; optional notification sounds can be configured separately.</p>
+              <p class="section-copy" data-i18n="messageNotificationsHelp">Message notifications remain visual; optional notification sounds can be configured separately.</p>
               <form id="messages-form" class="settings-list">
                 <p class="channel-link">
                   <span data-i18n="channelLinkLabel">Discord channel</span>
-                  <strong data-channel-name="tts-channel"></strong>
-                  <button class="text-link" type="button" data-go-to-page="discord" data-go-to-target="tts-channel" data-i18n="channelChange">Change</button>
+                  <strong data-channel-name="channel"></strong>
+                  <button class="text-link" type="button" data-go-to-page="discord" data-go-to-target="channel" data-i18n="channelChange">Change</button>
                 </p>
                 <label class="setting-row">
                   <span>
@@ -642,21 +620,21 @@
                 </label>
                 <label class="setting-row">
                   <span>
-                    <strong data-i18n="ttsCharacterLimit">Message character limit</strong>
-                    <small data-i18n="ttsCharacterLimitHelp">Use 0 for unlimited message length.</small>
+                    <strong data-i18n="notificationCharacterLimit">Message character limit</strong>
+                    <small data-i18n="notificationCharacterLimitHelp">Use 0 for unlimited message length.</small>
                   </span>
                   <span class="field__unit field__unit--short">
-                    <input id="tts-character-limit" name="ttsCharacterLimit" type="number" min="0" max="4294967295" step="1" required>
+                    <input id="notification-character-limit" name="notificationCharacterLimit" type="number" min="0" max="4294967295" step="1" required>
                     <small data-i18n="characters">chars</small>
                   </span>
                 </label>
                 <label class="setting-row">
                   <span>
-                    <strong data-i18n="ttsQueueLimit">Message queue capacity</strong>
-                    <small data-i18n="ttsQueueLimitHelp">Maximum waiting messages, from 1 to 50.</small>
+                    <strong data-i18n="notificationQueueLimit">Message queue capacity</strong>
+                    <small data-i18n="notificationQueueLimitHelp">Maximum waiting messages, from 1 to 50.</small>
                   </span>
                   <span class="field__unit field__unit--short">
-                    <input id="tts-queue-limit" name="ttsQueueLimit" type="number" min="1" max="50" step="1" required>
+                    <input id="notification-queue-limit" name="notificationQueueLimit" type="number" min="1" max="50" step="1" required>
                     <small data-i18n="items">items</small>
                   </span>
                 </label>
@@ -666,7 +644,7 @@
                     <small data-i18n="enableObsNotificationsHelp">Does not change the Windows widget.</small>
                   </span>
                   <span class="switch">
-                    <input id="tts-notifications-obs" name="ttsNotificationsObsEnabled" type="checkbox">
+                    <input id="notifications-obs" name="notificationsObsEnabled" type="checkbox">
                     <span class="switch__track" aria-hidden="true"></span>
                   </span>
                 </label>
@@ -898,8 +876,8 @@
                 <details class="settings-disclosure">
                   <summary>
                     <span>
-                      <strong data-i18n="audioTtsGroup">Audio and notifications</strong>
-                      <small data-i18n="audioTtsGroupHelp">Volume, message length, queue and notifications.</small>
+                      <strong data-i18n="audioNotificationGroup">Audio and notifications</strong>
+                      <small data-i18n="audioNotificationGroupHelp">Volume, message length, queue and notifications.</small>
                     </span>
                     <i aria-hidden="true"></i>
                   </summary>
@@ -1346,6 +1324,11 @@
                       <span data-i18n="privacyConcepts">Filter words or phrases</span>
                       <input id="privacy-concepts" type="text" autocomplete="off" spellcheck="false" placeholder="fdp, hitler, ...">
                       <small data-i18n="privacyConceptsHelp">Enter comma-separated words or phrases, for example: fdp, hitler. Relay handles case, punctuation and separators, leetspeak, supported homoglyphs, repeated letters, and cautious similarity. Existing aliases and regexes are preserved when the same canonical form remains.</small>
+                    </label>
+                    <label class="field">
+                      <span data-i18n="privacySimilarityBoost">Weight of near matches</span>
+                      <input id="privacy-similarity-boost" type="number" min="1" max="100" step="1" inputmode="numeric">
+                      <small data-i18n="privacySimilarityBoostHelp">How much a word close to a filter word counts, from 1 to 100 (4 by default). A higher value holds near matches sooner.</small>
                     </label>
                     <fieldset class="moderation-packs">
                       <legend data-i18n="wordPacks">Built-in word lists</legend>
@@ -1876,7 +1859,7 @@
               </div>
               <form id="commands-form" class="settings-list">
                 <label class="setting-row setting-row--switch">
-                  <span><strong class="command-code">/relay channel</strong><small data-i18n="commandChannelHelp">Choose the Discord media channel.</small></span>
+                  <span><strong class="command-code">/relay channel</strong><small data-i18n="commandChannelHelp">Choose the Relay channel.</small></span>
                   <span class="switch"><input id="command-channel" type="checkbox"><span class="switch__track" aria-hidden="true"></span></span>
                 </label>
                 <label class="setting-row setting-row--switch">
@@ -1900,7 +1883,7 @@
                   <span class="switch"><input id="command-regenerate" type="checkbox"><span class="switch__track" aria-hidden="true"></span></span>
                 </label>
                 <label class="setting-row setting-row--switch">
-                  <span><strong class="command-code">/relay clear</strong><small data-i18n="commandClearHelp">Delete messages from the configured media and notification channels.</small></span>
+                  <span><strong class="command-code">/relay clear</strong><small data-i18n="commandClearHelp">Delete the requested number of messages from one Discord channel selected in the command.</small></span>
                   <span class="switch"><input id="command-clear" type="checkbox"><span class="switch__track" aria-hidden="true"></span></span>
                 </label>
                 <label class="setting-row setting-row--switch">
@@ -1908,7 +1891,7 @@
                   <span class="switch"><input id="command-nuke" type="checkbox"><span class="switch__track" aria-hidden="true"></span></span>
                 </label>
                 <label class="setting-row setting-row--switch">
-                  <span><strong class="command-code">/relay lock</strong><small data-i18n="commandLockHelp">Toggle the configured media channel lock.</small></span>
+                  <span><strong class="command-code">/relay lock</strong><small data-i18n="commandLockHelp">Lock or unlock the Relay channel.</small></span>
                   <span class="switch"><input id="command-lock" type="checkbox"><span class="switch__track" aria-hidden="true"></span></span>
                 </label>
                 <label class="setting-row setting-row--switch">
@@ -1916,7 +1899,7 @@
                   <span class="switch"><input id="command-changelog" type="checkbox"><span class="switch__track" aria-hidden="true"></span></span>
                 </label>
                 <div class="settings-actions">
-                  <p id="channel-lock-state" data-i18n="commandLockInactive">The media channel is currently unlocked.</p>
+                  <p id="channel-lock-state" data-i18n="commandLockInactive">The Relay channel is currently unlocked.</p>
                 </div>
               </form>
             </section>
@@ -2107,7 +2090,7 @@
                   <ol>
                     <li data-i18n="helpChannelsStep1">Create one text channel for images, GIFs, videos and audio.</li>
                     <li data-i18n="helpChannelsStep2">Create a second text channel for message notifications.</li>
-                    <li data-i18n="helpChannelsStep3">Select media and notification channels on Overview. Configure the Music channel on the Music page.</li>
+                    <li data-i18n="helpChannelsStep3">Select every channel on the Discord page, under Channels.</li>
                     <li data-i18n="helpChannelsStep4">Messages in this channel appear as visual notifications.</li>
                   </ol>
                   <button class="help-link" type="button" data-go-to-page="discord" data-go-to-target="discord-channels" data-i18n="helpGoChannels">Open channels</button>
@@ -2167,8 +2150,8 @@
                 </summary>
                 <div class="help-disclosure__content">
                   <ul>
-                    <li data-i18n="helpTroubleshooting1">No media: verify the selected media channel and the bot's channel permissions.</li>
-                    <li data-i18n="helpTroubleshooting2">No message notification: verify the separate notification channel and send a new message.</li>
+                    <li data-i18n="helpTroubleshooting1">No media: check the Relay channel on the Discord page and the bot's permissions in that channel.</li>
+                    <li data-i18n="helpTroubleshooting2">No message notification: check that the message was posted in the Relay channel, then send a new one.</li>
                     <li data-i18n="helpTroubleshooting3">No notification sound: enable the notification sound in OBS or Windows, then send a new message.</li>
                     <li data-i18n="helpTroubleshooting4">Blank OBS source: refresh it once and confirm Relay is running on the displayed local port.</li>
                     <li data-i18n="helpTroubleshooting5">Never regenerate a Discord token for a gateway-intent error; enable the intent instead.</li>
@@ -2431,7 +2414,7 @@
                 <div>
                   <span class="kicker">Relay</span>
                   <strong>Relay</strong>
-                  <small>Windows · v<span data-app-version>1.4.0</span></small>
+                  <small>Windows · v<span data-app-version>1.4.1</span></small>
                 </div>
               </div>
               <div class="about-card__statement">

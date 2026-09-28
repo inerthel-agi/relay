@@ -62,19 +62,20 @@ async fn output_tests_bypass_history_and_cache_their_audio() {
     );
     assert_eq!(core.media_audio.read().await.len(), 1);
 
-    emit_output_test(&core, OutputTestTarget::Tts)
+    emit_output_test(&core, OutputTestTarget::Notification)
         .await
         .unwrap();
-    let RelayEvent::TestOutput(tts) = events.recv().await.unwrap() else {
-        panic!("expected TTS output test");
+    let RelayEvent::TestOutput(notification) = events.recv().await.unwrap() else {
+        panic!("expected notification output test");
     };
-    assert_eq!(tts.target, OutputTestTarget::Notification);
+    assert_eq!(notification.target, OutputTestTarget::Notification);
     assert_eq!(
-        tts.tts.as_ref().map(|event| event.id.as_str()),
+        notification
+            .notification
+            .as_ref()
+            .map(|event| event.id.as_str()),
         Some("relay-test-notification")
     );
-    assert!(core.tts_audio.read().await.is_empty());
-    assert!(tts.tts.unwrap().visual_only);
     assert!(core.history.read().await.is_empty());
 }
 

@@ -20,9 +20,9 @@ Relay is a Windows desktop application that relays Discord media to authenticate
 
 ## Media path
 
-1. Serenity receives a Discord message in a configured Relay channel.
-2. Relay identifies supported attachments, stickers, or supported Discord GIF embeds.
-3. The privacy scanner checks message text, attachment names, and applicable local image metadata or OCR signals.
+1. Serenity receives a Discord message in the Relay channel. Music and the security trap use their own channels. Two different former media and message channels keep their single role until the user chooses one (`AppConfig::channel_feeds`).
+2. Relay splits the message (`RelayMessagePlan` in `bot.rs`): text for one notification, unless it is a typed slash command, a system message or only GIF links; supported attachments, stickers and Discord GIF embeds as media. The moderation gate checks every lane the message feeds.
+3. The privacy scanner checks message text with the word filter of every output the message feeds, then attachment names and applicable local image metadata or OCR signals. The notification is released after every media check, so a blocked part keeps the whole message off stream.
 4. `AppCore` applies the current privacy policy before a media item reaches history, cache, moderation approval, WebSocket, OBS, or a widget.
 5. Allowed media enters the relevant local FIFO queue. Medium-risk items can enter the existing local moderation queue. Blocked items remain out of public Relay outputs.
 6. The local Axum server broadcasts authorized events to connected output clients. Browser Sources and Windows widgets keep independent display state where required.
@@ -64,7 +64,7 @@ The local server exposes authenticated routes for the `/obs/visual` and `/obs/au
 
 - Rust unit and integration tests: `cargo test` from `src-tauri`.
 - Rust style and static analysis: `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings` from `src-tauri`.
-- Interface and Browser Source tests: `node --test gui/*.test.cjs overlay/*.test.cjs notifications/*.test.cjs stickers/*.test.cjs reactions/*.test.cjs` from the repository root.
+- Interface and Browser Source tests: `node --test "gui-tests/*.test.cjs" "overlay/*.test.cjs" "notifications/*.test.cjs" "stickers/*.test.cjs" "reactions/*.test.cjs"` from the repository root.
 - Windows-dependent checks such as signed installer verification remain optional local smoke checks because they require configured Windows or release state.
 
 ## Refactored modules and output controls
@@ -82,6 +82,6 @@ Panel translations, output presets, privacy filter parsing (`gui/privacy-filters
 | `gui/discord-check.mjs` | Discord → Bot check results |
 | `gui/obs-setup.mjs` | Automatic OBS source setup on OBS & widgets |
 
-Each module exports an `initialize…` function that receives the panel helpers it needs (`$`, `t`, `invoke`, `setSaveState`, getters for shared state) and returns a small API. `panel.js` creates them after the `// Page modules` marker. `gui/test-source.cjs` lists the panel modules that tests read alongside `panel.js`. Moderation lives in `src-tauri/src/moderation.rs` (gate, word lists, link and spam rules, presets, decision log, live mode) with its queue helpers in `src-tauri/src/state/moderation_queue.rs`, its commands in `src-tauri/src/commands/moderation.rs` and its page in `gui/moderation-ui.mjs`; see [Moderation](moderation-design.md). Shared output placement lives in `outputs/layout.js` and the stream style in `outputs/theme.css`/`outputs/theme.js`, served at `/output-theme.css`, `/output-theme.js` and `/output-fonts/{file}` (bundled fonts only, allowed by `font-src 'self'`); generated local samples live in `outputs/samples/`. HTTP handlers live in `src-tauri/src/server/http_routes.rs`, Discord music handlers in `src-tauri/src/bot/music_handlers.rs`, and state music/cache operations in `src-tauri/src/state/`. Rust tests are stored in each module directory.
+Each module exports an `initialize…` function that receives the panel helpers it needs (`$`, `t`, `invoke`, `setSaveState`, getters for shared state) and returns a small API. `panel.js` creates them after the `// Page modules` marker. Panel tests live in `gui-tests/` so they are not bundled with the app; `gui-tests/test-source.cjs` lists the panel modules that tests read alongside `panel.js`. Moderation lives in `src-tauri/src/moderation.rs` (gate, word lists, link and spam rules, presets, decision log, live mode) with its queue helpers in `src-tauri/src/state/moderation_queue.rs`, its commands in `src-tauri/src/commands/moderation.rs` and its page in `gui/moderation-ui.mjs`; see [Moderation](moderation-design.md). Shared output placement lives in `outputs/layout.js` and the stream style in `outputs/theme.css`/`outputs/theme.js`, served at `/output-theme.css`, `/output-theme.js` and `/output-fonts/{file}` (bundled fonts only, allowed by `font-src 'self'`); generated local samples live in `outputs/samples/`. HTTP handlers live in `src-tauri/src/server/http_routes.rs`, Discord music handlers in `src-tauri/src/bot/music_handlers.rs`, and state music/cache operations in `src-tauri/src/state/`. Rust tests are stored in each module directory.
 
 See [Output controls and refactoring](refactoring-and-output-controls.md) for feature locations, compatibility and validation boundaries.

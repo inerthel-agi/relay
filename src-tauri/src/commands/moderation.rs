@@ -161,12 +161,9 @@ pub async fn reject_pending_text(core: State<'_, Arc<AppCore>>, id: u64) -> Resu
 
 async fn discord_http(core: &AppCore) -> Result<Arc<serenity::http::Http>, String> {
     let connected = core.bot_status.read().await.connected;
-    core.bot_runtime
-        .lock()
+    core.discord_http()
         .await
-        .as_ref()
         .filter(|_| connected)
-        .map(|runtime| runtime.http.clone())
         .ok_or_else(|| "Connect the Discord bot first.".into())
 }
 

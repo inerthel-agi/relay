@@ -1,10 +1,7 @@
 const stickerElement = document.querySelector("#sticker");
 const fallbackElement = document.querySelector("#sticker-fallback");
 const parameters = new URLSearchParams(window.location.search);
-const relaySecret =
-  parameters.get("secret")
-  || document.querySelector('meta[name="relay-secret"]')?.content
-  || "";
+const relaySecret = RelayConnection.secret(parameters);
 const queue = [];
 
 function stickerSocketUrl(
@@ -26,7 +23,7 @@ let pendingPort;
 let isUnloading = false;
 let mediaBusy = false;
 let musicActive = false;
-let ttsBusy = false;
+let notificationBusy = false;
 let reportedMediaStageBusy = false;
 let mediaStageClaimPending = false;
 let lastStageClockPayload = {};
@@ -38,7 +35,7 @@ function queueLimit() {
 function stageBlocked() {
   return (mediaBusy && !mediaStageClaimPending && !currentSticker)
     || musicActive
-    || ttsBusy;
+    || notificationBusy;
 }
 
 function stickerSource(sticker) {
@@ -119,7 +116,7 @@ function resolveMediaStageClaim() {
   if (!mediaStageClaimPending) return;
   if (
     (lastStageClockPayload.granted === false && lastStageClockPayload.lane === "media")
-    || ttsBusy
+    || notificationBusy
     || musicActive
   ) {
     mediaStageClaimPending = false;
@@ -163,10 +160,13 @@ function applyStageClock(payload = {}) {
   if (Object.prototype.hasOwnProperty.call(payload, "musicBusy")) {
     musicActive = Boolean(payload.musicBusy);
   }
-  ttsBusy = Boolean(payload.ttsBusy);
+  notificationBusy = Boolean(payload.notificationBusy);
   resolveMediaStageClaim();
   if (!stageBlocked() && !currentSticker && !mediaStageClaimPending) playNext();
 }
+
+// Reloads a page kept open across a Relay restart (often an update).
+const reloadAfterRelayRestart = RelayConnection.reloadOnRestart();
 
 function handleMessage(event) {
   let message;
@@ -176,6 +176,7 @@ function handleMessage(event) {
     return;
   }
   if (message.type === "config") {
+    if (reloadAfterRelayRestart(message.payload?.relaySession)) return;
     config = { ...config, ...message.payload };
     const configuredPort = Number(message.payload?.port);
     if (Number.isInteger(configuredPort) && configuredPort > 0 && configuredPort <= 65535
@@ -196,13 +197,11 @@ function handleMessage(event) {
   } else if (message.type === "musicIdle") {
     musicActive = false;
     if (!stageBlocked()) playNext();
+  } else if (message.type === "skip") {
+    // The skip shortcut also ends a sticker, which releases the media stage.
+    finishCurrent();
   } else if (message.type === "clear") {
     clearStickers();
-  } else if (message.type === "serverMove") {
-    const movedPort = Number(message.payload?.port);
-    if (Number.isInteger(movedPort) && movedPort > 0 && movedPort <= 65535) {
-      pendingPort = movedPort;
-    }
   }
 }
 
@@ -216,27 +215,7 @@ function scheduleReconnect() {
 }
 
 function moveToPendingPort() {
-  const nextUrl = new URL(window.location.href);
-  nextUrl.port = String(pendingPort);
-  const probe = new WebSocket(
-    stickerSocketUrl(`${window.location.hostname}:${pendingPort}`, "probe", "ws:"),
-  );
-  let ready = false;
-  const probeWatchdog = window.setTimeout(() => {
-    if (!ready) probe.close();
-  }, 5000);
-  probe.addEventListener("open", () => {
-    ready = true;
-    window.clearTimeout(probeWatchdog);
-    probe.close();
-    window.location.replace(nextUrl);
-  });
-  probe.addEventListener("close", () => {
-    window.clearTimeout(probeWatchdog);
-    if (!ready && !isUnloading) {
-      window.setTimeout(moveToPendingPort, 1000);
-    }
-  });
+  RelayConnection.moveToPort(pendingPort, (host) => stickerSocketUrl(host, "probe", "ws:"), () => isUnloading);
 }
 
 function connect() {
@@ -250,7 +229,7 @@ function connect() {
     interruptStickerPlayback();
     mediaBusy = false;
     musicActive = false;
-    ttsBusy = false;
+    notificationBusy = false;
     mediaStageClaimPending = false;
     reportedMediaStageBusy = false;
     if (pendingPort) {

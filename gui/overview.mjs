@@ -21,7 +21,6 @@ export function initializeOverview({ $, $$, t, invoke, formatTranslation, setSav
       channel: Boolean(config.watchedChannelId),
       obs: visualClients > 0,
       test: readStorage("relay-setup-tested") === "1" || getHistory().length > 0,
-      notifications: Boolean(config.ttsChannelId),
       music: Boolean(getBootstrap()?.credentials?.youtubeConfigured && config.musicChannelId),
       reactions: null,
     };

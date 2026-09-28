@@ -343,7 +343,7 @@ async fn filter_words_block_without_scan_or_manual_moderation() {
 }
 
 #[tokio::test]
-async fn exempt_role_publishes_filter_word_media_and_tts_but_not_gps() {
+async fn exempt_role_publishes_filter_word_media_and_notifications_but_not_gps() {
     let directory = tempfile::tempdir().unwrap();
     let core = AppCore::load(directory.path().join("config.json")).unwrap();
     let role_id = "123456789012345678".to_owned();
@@ -383,8 +383,8 @@ async fn exempt_role_publishes_filter_word_media_and_tts_but_not_gps() {
     assert!(matches!(events.recv().await.unwrap(), RelayEvent::Media(_)));
 
     assert!(
-        core.publish_visual_tts_if_allowed_with_roles(
-            "exempt-tts".into(),
+        core.publish_notification_card_if_allowed_with_roles(
+            "exempt-notification".into(),
             "hitler".into(),
             crate::model::AuthorIdentity {
                 username: "Moderator".into(),
@@ -402,7 +402,10 @@ async fn exempt_role_publishes_filter_word_media_and_tts_but_not_gps() {
         )
         .await
     );
-    assert!(matches!(events.recv().await.unwrap(), RelayEvent::Tts(_)));
+    assert!(matches!(
+        events.recv().await.unwrap(),
+        RelayEvent::Notification(_)
+    ));
 
     core.update_config(|config| config.privacy_scan_enabled = true)
         .await
@@ -804,12 +807,12 @@ async fn disabled_privacy_scan_preserves_existing_immediate_flow() {
 }
 
 #[tokio::test]
-async fn broadcasts_visual_tts_without_touching_the_audio_cache() {
+async fn broadcasts_notifications_without_touching_the_audio_cache() {
     let directory = tempfile::tempdir().unwrap();
     let core = AppCore::load(directory.path().join("config.json")).unwrap();
     let mut events = core.relay_tx.subscribe();
 
-    core.publish_visual_tts(
+    core.publish_notification_card(
         "123456789012345678".into(),
         "test".into(),
         crate::model::AuthorIdentity {
@@ -830,18 +833,16 @@ async fn broadcasts_visual_tts_without_touching_the_audio_cache() {
     )
     .await;
 
-    let RelayEvent::Tts(event) = events.recv().await.unwrap() else {
-        panic!("expected a TTS relay event");
+    let RelayEvent::Notification(event) = events.recv().await.unwrap() else {
+        panic!("expected a notification relay event");
     };
-    assert!(event.visual_only);
     assert_eq!(event.text, "test");
     assert_eq!(event.guild_tag.unwrap().name, "RE");
     assert_eq!(event.segments.len(), 1);
-    assert!(core.tts_audio.read().await.is_empty());
 }
 
 #[tokio::test]
-async fn tts_privacy_gate_blocks_filter_concepts_and_holds_medium_risk() {
+async fn notification_privacy_gate_blocks_filter_concepts_and_holds_medium_risk() {
     let directory = tempfile::tempdir().unwrap();
     let core = AppCore::load(directory.path().join("config.json")).unwrap();
     core.set_config(AppConfig {
@@ -857,12 +858,12 @@ async fn tts_privacy_gate_blocks_filter_concepts_and_holds_medium_risk() {
     .unwrap();
     let mut events = core.relay_tx.subscribe();
     let author = crate::model::AuthorIdentity {
-        username: "TTS tester".into(),
+        username: "Notification tester".into(),
         display_avatar_url: "https://cdn.discordapp.com/avatar.png".into(),
     };
     let blocked_concept = core
-        .publish_visual_tts_if_allowed(
-            "tts-concept".into(),
+        .publish_notification_card_if_allowed(
+            "notification-concept".into(),
             "sticker h1tl3r".into(),
             author.clone(),
             None,
@@ -872,8 +873,8 @@ async fn tts_privacy_gate_blocks_filter_concepts_and_holds_medium_risk() {
         .await;
     assert!(!blocked_concept);
     let blocked_segment_concept = core
-        .publish_visual_tts_if_allowed(
-            "tts-segment-concept".into(),
+        .publish_notification_card_if_allowed(
+            "notification-segment-concept".into(),
             "safe text".into(),
             author.clone(),
             None,
@@ -889,8 +890,8 @@ async fn tts_privacy_gate_blocks_filter_concepts_and_holds_medium_risk() {
     assert!(!blocked_segment_concept);
     assert!(events.try_recv().is_err());
     let blocked_cross_field_concept = core
-        .publish_visual_tts_if_allowed(
-            "tts-cross-field-concept".into(),
+        .publish_notification_card_if_allowed(
+            "notification-cross-field-concept".into(),
             "hi".into(),
             author.clone(),
             None,
@@ -906,8 +907,8 @@ async fn tts_privacy_gate_blocks_filter_concepts_and_holds_medium_risk() {
     assert!(!blocked_cross_field_concept);
     assert!(events.try_recv().is_err());
     let blocked_cross_segment_concept = core
-        .publish_visual_tts_if_allowed(
-            "tts-cross-segment-concept".into(),
+        .publish_notification_card_if_allowed(
+            "notification-cross-segment-concept".into(),
             "safe".into(),
             author.clone(),
             None,
@@ -931,8 +932,8 @@ async fn tts_privacy_gate_blocks_filter_concepts_and_holds_medium_risk() {
     assert!(!blocked_cross_segment_concept);
     assert!(events.try_recv().is_err());
     let unrelated_split = core
-        .publish_visual_tts_if_allowed(
-            "tts-unrelated-split".into(),
+        .publish_notification_card_if_allowed(
+            "notification-unrelated-split".into(),
             "safe".into(),
             author.clone(),
             None,
@@ -946,7 +947,7 @@ async fn tts_privacy_gate_blocks_filter_concepts_and_holds_medium_risk() {
         )
         .await;
     assert!(unrelated_split);
-    assert!(matches!(events.try_recv(), Ok(RelayEvent::Tts(_))));
+    assert!(matches!(events.try_recv(), Ok(RelayEvent::Notification(_))));
     core.update_config(|config| {
         config.privacy_scan_enabled = true;
         config.privacy_review_intermediate = true;
@@ -954,8 +955,8 @@ async fn tts_privacy_gate_blocks_filter_concepts_and_holds_medium_risk() {
     .await
     .unwrap();
     let held_for_review = core
-        .publish_visual_tts_if_allowed(
-            "tts-medium".into(),
+        .publish_notification_card_if_allowed(
+            "notification-medium".into(),
             "call 06 12 34 56 78".into(),
             author.clone(),
             None,
@@ -969,8 +970,8 @@ async fn tts_privacy_gate_blocks_filter_concepts_and_holds_medium_risk() {
         .await
         .unwrap();
     let allowed_medium = core
-        .publish_visual_tts_if_allowed(
-            "tts-medium-allowed".into(),
+        .publish_notification_card_if_allowed(
+            "notification-medium-allowed".into(),
             "call 06 12 34 56 78".into(),
             author,
             None,
@@ -1007,7 +1008,7 @@ async fn explicit_stage_tickets_keep_delayed_text_ahead_of_newer_ready_media() {
     core.stage_scheduler.stage_state(true, false, false).await;
 
     let text_ticket = core
-        .register_stage_output(22_000, "101", 0, StageLane::Tts)
+        .register_stage_output(22_000, "101", 0, StageLane::Notification)
         .await;
     let image_ticket = core
         .register_stage_output(22_010, "102", 200, StageLane::Media)
@@ -1015,9 +1016,9 @@ async fn explicit_stage_tickets_keep_delayed_text_ahead_of_newer_ready_media() {
     let mut image = media(MediaKind::Image, "image");
     image.timestamp = 22_010;
     core.complete_media(image_ticket, image).await;
-    core.complete_tts(
+    core.complete_notification(
         text_ticket,
-        TtsEvent {
+        NotificationEvent {
             id: "text".into(),
             text: "older text".into(),
             author: crate::model::AuthorIdentity {
@@ -1025,16 +1026,16 @@ async fn explicit_stage_tickets_keep_delayed_text_ahead_of_newer_ready_media() {
                 display_avatar_url: String::new(),
             },
             guild_tag: None,
-            content_type: String::new(),
             timestamp: 22_000,
-            visual_only: true,
             segments: Vec::new(),
         },
     )
     .await;
 
     core.stage_scheduler.stage_state(false, false, false).await;
-    assert!(matches!(events.recv().await.unwrap(), RelayEvent::Tts(event) if event.id == "text"));
+    assert!(
+        matches!(events.recv().await.unwrap(), RelayEvent::Notification(event) if event.id == "text")
+    );
     core.stage_scheduler.stage_state(false, false, true).await;
     core.stage_scheduler.stage_state(false, false, false).await;
     assert!(
@@ -1152,10 +1153,10 @@ async fn flagged_notifications_wait_for_review_instead_of_disappearing() {
     .unwrap();
     let text = "Contact: someone@example.com, +33 6 12 34 56 78".to_owned();
     let ticket = core
-        .register_stage_output(42, "flagged", 0, StageLane::Tts)
+        .register_stage_output(42, "flagged", 0, StageLane::Notification)
         .await;
     let published = core
-        .publish_visual_tts_if_allowed_with_ticket_and_roles(
+        .publish_notification_card_if_allowed_with_ticket_and_roles(
             ticket,
             "flagged".into(),
             text.clone(),

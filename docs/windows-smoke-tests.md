@@ -16,7 +16,7 @@ Use a disposable Discord server and synthetic local media. Do not use tokens, pr
 | Scenario | Steps | Expected result |
 | --- | --- | --- |
 | Start without credentials | Launch Relay before configuring Discord credentials. | The interface remains usable and shows the bot as offline. |
-| Bot connection | Save valid credentials and select a test media channel. | The bot status becomes online and visible text channels can be refreshed. |
+| Bot connection | Save valid credentials and select a test Relay channel. | The bot status becomes online and visible text channels can be refreshed. |
 | Local server | Open the Overlay page. | The server status is online and the preview can connect. |
 | OBS source | Add one generated Browser Source URL to OBS. | Output readiness lists an OBS client for that output. |
 | Windows widgets | Show, move, and lock each widget. | The widget follows its visibility and lock settings without blocking Relay. |
@@ -63,6 +63,7 @@ Use a disposable Discord server and synthetic local media. Do not use tokens, pr
 | Scenario | Steps | Expected result |
 | --- | --- | --- |
 | Signed update | Run against an official signed installer and release feed. | Relay accepts only the expected signed update path. |
-| Message notifications | Send plain text, emoji and a sticker in the message channel. | Visual cards appear without speech; the configured notification sound remains optional. |
+| Message notifications | In the Relay channel, send plain text, emoji, a sticker, then text with an image and a video. | Text and emoji appear as visual cards without speech; the sticker uses the sticker output; the mixed message shows one card, then each media once. The configured notification sound remains optional. |
+| Former channels | Start Relay with a configuration that has different media and message channels. | The Discord page asks which channel to keep; both keep their previous role until the choice. |
 
 Do not mark a pull request as fully smoke-tested when a required integration is unavailable. State the skipped row and why in the pull request instead.

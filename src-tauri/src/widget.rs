@@ -62,6 +62,11 @@ pub(crate) fn obs_visual_url(port: u16) -> String {
     format!("http://{}:{port}/obs/visual", youtube_embed_host())
 }
 
+/// Relay Audio has no YouTube layer, so 127.0.0.1 is fine.
+pub(crate) fn obs_audio_url(port: u16) -> String {
+    format!("http://127.0.0.1:{port}/obs/audio")
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WidgetState {
@@ -248,8 +253,13 @@ pub fn apply_configured_size(app: &AppHandle, width: f64, height: f64) -> Result
 }
 
 pub async fn refresh(app: &AppHandle, core: &Arc<AppCore>) -> Result<()> {
-    if let Some(window) = app.get_webview_window(WIDGET_LABEL) {
-        let url: tauri::Url = widget_url(core).await?.parse()?;
+    navigate_open_window(app, WIDGET_LABEL, widget_url(core).await?)
+}
+
+/// Points an open widget window at its current URL (after a port or secret change).
+pub(crate) fn navigate_open_window(app: &AppHandle, label: &str, url: String) -> Result<()> {
+    if let Some(window) = app.get_webview_window(label) {
+        let url: tauri::Url = url.parse()?;
         if needs_navigation(&window, &url) {
             window.navigate(url)?;
         }
@@ -325,7 +335,8 @@ async fn ensure_window(app: &AppHandle, core: Arc<AppCore>) -> Result<WebviewWin
     Ok(window)
 }
 
-fn apply_lock(window: &WebviewWindow, locked: bool) -> Result<()> {
+/// Locked widgets ignore the mouse and cannot be resized; shared by both widgets.
+pub(crate) fn apply_lock(window: &WebviewWindow, locked: bool) -> Result<()> {
     window.set_resizable(!locked)?;
     window.set_focusable(!locked)?;
     window.set_ignore_cursor_events(locked)?;
@@ -464,17 +475,19 @@ fn resolved_geometry(
     Ok((position, max_width, max_height))
 }
 
-fn apply_monitor_constraints(window: &WebviewWindow) -> Result<()> {
+/// Both widgets stay between the minimum size and the monitor work area.
+pub(crate) fn apply_monitor_constraints(window: &WebviewWindow) -> Result<()> {
     let monitor = window
         .current_monitor()?
         .context("no display is available")?;
     let area = monitor.work_area();
     let scale = monitor.scale_factor();
+    let max_height = area.size.height as f64 / scale;
     window.set_size_constraints(WindowSizeConstraints {
         min_width: Some(tauri::LogicalUnit::new(MIN_WIDGET_WIDTH).into()),
-        min_height: Some(tauri::LogicalUnit::new(MIN_WIDGET_HEIGHT).into()),
+        min_height: Some(tauri::LogicalUnit::new(MIN_WIDGET_HEIGHT.min(max_height)).into()),
         max_width: Some(tauri::LogicalUnit::new(area.size.width as f64 / scale).into()),
-        max_height: Some(tauri::LogicalUnit::new(area.size.height as f64 / scale).into()),
+        max_height: Some(tauri::LogicalUnit::new(max_height).into()),
     })?;
     Ok(())
 }

@@ -1,7 +1,7 @@
 // Parsing helpers for the moderation and privacy filter fields.
 // Pure functions: they only transform text and config values.
 
-export function filterWordKey(value) {
+function filterWordKey(value) {
   return String(value || "")
     .normalize("NFKC")
     .toLocaleLowerCase()

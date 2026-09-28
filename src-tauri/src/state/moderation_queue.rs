@@ -175,9 +175,9 @@ impl AppCore {
             item.author_id.clone(),
         );
         let ticket = self
-            .register_stage_output(item.timestamp, &item.message_id, 0, StageLane::Tts)
+            .register_stage_output(item.timestamp, &item.message_id, 0, StageLane::Notification)
             .await;
-        self.publish_visual_tts_with_ticket(
+        self.publish_notification_card_with_ticket(
             ticket,
             item.message_id,
             item.text,

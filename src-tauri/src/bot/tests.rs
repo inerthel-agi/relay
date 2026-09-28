@@ -65,14 +65,16 @@ fn deferred_embed_updates_preserve_admission_without_recounting() {
         &core,
         &message,
         &[],
-        Lane::Media,
+        false,
+        &[Lane::Media],
         &config
     ));
     assert!(apply_moderation_gate(
         &core,
         &message,
         &[],
-        Lane::Media,
+        false,
+        &[Lane::Media],
         &config
     ));
 
@@ -81,7 +83,8 @@ fn deferred_embed_updates_preserve_admission_without_recounting() {
         &core,
         &message,
         &[],
-        Lane::Media,
+        false,
+        &[Lane::Media],
         &config
     ));
     config.moderation.user_cooldown_seconds = 0;
@@ -89,7 +92,8 @@ fn deferred_embed_updates_preserve_admission_without_recounting() {
         &core,
         &message,
         &[],
-        Lane::Media,
+        false,
+        &[Lane::Media],
         &config
     ));
 
@@ -102,7 +106,8 @@ fn deferred_embed_updates_preserve_admission_without_recounting() {
         &core,
         &message,
         &[],
-        Lane::Media,
+        false,
+        &[Lane::Media],
         &config
     ));
     message.id = MessageId::new(123_456_789_012_345_680);
@@ -110,7 +115,8 @@ fn deferred_embed_updates_preserve_admission_without_recounting() {
         &core,
         &message,
         &[],
-        Lane::Media,
+        false,
+        &[Lane::Media],
         &config
     ));
 }
@@ -129,7 +135,8 @@ fn deferred_embed_updates_preserve_review_holds() {
         &core,
         &message,
         &[],
-        Lane::Media,
+        false,
+        &[Lane::Media],
         &config
     ));
     let verdict = core.moderation_verdict(&message.id.to_string()).unwrap();
@@ -138,7 +145,8 @@ fn deferred_embed_updates_preserve_review_holds() {
         &core,
         &message,
         &[],
-        Lane::Media,
+        false,
+        &[Lane::Media],
         &config
     ));
     assert_eq!(
@@ -198,7 +206,7 @@ fn formats_local_overlay_urls_without_secret() {
     };
     assert_eq!(overlay_url(&config), "http://localhost:5321/obs/visual");
     assert_eq!(
-        audio_overlay_url(&config),
+        crate::widget::obs_audio_url(config.port),
         "http://127.0.0.1:5321/obs/audio"
     );
     let details = connection_details(&config);
@@ -250,7 +258,7 @@ fn default_commands_still_require_an_administrator_inside_a_guild() {
 fn formats_live_status_for_obs_and_windows_outputs() {
     let config = AppConfig {
         watched_channel_id: "123456789012345678".into(),
-        tts_channel_id: "223456789012345678".into(),
+        former_message_channel_id: "223456789012345678".into(),
         moderation_enabled: true,
         widget_visible: true,
         widget_locked: true,
@@ -269,12 +277,23 @@ fn formats_live_status_for_obs_and_windows_outputs() {
     server.outputs.visual.widget_clients = 1;
     server.outputs.notification.preview_clients = 1;
 
-    let status = format_relay_status(&config, &bot, &server, 3, 2);
+    let status = format_relay_status(&config, &bot, &server, 3);
 
     assert!(status.contains("Bot: connected as Relay"));
-    assert!(status.contains("Media channel: <#123456789012345678>"));
+    // Two different former channels are shown until the user chooses one.
+    assert!(status.contains(
+        "Relay channel: choice pending in the Relay application (media <#123456789012345678>, messages <#223456789012345678>)"
+    ));
+    let unified = AppConfig {
+        former_message_channel_id: String::new(),
+        ..config.clone()
+    };
+    let unified_status = format_relay_status(&unified, &bot, &server, 3);
+    assert!(unified_status.contains("Relay channel: <#123456789012345678>"));
+    assert!(!unified_status.contains("Message channel"));
     assert!(status.contains("Moderation: enabled (3 pending)"));
-    assert!(status.contains("Messages preparing: 2"));
+    // No counter that nothing ever fills.
+    assert!(!status.contains("Messages preparing"));
     assert!(status.contains("Media widget: visible and locked"));
     assert!(status.contains("Visual: 1 / 1 / 0"));
     assert!(status.contains("Notifications: 0 / 0 / 1"));
@@ -319,7 +338,7 @@ fn nuke_command_requires_a_text_or_announcement_channel() {
 fn nuke_replaces_configured_channel_references() {
     let mut config = AppConfig {
         watched_channel_id: "1".into(),
-        tts_channel_id: "1".into(),
+        former_message_channel_id: "1".into(),
         music_channel_id: "2".into(),
         honeypot_channel_id: "1".into(),
         channel_lock: Some(ChannelLockSnapshot {
@@ -332,7 +351,7 @@ fn nuke_replaces_configured_channel_references() {
     replace_configured_channel_id(&mut config, ChannelId::new(1), ChannelId::new(3));
 
     assert_eq!(config.watched_channel_id, "3");
-    assert_eq!(config.tts_channel_id, "3");
+    assert_eq!(config.former_message_channel_id, "3");
     assert_eq!(config.music_channel_id, "2");
     assert_eq!(config.honeypot_channel_id, "3");
     assert_eq!(config.channel_lock.unwrap().channel_id, "3");
@@ -655,16 +674,16 @@ fn sniffs_mp4_bytes_when_discord_reports_an_image() {
 }
 
 #[test]
-fn prepares_plain_tts_messages_with_an_optional_unicode_limit() {
+fn prepares_plain_notification_messages_with_an_optional_unicode_limit() {
     assert_eq!(
-        prepare_tts_text("  Bonjour Relay  ", 0).as_deref(),
+        prepare_notification_text("  Bonjour Relay  ", 0).as_deref(),
         Some("Bonjour Relay")
     );
     assert_eq!(
-        prepare_tts_text("\u{e9}l\u{e9}phant", 3).as_deref(),
+        prepare_notification_text("\u{e9}l\u{e9}phant", 3).as_deref(),
         Some("\u{e9}l\u{e9}")
     );
-    assert!(prepare_tts_text("   ", 0).is_none());
+    assert!(prepare_notification_text("   ", 0).is_none());
 }
 
 #[test]
@@ -831,4 +850,488 @@ fn converts_renderable_stickers_to_visual_notification_segments() {
         StickerFormatType::Lottie,
     );
     assert!(lottie.url.is_none() && !lottie.animated);
+}
+
+const RELAY_CHANNEL: &str = "323456789012345678";
+const FORMER_MESSAGE_CHANNEL: &str = "423456789012345678";
+
+fn relay_config() -> AppConfig {
+    AppConfig {
+        watched_channel_id: RELAY_CHANNEL.into(),
+        ..AppConfig::default()
+    }
+}
+
+async fn relay_core(config: AppConfig) -> (tempfile::TempDir, Arc<AppCore>) {
+    let directory = tempfile::tempdir().unwrap();
+    let core = AppCore::load(directory.path().join("config.json")).unwrap();
+    core.set_config(config).await.unwrap();
+    (directory, core)
+}
+
+fn relay_message(id: u64, content: &str) -> Message {
+    let mut message = Message::default();
+    message.id = MessageId::new(id);
+    message.channel_id = ChannelId::new(RELAY_CHANNEL.parse().unwrap());
+    message.author.id = UserId::new(223_456_789_012_345_678);
+    message.author.name = "viewer".into();
+    message.content = content.into();
+    message
+}
+
+/// The host is refused by the bounded downloader, so tests never use the network.
+fn attachment(id: u64, filename: &str, content_type: &str) -> serenity::all::Attachment {
+    serde_json::from_value(serde_json::json!({
+        "id": id.to_string(),
+        "filename": filename,
+        "size": 1_024,
+        "url": format!("https://relay.invalid/{filename}"),
+        "proxy_url": format!("https://relay.invalid/proxy/{filename}"),
+        "content_type": content_type,
+    }))
+    .unwrap()
+}
+
+/// Lottie stickers are never downloaded.
+fn lottie_sticker(id: u64, name: &str) -> serenity::all::StickerItem {
+    serde_json::from_value(serde_json::json!({
+        "id": id.to_string(),
+        "name": name,
+        "format_type": 3,
+    }))
+    .unwrap()
+}
+
+#[derive(Debug, PartialEq)]
+enum Output {
+    Notification(String),
+    /// Kind and the media card text.
+    Media(&'static str, Option<String>),
+    Sticker(String),
+}
+
+fn media_kind_name(kind: MediaKind) -> &'static str {
+    match kind {
+        MediaKind::Image => "image",
+        MediaKind::Gif => "gif",
+        MediaKind::Video => "video",
+        MediaKind::Audio => "audio",
+    }
+}
+
+/// Routes one message like the gateway handler and returns what reached the
+/// outputs, in playback order.
+async fn relay_outputs(core: &Arc<AppCore>, message: &Message) -> Vec<Output> {
+    let mut events = core.relay_tx.subscribe();
+    let config = core.config.read().await.clone();
+    route_relay_message(
+        core,
+        &Http::new(""),
+        message,
+        &config,
+        &message_role_ids(message),
+        false,
+    )
+    .await;
+    let mut outputs = Vec::new();
+    while let Ok(event) = events.try_recv() {
+        outputs.push(match event {
+            crate::model::RelayEvent::Notification(event) => Output::Notification(event.text),
+            crate::model::RelayEvent::Media(event) => {
+                Output::Media(media_kind_name(event.kind), event.text)
+            }
+            crate::model::RelayEvent::Sticker(event) => Output::Sticker(event.name),
+            _ => continue,
+        });
+        core.stage_scheduler.skip_active().await;
+    }
+    outputs
+}
+
+#[tokio::test]
+async fn relay_channel_text_becomes_one_notification() {
+    let (_directory, core) = relay_core(relay_config()).await;
+    assert_eq!(
+        relay_outputs(
+            &core,
+            &relay_message(1_000_000_000_000_000_001, "Hello stream")
+        )
+        .await,
+        vec![Output::Notification("Hello stream".into())]
+    );
+    let mut reply = relay_message(1_000_000_000_000_000_002, "Welcome back");
+    reply.kind = MessageType::InlineReply;
+    assert_eq!(
+        relay_outputs(&core, &reply).await,
+        vec![Output::Notification("Welcome back".into())]
+    );
+}
+
+#[tokio::test]
+async fn relay_channel_media_alone_never_creates_an_empty_notification() {
+    let (_directory, core) = relay_core(relay_config()).await;
+    for (index, (filename, content_type, kind)) in [
+        ("cat.png", "image/png", "image"),
+        ("dance.gif", "image/gif", "gif"),
+        ("clip.webm", "video/webm", "video"),
+        ("song.ogg", "audio/ogg", "audio"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut message = relay_message(1_000_000_000_000_000_010 + index as u64, "");
+        message.attachments = vec![attachment(10 + index as u64, filename, content_type)];
+        assert_eq!(
+            relay_outputs(&core, &message).await,
+            vec![Output::Media(kind, None)],
+            "{filename}"
+        );
+    }
+    let mut sticker = relay_message(1_000_000_000_000_000_020, "");
+    sticker.sticker_items = vec![lottie_sticker(20, "wave")];
+    assert_eq!(
+        relay_outputs(&core, &sticker).await,
+        vec![Output::Sticker("wave".into())]
+    );
+}
+
+#[tokio::test]
+async fn relay_channel_text_with_media_is_one_notification_then_each_media_once_in_order() {
+    let (_directory, core) = relay_core(relay_config()).await;
+    let mut message = relay_message(1_000_000_000_000_000_030, "Look at these");
+    message.attachments = vec![
+        attachment(31, "first.png", "image/png"),
+        attachment(32, "notes.zip", "application/zip"),
+        attachment(33, "second.webm", "video/webm"),
+        attachment(34, "third.ogg", "audio/ogg"),
+        attachment(35, "fourth.png", "image/png"),
+    ];
+    message.sticker_items = vec![lottie_sticker(36, "wave")];
+    // Unsupported files are skipped and, as before, at most three media are relayed.
+    // The notification carries the text once; media cards do not repeat it.
+    assert_eq!(
+        relay_outputs(&core, &message).await,
+        vec![
+            Output::Notification("Look at these".into()),
+            Output::Sticker("wave".into()),
+            Output::Media("image", None),
+            Output::Media("video", None),
+            Output::Media("audio", None),
+        ]
+    );
+    let feeds = relay_config().channel_feeds(RELAY_CHANNEL).unwrap();
+    let plan = RelayMessagePlan::new(&message, feeds);
+    assert_eq!(
+        plan.attachments
+            .iter()
+            .map(|(index, _)| *index)
+            .collect::<Vec<_>>(),
+        vec![0, 2, 3]
+    );
+}
+
+#[tokio::test]
+async fn relay_channel_ignores_unsupported_content_commands_and_system_messages() {
+    let (_directory, core) = relay_core(relay_config()).await;
+    let mut archive = relay_message(1_000_000_000_000_000_040, "");
+    archive.attachments = vec![attachment(40, "notes.zip", "application/zip")];
+    assert!(relay_outputs(&core, &archive).await.is_empty());
+    assert!(core.pending_media.read().await.is_empty());
+    archive.id = MessageId::new(1_000_000_000_000_000_041);
+    archive.content = "My notes".into();
+    assert_eq!(
+        relay_outputs(&core, &archive).await,
+        vec![Output::Notification("My notes".into())]
+    );
+
+    assert!(
+        relay_outputs(
+            &core,
+            &relay_message(1_000_000_000_000_000_042, "/relay status")
+        )
+        .await
+        .is_empty()
+    );
+    let mut command_with_media = relay_message(1_000_000_000_000_000_043, "/relay status");
+    command_with_media.attachments = vec![attachment(43, "cat.png", "image/png")];
+    assert_eq!(
+        relay_outputs(&core, &command_with_media).await,
+        vec![Output::Media("image", Some("/relay status".into()))]
+    );
+    let mut command = relay_message(1_000_000_000_000_000_044, "Relay used /relay status");
+    command.kind = MessageType::ChatInputCommand;
+    assert!(relay_outputs(&core, &command).await.is_empty());
+    let mut renamed = relay_message(1_000_000_000_000_000_045, "welcome to the server");
+    renamed.kind = MessageType::MemberJoin;
+    assert!(relay_outputs(&core, &renamed).await.is_empty());
+}
+
+#[tokio::test]
+async fn gif_links_are_relayed_as_media_never_as_notifications() {
+    let (_directory, core) = relay_core(relay_config()).await;
+    // The Tenor embed arrives later, through a message update.
+    assert!(
+        relay_outputs(
+            &core,
+            &relay_message(
+                1_000_000_000_000_000_050,
+                "https://tenor.com/view/dance-gif-123"
+            )
+        )
+        .await
+        .is_empty()
+    );
+    assert_eq!(
+        relay_outputs(
+            &core,
+            &relay_message(
+                1_000_000_000_000_000_051,
+                "lol https://tenor.com/view/dance-gif-123"
+            )
+        )
+        .await,
+        vec![Output::Notification("lol".into())]
+    );
+
+    let text = |content: &str| notification_text(&relay_message(1, content));
+    assert_eq!(text("https://media.tenor.com/abc/dance.gif"), None);
+    assert_eq!(text("[dance](https://example.com/a.gif)"), None);
+    assert_eq!(text("<https://giphy.com/gifs/abc>"), None);
+    assert_eq!(
+        text("look https://klipy.com/gifs/abc\nnext line"),
+        Some("look\nnext line".into())
+    );
+    assert_eq!(
+        text("read https://example.com/page"),
+        Some("read https://example.com/page".into())
+    );
+    let gif_embed: serenity::all::Embed = serde_json::from_value(serde_json::json!({
+        "type": "gifv",
+        "url": "https://example.com/party",
+        "video": { "url": "https://example.com/party.mp4" }
+    }))
+    .unwrap();
+    let mut embedded = relay_message(1, "https://example.com/party");
+    embedded.embeds = vec![gif_embed];
+    assert_eq!(notification_text(&embedded), None);
+}
+
+#[tokio::test]
+async fn other_channels_never_reach_the_relay_flow() {
+    let (_directory, core) = relay_core(AppConfig {
+        music_channel_id: "523456789012345678".into(),
+        honeypot_channel_id: "623456789012345678".into(),
+        ..relay_config()
+    })
+    .await;
+    for channel in [
+        "523456789012345678",
+        "623456789012345678",
+        "723456789012345678",
+    ] {
+        let mut message = relay_message(1_000_000_000_000_000_060, "Hello");
+        message.channel_id = ChannelId::new(channel.parse().unwrap());
+        message.attachments = vec![attachment(60, "cat.png", "image/png")];
+        assert!(relay_outputs(&core, &message).await.is_empty(), "{channel}");
+    }
+    assert!(core.pending_media.read().await.is_empty());
+    assert!(core.pending_texts.read().await.is_empty());
+}
+
+#[tokio::test]
+async fn a_mixed_message_is_checked_with_the_rules_of_its_text_and_its_media() {
+    use crate::moderation::{FilterScopes, WordPack};
+    for scopes in [
+        FilterScopes {
+            media: false,
+            ..FilterScopes::default()
+        },
+        FilterScopes {
+            notifications: false,
+            ..FilterScopes::default()
+        },
+    ] {
+        let mut config = AppConfig {
+            privacy_auto_delete_blocked_messages: false,
+            ..relay_config()
+        };
+        config.moderation.word_packs = vec![WordPack::Scams];
+        config.moderation.filter_scopes = scopes;
+        let (_directory, core) = relay_core(config).await;
+        let mut message = relay_message(1_000_000_000_000_000_070, "FREE N1TRO for everyone");
+        message.attachments = vec![attachment(70, "cat.png", "image/png")];
+        // Adding a media never lets the text skip the notification filter, and
+        // the text of a media message never skips the media filter.
+        assert!(
+            relay_outputs(&core, &message).await.is_empty(),
+            "{scopes:?}"
+        );
+        assert!(core.pending_media.read().await.is_empty());
+        assert!(core.pending_texts.read().await.is_empty());
+    }
+}
+
+#[tokio::test]
+async fn mixed_messages_keep_review_holds_manual_moderation_and_panic() {
+    // A hold from the gate keeps both parts for review.
+    let mut config = relay_config();
+    config.moderation.min_account_age_days = 365;
+    let (_directory, core) = relay_core(config).await;
+    let mut message = relay_message(1_000_000_000_000_000_080, "New here");
+    message.author.id = UserId::new((now_ms() - 1_420_070_400_000) << 22);
+    message.attachments = vec![attachment(80, "cat.png", "image/png")];
+    assert!(relay_outputs(&core, &message).await.is_empty());
+    assert_eq!(core.pending_texts.read().await.len(), 1);
+    assert_eq!(core.pending_media.read().await.len(), 1);
+
+    // Manual moderation still applies to the media only, as before.
+    let (_directory, core) = relay_core(AppConfig {
+        moderation_enabled: true,
+        ..relay_config()
+    })
+    .await;
+    let mut message = relay_message(1_000_000_000_000_000_081, "Hello");
+    message.attachments = vec![attachment(81, "cat.png", "image/png")];
+    assert_eq!(
+        relay_outputs(&core, &message).await,
+        vec![Output::Notification("Hello".into())]
+    );
+    assert_eq!(core.pending_media.read().await.len(), 1);
+
+    // Panic drops both parts instead of queueing them.
+    let (_directory, core) = relay_core(relay_config()).await;
+    core.set_outputs_paused(true).await;
+    let mut message = relay_message(1_000_000_000_000_000_082, "Hello");
+    message.attachments = vec![attachment(82, "cat.png", "image/png")];
+    assert!(relay_outputs(&core, &message).await.is_empty());
+    assert!(core.stage_scheduler.queue_snapshot().await.is_empty());
+}
+
+#[tokio::test]
+async fn former_channels_keep_their_single_role_until_the_user_chooses() {
+    let (_directory, core) = relay_core(AppConfig {
+        former_message_channel_id: FORMER_MESSAGE_CHANNEL.into(),
+        ..relay_config()
+    })
+    .await;
+    let mut media = relay_message(1_000_000_000_000_000_090, "Nice");
+    media.attachments = vec![attachment(90, "cat.png", "image/png")];
+    assert_eq!(
+        relay_outputs(&core, &media).await,
+        vec![Output::Media("image", Some("Nice".into()))]
+    );
+    let mut text = relay_message(1_000_000_000_000_000_091, "Hello");
+    text.channel_id = ChannelId::new(FORMER_MESSAGE_CHANNEL.parse().unwrap());
+    text.attachments = vec![attachment(91, "cat.png", "image/png")];
+    assert_eq!(
+        relay_outputs(&core, &text).await,
+        vec![Output::Notification("Hello".into())]
+    );
+}
+
+#[test]
+fn relay_messages_are_gated_on_every_lane_they_feed() {
+    use crate::moderation::Lane;
+    let feeds = relay_config().channel_feeds(RELAY_CHANNEL).unwrap();
+    let lanes = |message: &Message| RelayMessagePlan::new(message, feeds).lanes;
+    assert_eq!(lanes(&relay_message(1, "hello")), vec![Lane::Notifications]);
+    assert_eq!(
+        lanes(&relay_message(1, "hello https://example.com")),
+        vec![Lane::Notifications, Lane::Media]
+    );
+    let mut image = relay_message(1, "");
+    image.attachments = vec![attachment(1, "cat.png", "image/png")];
+    assert_eq!(lanes(&image), vec![Lane::Media]);
+    image.content = "caption".into();
+    assert_eq!(lanes(&image), vec![Lane::Notifications, Lane::Media]);
+    assert_eq!(lanes(&relay_message(1, "/relay status")), vec![Lane::Media]);
+
+    let former_messages = crate::config::ChannelFeeds {
+        notifications: true,
+        media: false,
+    };
+    assert_eq!(
+        RelayMessagePlan::new(&image, former_messages).lanes,
+        vec![Lane::Notifications]
+    );
+    let former_media = crate::config::ChannelFeeds {
+        notifications: false,
+        media: true,
+    };
+    let plan = RelayMessagePlan::new(&image, former_media);
+    assert_eq!(plan.lanes, vec![Lane::Media]);
+    assert_eq!(plan.notification_text, None);
+}
+
+#[test]
+fn only_public_gif_libraries_skip_the_animated_frame_review() {
+    assert!(is_gif_library_url("https://media.tenor.com/abc/monkey.gif"));
+    assert!(is_gif_library_url(
+        "https://media1.giphy.com/media/abc/giphy.gif"
+    ));
+    assert!(is_gif_library_url("https://static.klipy.com/gifs/abc.gif"));
+    assert!(!is_gif_library_url("http://media.tenor.com/abc/monkey.gif"));
+    assert!(!is_gif_library_url(
+        "https://cdn.discordapp.com/attachments/1/2/monkey.gif"
+    ));
+    assert!(!is_gif_library_url("https://eviltenor.com/monkey.gif"));
+    assert!(!is_gif_library_url(
+        "https://tenor.com.example.com/monkey.gif"
+    ));
+}
+
+#[test]
+fn server_staff_skip_the_spam_checks_like_trusted_members() {
+    assert!(staff_member(true, Permissions::empty()));
+    assert!(staff_member(false, Permissions::ADMINISTRATOR));
+    assert!(staff_member(false, Permissions::MANAGE_GUILD));
+    assert!(staff_member(
+        false,
+        Permissions::MANAGE_MESSAGES | Permissions::SEND_MESSAGES
+    ));
+    assert!(!staff_member(
+        false,
+        Permissions::SEND_MESSAGES | Permissions::EMBED_LINKS
+    ));
+    // Without a server or member (DMs, fetched updates), nobody is staff.
+    let cache = Cache::new();
+    assert!(!is_server_staff(&cache, &relay_message(1, "hello")));
+}
+
+#[tokio::test]
+async fn staff_gifs_are_not_dropped_by_the_member_cooldown() {
+    let mut config = relay_config();
+    config.moderation.user_cooldown_seconds = 10;
+    let (_directory, core) = relay_core(config).await;
+    let gif = |id: u64| {
+        let mut message = relay_message(id, "");
+        message.attachments = vec![attachment(id, "dance.gif", "image/gif")];
+        message
+    };
+    let outputs = |message: Message, staff: bool| {
+        let core = core.clone();
+        async move {
+            let mut events = core.relay_tx.subscribe();
+            let config = core.config.read().await.clone();
+            route_relay_message(&core, &Http::new(""), &message, &config, &[], staff).await;
+            let mut count = 0;
+            while let Ok(event) = events.try_recv() {
+                if matches!(event, crate::model::RelayEvent::Media(_)) {
+                    count += 1;
+                    core.stage_scheduler.skip_active().await;
+                }
+            }
+            count
+        }
+    };
+    // A viewer's second GIF inside the cooldown is dropped, as configured.
+    assert_eq!(outputs(gif(1_000_000_000_000_000_100), false).await, 1);
+    assert_eq!(outputs(gif(1_000_000_000_000_000_101), false).await, 0);
+    // A moderator's GIFs all play.
+    let mut staff_gif = gif(1_000_000_000_000_000_102);
+    staff_gif.author.id = UserId::new(323_456_789_012_345_679);
+    assert_eq!(outputs(staff_gif, true).await, 1);
+    let mut second = gif(1_000_000_000_000_000_103);
+    second.author.id = UserId::new(323_456_789_012_345_679);
+    assert_eq!(outputs(second, true).await, 1);
 }

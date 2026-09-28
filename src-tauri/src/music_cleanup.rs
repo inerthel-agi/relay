@@ -135,11 +135,8 @@ fn may_delete(id: u64, protected: Option<u64>, active: bool) -> bool {
 }
 
 async fn http(core: &AppCore) -> Result<Arc<Http>, String> {
-    core.bot_runtime
-        .lock()
+    core.discord_http()
         .await
-        .as_ref()
-        .map(|runtime| runtime.http.clone())
         .ok_or_else(|| "Connect the Discord bot first.".into())
 }
 

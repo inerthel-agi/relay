@@ -63,9 +63,11 @@ pub fn required_permissions(feature: &str, config: &AppConfig) -> Permissions {
         }
     };
     match feature {
-        "media" => read | delete_if(config.media_cleanup_enabled || privacy_delete) | escalation,
+        "relay" | "media" => {
+            read | delete_if(config.media_cleanup_enabled || privacy_delete) | escalation
+        }
         "notifications" => {
-            read | delete_if(config.tts_cleanup_enabled || privacy_delete) | escalation
+            read | delete_if(config.former_message_cleanup_enabled || privacy_delete) | escalation
         }
         "music" => {
             read | Permissions::SEND_MESSAGES
@@ -82,6 +84,22 @@ pub fn required_permissions(feature: &str, config: &AppConfig) -> Permissions {
         }
         _ => Permissions::empty(),
     }
+}
+
+/// Features to check with their channel. Two former channels awaiting the
+/// user's choice are still checked separately, in their former roles.
+fn checked_features(config: &AppConfig) -> Vec<(&'static str, String)> {
+    let mut features = if config.relay_channel_conflict() {
+        vec![
+            ("media", config.watched_channel_id.clone()),
+            ("notifications", config.former_message_channel_id.clone()),
+        ]
+    } else {
+        vec![("relay", config.watched_channel_id.clone())]
+    };
+    features.push(("music", config.music_channel_id.clone()));
+    features.push(("honeypot", config.honeypot_channel_id.clone()));
+    features
 }
 
 pub fn missing_permission_names(required: Permissions, granted: Permissions) -> Vec<String> {
@@ -105,12 +123,7 @@ fn intent_from_error(error: Option<&str>) -> IntentState {
 pub async fn check(core: &Arc<AppCore>) -> Result<DiscordSetupReport> {
     let status = core.bot_status.read().await.clone();
     let config = core.config.read().await.clone();
-    let features = [
-        ("media", config.watched_channel_id.clone()),
-        ("notifications", config.tts_channel_id.clone()),
-        ("music", config.music_channel_id.clone()),
-        ("honeypot", config.honeypot_channel_id.clone()),
-    ];
+    let features = checked_features(&config);
     let runtime = {
         let runtime = core.bot_runtime.lock().await;
         runtime
@@ -201,6 +214,31 @@ mod tests {
         let honeypot = required_permissions("honeypot", &config);
         assert!(honeypot.contains(Permissions::BAN_MEMBERS));
         assert!(!honeypot.contains(Permissions::KICK_MEMBERS));
+    }
+
+    #[test]
+    fn one_relay_channel_is_checked_unless_a_choice_is_pending() {
+        let mut config = AppConfig {
+            watched_channel_id: "123456789012345678".into(),
+            ..AppConfig::default()
+        };
+        let features = checked_features(&config);
+        assert_eq!(features[0], ("relay", "123456789012345678".to_owned()));
+        assert!(
+            !features
+                .iter()
+                .any(|(feature, _)| *feature == "notifications")
+        );
+        config.media_cleanup_enabled = true;
+        assert!(required_permissions("relay", &config).contains(Permissions::MANAGE_MESSAGES));
+
+        config.former_message_channel_id = "223456789012345678".into();
+        let features = checked_features(&config);
+        assert_eq!(features[0], ("media", "123456789012345678".to_owned()));
+        assert_eq!(
+            features[1],
+            ("notifications", "223456789012345678".to_owned())
+        );
     }
 
     #[test]

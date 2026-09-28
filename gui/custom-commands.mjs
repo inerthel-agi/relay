@@ -1,6 +1,6 @@
 // Custom Discord commands: pure helpers plus the editor on the Commands page.
 
-export function cloneCustomCommands(commands) {
+function cloneCustomCommands(commands) {
   return JSON.parse(JSON.stringify(Array.isArray(commands) ? commands : []));
 }
 
@@ -25,7 +25,7 @@ export function defaultCustomAction(type) {
   }
 }
 
-export function customActionTranslationKey(type) {
+function customActionTranslationKey(type) {
   return {
     ban: "customActionBan", unban: "customActionUnban", kick: "customActionKick",
     timeout: "customActionTimeout", removeTimeout: "customActionRemoveTimeout",

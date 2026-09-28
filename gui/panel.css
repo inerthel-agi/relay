@@ -2400,10 +2400,6 @@ input[type="range"] {
   min-height: 0;
 }
 
-.notification-output-url {
-  margin-top: 0;
-}
-
 .notification-output-actions {
   display: flex;
   align-items: center;
@@ -5401,6 +5397,33 @@ button.status:hover {
   color: var(--ink);
   font-size: calc(13px * var(--text-scale));
   font-weight: 650;
+}
+
+/* Two former channels (media, messages) wait for the user's choice. */
+.channel-choice {
+  display: grid;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in oklch, var(--danger) 45%, transparent);
+  border-radius: var(--radius-lg);
+  background: color-mix(in oklch, var(--danger) 8%, var(--surface-subtle));
+}
+
+.channel-choice[hidden] {
+  display: none;
+}
+
+.channel-choice__copy {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  font-size: calc(13px * var(--text-scale));
+}
+
+.channel-choice__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .music-cleanup-tools {

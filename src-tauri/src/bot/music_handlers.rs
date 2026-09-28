@@ -842,13 +842,7 @@ pub(crate) async fn refresh_music_card(core: &AppCore) {
     let Some(card) = core.music.lock().await.current_card() else {
         return;
     };
-    let Some(http) = core
-        .bot_runtime
-        .lock()
-        .await
-        .as_ref()
-        .map(|runtime| runtime.http.clone())
-    else {
+    let Some(http) = core.discord_http().await else {
         return;
     };
     let strings = music_locale(core).await;
@@ -964,13 +958,7 @@ fn pending_music_control_components(
 
 pub(crate) async fn refresh_pending_music_cards(core: &AppCore) {
     let cards = core.music.lock().await.pending_cards();
-    let Some(http) = core
-        .bot_runtime
-        .lock()
-        .await
-        .as_ref()
-        .map(|runtime| runtime.http.clone())
-    else {
+    let Some(http) = core.discord_http().await else {
         return;
     };
     let strings = music_locale(core).await;

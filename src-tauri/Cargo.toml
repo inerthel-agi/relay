@@ -1,6 +1,6 @@
 [package]
 name = "relay"
-version = "1.4.0"
+version = "1.4.1"
 description = "Local Discord media relay for OBS"
 authors = ["inerthel <contact@inerthel.com>"]
 edition = "2024"
@@ -25,7 +25,7 @@ minisign-verify = "0.2.5"
 rand = "0.9.2"
 rfd = { version = "0.15", default-features = false, features = ["common-controls-v6"] }
 regex = "1.11"
-reqwest = { version = "0.12.28", default-features = false, features = ["rustls-tls", "stream"] }
+reqwest = { version = "0.12.28", default-features = false, features = ["native-tls", "stream"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 serenity = { version = "0.12.5", default-features = false, features = ["builder", "cache", "client", "gateway", "http", "model", "native_tls_backend"] }

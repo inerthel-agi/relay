@@ -135,7 +135,7 @@ impl HistoryEntry {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MusicStopEvent {
     pub playback_id: String,
@@ -154,27 +154,26 @@ pub struct MusicEndedEvent {
 pub struct PendingMedia {
     pub id: u64,
     pub media: MediaEvent,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub sticker: Option<StickerEvent>,
     #[serde(skip)]
     pub sticker_bytes: Option<Arc<Vec<u8>>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub privacy_classification: Option<PrivacyClassification>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub privacy_categories: Vec<crate::privacy::PrivacyCategory>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub privacy_reason: Option<String>,
     /// Why moderation held it: "new_account", "raid", "safety_delay"...
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub hold_reason: Option<String>,
     /// Safety delay: published automatically at this time unless rejected.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub release_at: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub author_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub channel_id: Option<String>,
-    #[serde(default)]
     pub queued_at: u64,
 }
 
@@ -191,11 +190,11 @@ pub struct PendingText {
     #[serde(skip)]
     pub segments: Vec<VisualSegment>,
     pub timestamp: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub author_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub channel_id: Option<String>,
     pub queued_at: u64,
 }
@@ -224,24 +223,22 @@ pub struct VisualSegment {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TtsEvent {
+pub struct NotificationEvent {
     pub id: String,
     pub text: String,
     pub author: AuthorIdentity,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub guild_tag: Option<GuildTagIdentity>,
-    pub content_type: String,
     pub timestamp: u64,
-    pub visual_only: bool,
     pub segments: Vec<VisualSegment>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MessagePinEvent {
     pub pinned: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub message: Option<TtsEvent>,
+    pub message: Option<NotificationEvent>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
@@ -249,7 +246,6 @@ pub struct MessagePinEvent {
 pub enum OutputTestTarget {
     Visual,
     Audio,
-    Tts,
     Notification,
     Sticker,
 }
@@ -261,7 +257,7 @@ pub struct OutputTestEvent {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub media: Option<MediaEvent>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tts: Option<TtsEvent>,
+    pub notification: Option<NotificationEvent>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sticker: Option<StickerEvent>,
 }
@@ -298,7 +294,6 @@ pub struct OutputStatuses {
     pub reaction: OutputConnectionStatus,
     pub visual: OutputConnectionStatus,
     pub audio: OutputConnectionStatus,
-    pub tts: OutputConnectionStatus,
     pub notification: OutputConnectionStatus,
     pub sticker: OutputConnectionStatus,
 }
@@ -366,7 +361,7 @@ pub enum RelayEvent {
     /// Nothing left in the music queue; overlays may resume media.
     MusicIdle,
     Sticker(StickerEvent),
-    Tts(TtsEvent),
+    Notification(NotificationEvent),
     TestOutput(Box<OutputTestEvent>),
     Config(Box<AppConfig>),
     Clear,

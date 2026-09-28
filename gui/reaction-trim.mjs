@@ -1,4 +1,4 @@
-export const MAX_REACTION_SECONDS = 30;
+const MAX_REACTION_SECONDS = 30;
 
 export function validTrimRange(start, end, duration) {
   return [start, end, duration].every(Number.isFinite)

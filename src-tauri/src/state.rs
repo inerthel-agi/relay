@@ -13,7 +13,7 @@ use std::{
     path::PathBuf,
     sync::{
         Arc,
-        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::Duration,
 };
@@ -34,8 +34,8 @@ use crate::{
     media_compat::{self, VideoCompatibility},
     model::{
         BotStatus, ChannelSummary, HistoryEntry, InterfacePreferences, MediaEvent, MediaKind,
-        MusicPlaybackEvent, MusicPlaybackMode, MusicStopEvent, PendingMedia, PendingText,
-        RelayEvent, ServerStatus, StickerEvent, TtsEvent, VisualSegment,
+        MusicPlaybackEvent, MusicPlaybackMode, MusicStopEvent, NotificationEvent, PendingMedia,
+        PendingText, RelayEvent, ServerStatus, StickerEvent, VisualSegment,
     },
     music::{MusicSelection, MusicState},
     privacy::{self, PrivacyAction, PrivacyReport},
@@ -51,13 +51,6 @@ pub const PROCESSED_EMBED_LIMIT: usize = 500;
 pub const MEDIA_CACHE_ITEM_LIMIT: usize = 30;
 pub const MEDIA_CACHE_BYTE_LIMIT: usize = 100 * 1024 * 1024;
 const MEDIA_DELIVERY_TIMEOUT: Duration = Duration::from_secs(3);
-
-#[derive(Clone)]
-pub struct TtsAudio {
-    pub id: String,
-    pub content_type: String,
-    pub bytes: Bytes,
-}
 
 #[derive(Clone)]
 pub struct MediaArtwork {
@@ -108,7 +101,6 @@ pub struct AppCore {
     pub config: RwLock<AppConfig>,
     pub config_store: ConfigStore,
     config_mutation: Mutex<()>,
-    tts_pending_count: AtomicUsize,
     pub bot_status: RwLock<BotStatus>,
     pub server_status: RwLock<ServerStatus>,
     pub channels: RwLock<Vec<ChannelSummary>>,
@@ -118,7 +110,6 @@ pub struct AppCore {
     pub pending_texts: RwLock<VecDeque<PendingText>>,
     pub moderation: std::sync::Mutex<crate::moderation::ModerationRuntime>,
     pub moderation_log: std::sync::Mutex<crate::moderation::log::ModerationLog>,
-    pub tts_audio: RwLock<VecDeque<TtsAudio>>,
     pub media_artwork: RwLock<VecDeque<MediaArtwork>>,
     pub media_audio: RwLock<VecDeque<MediaAudio>>,
     pub music: Mutex<MusicState>,
@@ -146,6 +137,15 @@ pub struct AppCore {
 }
 
 impl AppCore {
+    /// HTTP client of the running Discord bot, if the bot has started.
+    pub async fn discord_http(&self) -> Option<Arc<Http>> {
+        self.bot_runtime
+            .lock()
+            .await
+            .as_ref()
+            .map(|runtime| runtime.http.clone())
+    }
+
     pub fn load(config_path: PathBuf) -> Result<Arc<Self>> {
         let data_directory = config_path
             .parent()
@@ -168,7 +168,6 @@ impl AppCore {
             config: RwLock::new(config),
             config_store,
             config_mutation: Mutex::new(()),
-            tts_pending_count: AtomicUsize::new(0),
             bot_status: RwLock::new(BotStatus::default()),
             server_status: RwLock::new(ServerStatus::default()),
             channels: RwLock::new(Vec::new()),
@@ -180,7 +179,6 @@ impl AppCore {
                 moderation_log_path,
                 crate::clock::now_ms(),
             )),
-            tts_audio: RwLock::new(VecDeque::new()),
             media_artwork: RwLock::new(VecDeque::with_capacity(ARTWORK_CACHE_LIMIT)),
             media_audio: RwLock::new(VecDeque::with_capacity(MEDIA_AUDIO_CACHE_LIMIT)),
             music: Mutex::new(MusicState::default()),
@@ -244,10 +242,10 @@ impl AppCore {
             .await;
     }
 
-    pub async fn complete_tts(&self, ticket: StageTicket, event: TtsEvent) {
-        self.remember_authoritative_tts(&event).await;
+    pub async fn complete_notification(&self, ticket: StageTicket, event: NotificationEvent) {
+        self.remember_authoritative_notification(&event).await;
         self.stage_scheduler
-            .ready(ticket, RelayEvent::Tts(event))
+            .ready(ticket, RelayEvent::Notification(event))
             .await;
     }
 
@@ -975,10 +973,6 @@ impl AppCore {
         }
     }
 
-    pub fn tts_pending_count(&self) -> usize {
-        self.tts_pending_count.load(Ordering::SeqCst)
-    }
-
     async fn publish_sticker(&self, sticker: StickerEvent) {
         let ticket = self
             .register_stage_output(
@@ -996,7 +990,7 @@ impl AppCore {
     }
 
     #[cfg(test)]
-    pub async fn publish_visual_tts(
+    pub async fn publish_notification_card(
         &self,
         id: String,
         text: String,
@@ -1006,16 +1000,16 @@ impl AppCore {
         segments: Vec<VisualSegment>,
     ) {
         let ticket = self
-            .register_stage_output(timestamp, &id, 0, StageLane::Tts)
+            .register_stage_output(timestamp, &id, 0, StageLane::Notification)
             .await;
-        self.publish_visual_tts_with_ticket(
+        self.publish_notification_card_with_ticket(
             ticket, id, text, author, guild_tag, timestamp, segments,
         )
         .await;
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub async fn publish_visual_tts_with_ticket(
+    pub async fn publish_notification_card_with_ticket(
         &self,
         ticket: StageTicket,
         id: String,
@@ -1025,21 +1019,19 @@ impl AppCore {
         timestamp: u64,
         segments: Vec<VisualSegment>,
     ) {
-        let event = TtsEvent {
+        let event = NotificationEvent {
             id,
             text,
             author,
             guild_tag,
-            content_type: String::new(),
             timestamp,
-            visual_only: true,
             segments,
         };
-        self.complete_tts(ticket, event).await;
+        self.complete_notification(ticket, event).await;
     }
 
     #[cfg(test)]
-    pub async fn publish_visual_tts_if_allowed(
+    pub async fn publish_notification_card_if_allowed(
         &self,
         id: String,
         text: String,
@@ -1048,7 +1040,7 @@ impl AppCore {
         timestamp: u64,
         segments: Vec<VisualSegment>,
     ) -> bool {
-        self.publish_visual_tts_if_allowed_with_roles(
+        self.publish_notification_card_if_allowed_with_roles(
             id,
             text,
             author,
@@ -1062,7 +1054,7 @@ impl AppCore {
 
     #[allow(clippy::too_many_arguments)]
     #[cfg(test)]
-    pub async fn publish_visual_tts_if_allowed_with_roles(
+    pub async fn publish_notification_card_if_allowed_with_roles(
         &self,
         id: String,
         text: String,
@@ -1073,16 +1065,16 @@ impl AppCore {
         role_ids: &[String],
     ) -> bool {
         let ticket = self
-            .register_stage_output(timestamp, &id, 0, StageLane::Tts)
+            .register_stage_output(timestamp, &id, 0, StageLane::Notification)
             .await;
-        self.publish_visual_tts_if_allowed_with_ticket_and_roles(
+        self.publish_notification_card_if_allowed_with_ticket_and_roles(
             ticket, id, text, author, guild_tag, timestamp, segments, role_ids,
         )
         .await
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub async fn publish_visual_tts_if_allowed_with_ticket_and_roles(
+    pub async fn publish_notification_card_if_allowed_with_ticket_and_roles(
         &self,
         ticket: StageTicket,
         id: String,
@@ -1104,7 +1096,7 @@ impl AppCore {
             .and_then(|verdict| verdict.hold)
             .map(str::to_owned);
         if privacy::privacy_rules_enabled(&scoped_config) {
-            let report = classify_tts_privacy(&text, &segments, &scoped_config);
+            let report = classify_notification_privacy(&text, &segments, &scoped_config);
             let action = privacy::action_for(&report, &scoped_config);
             if !matches!(action, PrivacyAction::Allow) {
                 privacy::log_decision(&report, action);
@@ -1132,7 +1124,7 @@ impl AppCore {
                 .await;
             return false;
         }
-        self.publish_visual_tts_with_ticket(
+        self.publish_notification_card_with_ticket(
             ticket, id, text, author, guild_tag, timestamp, segments,
         )
         .await;
@@ -1143,16 +1135,16 @@ impl AppCore {
 const MAX_TTS_PRIVACY_SEGMENTS: usize = 64;
 const MAX_TTS_PRIVACY_COMPOSITE_CHARS: usize = privacy::PRIVACY_TEXT_LIMIT + 1;
 
-fn classify_tts_privacy(
+fn classify_notification_privacy(
     text: &str,
     segments: &[VisualSegment],
     config: &AppConfig,
 ) -> privacy::PrivacyReport {
     let mut composite = String::new();
     let mut truncated = false;
-    append_tts_privacy_field(&mut composite, text, &mut truncated);
+    append_notification_privacy_field(&mut composite, text, &mut truncated);
     for segment in segments.iter().take(MAX_TTS_PRIVACY_SEGMENTS) {
-        append_tts_privacy_field(&mut composite, &segment.value, &mut truncated);
+        append_notification_privacy_field(&mut composite, &segment.value, &mut truncated);
     }
     if segments.len() > MAX_TTS_PRIVACY_SEGMENTS {
         truncated = true;
@@ -1164,17 +1156,17 @@ fn classify_tts_privacy(
     report
 }
 
-fn append_tts_privacy_field(target: &mut String, value: &str, truncated: &mut bool) {
+fn append_notification_privacy_field(target: &mut String, value: &str, truncated: &mut bool) {
     if value.is_empty() {
         return;
     }
     if !target.is_empty() {
-        append_tts_privacy_bounded(target, "\n", truncated);
+        append_notification_privacy_bounded(target, "\n", truncated);
     }
-    append_tts_privacy_bounded(target, value, truncated);
+    append_notification_privacy_bounded(target, value, truncated);
 }
 
-fn append_tts_privacy_bounded(target: &mut String, value: &str, truncated: &mut bool) {
+fn append_notification_privacy_bounded(target: &mut String, value: &str, truncated: &mut bool) {
     let current = target.chars().count();
     if current >= MAX_TTS_PRIVACY_COMPOSITE_CHARS {
         *truncated = true;

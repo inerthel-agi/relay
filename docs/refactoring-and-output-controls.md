@@ -22,7 +22,7 @@
 | Discord music | Music interaction handlers moved to bot/music_handlers.rs. |
 | Application state | Music lifecycle and media caches moved to state/music_playback.rs and state/media_cache.rs. |
 | Rust tests | Tests for 19 modules moved to module-local tests.rs files without changing their module paths. |
-| Remaining modules | Privacy classification, custom-command authorization, credentials, updater verification, TTS and widget lifecycle retain their implementations; tests and static analysis cover them. No speculative algorithm rewrite. |
+| Remaining modules | Privacy classification, custom-command authorization, credentials, updater verification, notification and widget lifecycle retain their implementations; tests and static analysis cover them. No speculative algorithm rewrite. |
 
 ## Compatibility and safety
 
@@ -35,7 +35,7 @@ The server still binds only to loopback. Output pages do not acquire panel comma
 ## Validation
 
 Run from src-tauri: cargo fmt --check, cargo clippy --offline --all-targets -- -D warnings, cargo test --offline.
-Run the JavaScript test files in gui, overlay, notifications, stickers, and tts using node --test.
+Run the JavaScript test files in gui-tests, overlay, notifications, stickers, and reactions using node --test.
 
 Browser smoke coverage: full panel module loading, video preview playback, saving/restoring an anchor preset, queue removal and author filtering. These checks use a local simulated backend; they do not claim an end-to-end Discord/OBS run.
 

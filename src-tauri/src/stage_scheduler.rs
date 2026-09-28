@@ -11,7 +11,7 @@ use std::{
 use serde::Serialize;
 use tokio::sync::{Mutex, broadcast};
 
-use crate::model::{RelayEvent, TtsEvent};
+use crate::model::{NotificationEvent, RelayEvent};
 
 const READY_TIMEOUT: Duration = Duration::from_secs(20);
 const CLAIM_TIMEOUT: Duration = Duration::from_secs(3);
@@ -19,7 +19,7 @@ const CLAIM_TIMEOUT: Duration = Duration::from_secs(3);
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StageLane {
     Media,
-    Tts,
+    Notification,
     Music,
 }
 
@@ -69,7 +69,7 @@ struct SchedulerState {
     active: Option<ActiveTicket>,
     media_busy: bool,
     music_busy: bool,
-    tts_busy: bool,
+    notification_busy: bool,
 }
 
 struct TicketEntry {
@@ -95,7 +95,7 @@ impl StageScheduler {
             if pinned
                 && state
                     .active
-                    .is_some_and(|active| active.lane == StageLane::Tts)
+                    .is_some_and(|active| active.lane == StageLane::Notification)
             {
                 let active = state.active.take().expect("checked active message");
                 state.entries.remove(&active.ticket);
@@ -203,11 +203,11 @@ impl StageScheduler {
                 return;
             }
             if state.messages_pinned
-                && matches!(&event, RelayEvent::Tts(_))
+                && matches!(&event, RelayEvent::Notification(_))
                 && state
                     .entries
                     .values()
-                    .filter(|entry| entry.lane == StageLane::Tts && entry.event.is_some())
+                    .filter(|entry| entry.lane == StageLane::Notification && entry.event.is_some())
                     .count()
                     >= state.message_queue_limit
             {
@@ -248,15 +248,15 @@ impl StageScheduler {
         self.try_dispatch().await;
     }
 
-    pub async fn stage_state(&self, media_busy: bool, music_busy: bool, tts_busy: bool) {
+    pub async fn stage_state(&self, media_busy: bool, music_busy: bool, notification_busy: bool) {
         let should_dispatch = {
             let mut state = self.inner.state.lock().await;
             state.media_busy = media_busy;
             state.music_busy = music_busy;
-            state.tts_busy = tts_busy;
+            state.notification_busy = notification_busy;
             let mut completed = None;
             if let Some(active) = state.active.as_mut() {
-                let busy = lane_busy(active.lane, media_busy, music_busy, tts_busy);
+                let busy = lane_busy(active.lane, media_busy, music_busy, notification_busy);
                 if busy {
                     active.saw_busy = true;
                 } else if active.saw_busy {
@@ -292,10 +292,10 @@ impl StageScheduler {
                             .unwrap_or_else(|| media.filename.clone()),
                         media.author.username.clone(),
                     ),
-                    Some(RelayEvent::Tts(tts)) => (
+                    Some(RelayEvent::Notification(notification)) => (
                         "notification".into(),
                         "Message".into(),
-                        tts.author.username.clone(),
+                        notification.author.username.clone(),
                     ),
                     Some(RelayEvent::Sticker(sticker)) => (
                         "sticker".into(),
@@ -450,7 +450,7 @@ impl StageScheduler {
             if state.active.is_some()
                 || state.media_busy
                 || state.music_busy
-                || (state.tts_busy && !state.messages_pinned)
+                || (state.notification_busy && !state.messages_pinned)
             {
                 return;
             }
@@ -459,7 +459,7 @@ impl StageScheduler {
                     || state
                         .entries
                         .get(ticket)
-                        .is_none_or(|entry| entry.lane != StageLane::Tts)
+                        .is_none_or(|entry| entry.lane != StageLane::Notification)
             }) else {
                 return;
             };
@@ -615,7 +615,9 @@ impl StageScheduler {
 
 fn event_order(event: &RelayEvent) -> (u64, String, u16) {
     match event {
-        RelayEvent::Tts(TtsEvent { timestamp, id, .. }) => (*timestamp, id.clone(), 0),
+        RelayEvent::Notification(NotificationEvent { timestamp, id, .. }) => {
+            (*timestamp, id.clone(), 0)
+        }
         RelayEvent::Sticker(event) => (event.timestamp, event.message_id.clone(), 100),
         RelayEvent::Media(event) => (event.timestamp, event.message_id.clone(), 200),
         RelayEvent::MusicPlay(event) => (now_ms(), event.playback_id.clone(), 300),
@@ -627,10 +629,10 @@ fn message_group(key: StageOrderKey) -> (u64, u64) {
     (key.timestamp_ms, key.message_id)
 }
 
-fn lane_busy(lane: StageLane, media_busy: bool, music_busy: bool, tts_busy: bool) -> bool {
+fn lane_busy(lane: StageLane, media_busy: bool, music_busy: bool, notification_busy: bool) -> bool {
     match lane {
         StageLane::Media => media_busy,
-        StageLane::Tts => tts_busy,
+        StageLane::Notification => notification_busy,
         StageLane::Music => music_busy,
     }
 }

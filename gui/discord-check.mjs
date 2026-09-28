@@ -1,6 +1,8 @@
 // Discord page → Bot check: shows the intent state and the permissions each channel is missing.
 
 const featureLabels = {
+  relay: "checkFeatureRelay",
+  // Two former channels are checked separately until the user chooses one.
   media: "checkFeatureMedia",
   notifications: "checkFeatureNotifications",
   music: "checkFeatureMusic",

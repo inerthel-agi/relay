@@ -6,7 +6,8 @@ export function normalizePreset(value) {
   return {
     name: value.name.trim(),
     geometry: {
-      contentScale: range("contentScale", 100, 50, 200),
+      // Lowest floor of any output (YouTube video); saving clamps per output.
+      contentScale: range("contentScale", 100, 10, 400),
       cropTop: range("cropTop", 0, 0, 40), cropRight: range("cropRight", 0, 0, 40),
       cropBottom: range("cropBottom", 0, 0, 40), cropLeft: range("cropLeft", 0, 0, 40),
       anchor: anchors.has(source.anchor) ? source.anchor : "legacy",

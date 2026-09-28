@@ -12,7 +12,7 @@
 1. **Honeypot.** A message in the trap channel triggers a translated DM, then a kick, ban or timeout, and deletion. Roles in `moderation.honeypotExemptRoleIds` only get the message deleted.
 2. **Gate** (`src-tauri/src/moderation.rs`, `ModerationRuntime::evaluate`). It runs on the raw Discord message, before any scan, in this order:
    - ignored members are dropped;
-   - trusted roles or members pass and skip manual review, cooldowns and spam checks;
+   - trusted roles or members pass and skip manual review, cooldowns and spam checks; so do the server owner and members whose roles grant Administrator, Manage Server or Manage Messages (read from the Discord cache). Privacy rules still apply to them;
    - the per-member cooldown drops media or notifications that come too soon;
    - notification spam (mentions, capitals, emoji, repeated characters) is dropped;
    - media seen within 10 minutes is dropped as a duplicate;

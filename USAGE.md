@@ -95,11 +95,12 @@ Default free quota is usually enough for personal streaming. Create a **new** ke
 
 ## 4. Choose the channels
 
-In **Media → Input routing**, pick the media channel. Configure message notifications in the **Messages** module:
+On the **Discord** page, under **Channels**, pick the channels:
 
-- **Media channel** — the channel viewers post images/GIFs/videos/audio into.
-- **Message channel** *(optional)* — a *different* channel whose messages appear as visual notifications. Set it under **Messages**.
+- **Relay channel** — the channel viewers post into. Text messages appear as visual notifications. Images, GIFs, videos, audio files and stickers go to their outputs. A message with text and media shows the notification first, then each media once.
 - **Music channel** *(optional)* — configured on the **Music** page with the YouTube API key ([§3](#3-youtube-data-api-key-music)).
+
+If an earlier version used two different channels for media and messages, the **Channels** section asks which one to keep. Until you choose, each channel keeps its previous role.
 
 Changes apply immediately, no restart needed. Alternatively, a server administrator can run [`/relay channel`](#11-the-relay-command) in Discord.
 
@@ -152,7 +153,7 @@ Relay keeps the three existing areas and adds controls that can be used from the
 
 ## 7. Message notifications
 
-In the **Messages** module, select a message channel to display human messages, emojis and stickers as visual notifications. Messages are not read aloud; Windows voices are no longer used.
+Human text messages and emojis posted in the Relay channel appear as visual notifications. Slash commands typed as text, Discord system messages and messages that only contain a GIF link do not create a notification. Messages are not read aloud; Windows voices are no longer used.
 
 - **Character limit**: optionally truncate long text messages.
 - **Queue limit**: 1–50 pending messages.
@@ -192,13 +193,17 @@ Server **administrators** can manage Relay from Discord (replies are ephemeral):
 
 | Command | Effect |
 |---|---|
-| `/relay channel <#channel>` | Set the watched media channel |
+| `/relay channel <#channel>` | Set the Relay channel (messages and media) |
 | `/relay show` | Show the current configuration |
 | `/relay status` | Show live OBS output, queue, and Windows widget status |
-| `/relay test <media\|audio\|tts\|notification\|sticker>` | Send an isolated local test to a connected output |
+| `/relay test <media\|audio\|notification\|sticker>` | Send an isolated local test to a connected output |
 | `/relay reaction <name>` | Trigger an enabled reaction when the channel and member role are allowed |
 | `/relay url` | Get the overlay URL (with secret) |
-| `/relay regenerate` | Regenerate the overlay secret (old URLs stop working) |
+| `/relay regenerate` | Reconnect the local outputs; the overlay URL stays the same |
+| `/relay clear <#channel> <count>` | Delete 1 to 1000 recent messages from the chosen channel |
+| `/relay nuke <#channel>` | Recreate the chosen channel to delete all of its messages |
+| `/relay lock` | Lock or unlock the Relay channel |
+| `/relay changelog <#channel>` | Post the latest Relay release notes from GitHub |
 
 ## 12. Personalization
 
@@ -224,7 +229,7 @@ Appearance changes are broadcast live to connected overlays.
 - Messages from bots are ignored by design.
 
 **Message notifications do not appear**
-- Open the **Messages** module and set a message channel different from the media channel.
+- Check that the Relay channel is set on the **Discord** page. If it asks you to choose between two former channels, pick one.
 - Enable the OBS notification overlay or Windows notification widget.
 - Check the bot can read the selected channel and that the output is connected.
 
