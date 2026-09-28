@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Relay · Discord to OBS</title>
+<meta name="description" content="Relay is a free Windows app that relays Discord media and messages to OBS Browser Sources and desktop widgets, with moderation and a local anti-doxxing scanner.">
+<meta name="theme-color" content="#000000">
+<meta property="og:title" content="Relay · Discord to OBS">
+<meta property="og:description" content="Your Discord channel, live on stream. Media, messages, music and reactions, moderated on your PC.">
+<meta property="og:image" content="/relay.jpg">
+<link rel="icon" type="image/jpeg" href="/relay.jpg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #000;
+  --fg: #f5f5f5;
+  --muted: #8a8a8a;
+  --line: #1c1c1c;
+  --card: #070707;
+  --accent: #fff;
+}
+* { box-sizing: border-box; margin: 0; }
+html { scroll-behavior: smooth; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font: 16px/1.6 "Sora", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+a { color: inherit; }
+code, .mono { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: .9em; }
+.wrap { max-width: 1080px; margin: 0 auto; padding: 0 16px; }
+
+nav { display: flex; align-items: center; justify-content: space-between; padding: 20px 0; }
+nav .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; text-decoration: none; }
+nav .brand img { width: 28px; height: 28px; border-radius: 6px; }
+nav .links { display: flex; gap: 24px; font-size: 14px; color: var(--muted); }
+nav .links a { text-decoration: none; }
+nav .links a:hover { color: var(--fg); }
+
+.hero { text-align: center; padding: 72px 0 96px; }
+.radar { position: relative; width: 200px; height: 200px; margin: 0 auto 40px; }
+.radar img { width: 100%; height: 100%; position: relative; z-index: 1; }
+.radar::before, .radar::after {
+  content: ""; position: absolute; inset: 18%; border-radius: 50%;
+  border: 1px solid rgba(255,255,255,.35);
+  animation: ping 3s ease-out infinite;
+}
+.radar::after { animation-delay: 1.5s; }
+@keyframes ping { from { transform: scale(1); opacity: .8; } to { transform: scale(2.2); opacity: 0; } }
+h1 { font-size: clamp(40px, 7vw, 76px); line-height: 1.05; letter-spacing: -.03em; }
+h1 span { color: var(--muted); }
+.lede { max-width: 620px; margin: 24px auto 0; color: var(--muted); font-size: 18px; }
+.cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-top: 40px; }
+.btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 14px 24px; border-radius: 999px; font-weight: 600; text-decoration: none;
+  border: 1px solid var(--line); transition: border-color .2s, background .2s;
+}
+.btn.primary { background: var(--accent); color: #000; border-color: var(--accent); }
+.btn.primary:hover { background: #d9d9d9; }
+.btn:not(.primary):hover { border-color: #555; }
+.note { margin-top: 16px; font-size: 13px; color: var(--muted); }
+
+section { padding: 88px 0; border-top: 1px solid var(--line); }
+.eyebrow { font-size: 13px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+h2 { font-size: clamp(28px, 4vw, 42px); letter-spacing: -.02em; margin: 8px 0 40px; line-height: 1.15; }
+
+.flow { display: grid; grid-template-columns: 1fr auto 1fr auto 1fr; gap: 16px; align-items: center; }
+.flow .node { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 24px; }
+.flow .node b { display: block; font-size: 18px; margin-bottom: 6px; }
+.flow .node p { color: var(--muted); font-size: 14px; }
+.flow .arrow { color: #444; font-size: 24px; text-align: center; }
+
+.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 28px; transition: border-color .2s; }
+.card:hover { border-color: #333; }
+.card h3 { font-size: 18px; margin-bottom: 8px; }
+.card p { color: var(--muted); font-size: 15px; }
+
+.split { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; }
+ul.checks { list-style: none; padding: 0; }
+ul.checks li { padding: 14px 0; border-bottom: 1px solid var(--line); color: var(--muted); }
+ul.checks li b { color: var(--fg); font-weight: 600; }
+
+.term { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 24px; overflow-x: auto; }
+.term div { white-space: nowrap; padding: 4px 0; }
+.term .c { color: var(--fg); }
+.term .d { color: var(--muted); }
+
+.final { text-align: center; }
+.final h2 { margin-bottom: 16px; }
+
+footer { border-top: 1px solid var(--line); padding: 32px 0 48px; color: var(--muted); font-size: 14px; }
+footer .wrap { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+footer a { text-decoration: none; }
+footer a:hover { color: var(--fg); }
+
+/* Animated demo: one 12 s loop, every element keyed to the same timeline. */
+.demo { display: grid; grid-template-columns: 1fr 120px 1.4fr; gap: 16px; align-items: center; margin-bottom: 12px; }
+.pane { background: var(--card); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.pane__bar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+.dots { display: flex; gap: 5px; }
+.dots i { width: 8px; height: 8px; border-radius: 50%; background: #262626; }
+.chat { padding: 16px; min-height: 260px; display: flex; flex-direction: column; gap: 14px; }
+.msg { display: flex; gap: 10px; font-size: 14px; opacity: 0; }
+.msg b { display: block; font-size: 13px; margin-bottom: 4px; }
+.msg p { color: #cfcfcf; }
+.msg img { width: 160px; border-radius: 8px; display: block; }
+.av { flex: none; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; font-weight: 700; color: #fff; }
+.m1 { animation: m1 12s infinite; }
+.m2 { animation: m2 12s infinite; }
+@keyframes m1 { 0%, 8% { opacity: 0; transform: translateY(8px); } 11%, 92% { opacity: 1; transform: none; } 97%, 100% { opacity: 0; } }
+@keyframes m2 { 0%, 50% { opacity: 0; transform: translateY(8px); } 53%, 92% { opacity: 1; transform: none; } 97%, 100% { opacity: 0; } }
+
+.relay-node { position: relative; display: grid; justify-items: center; gap: 10px; text-align: center; }
+.relay-node img { width: 64px; height: 64px; border-radius: 50%; animation: pulse 12s infinite; }
+@keyframes pulse { 0%, 12%, 30%, 54%, 72%, 100% { box-shadow: 0 0 0 0 rgba(255,255,255,0); } 16%, 58% { box-shadow: 0 0 0 10px rgba(255,255,255,.25); } 22%, 64% { box-shadow: 0 0 0 22px rgba(255,255,255,0); } }
+.st { position: absolute; top: 76px; font-size: 12px; white-space: nowrap; opacity: 0; }
+.st-check { color: var(--muted); animation: check 12s infinite; }
+.st-ok { color: #5ec48f; animation: ok 12s infinite; }
+@keyframes check { 0%, 12% { opacity: 0; } 14%, 26% { opacity: 1; } 28%, 54% { opacity: 0; } 56%, 64% { opacity: 1; } 66%, 100% { opacity: 0; } }
+@keyframes ok { 0%, 27% { opacity: 0; } 29%, 46% { opacity: 1; } 48%, 65% { opacity: 0; } 67%, 84% { opacity: 1; } 86%, 100% { opacity: 0; } }
+
+.stage { position: relative; aspect-ratio: 16 / 9; background:
+  radial-gradient(circle at 30% 40%, #1b2a3a 0, transparent 55%),
+  radial-gradient(circle at 75% 70%, #2a1830 0, transparent 50%), #050505; }
+.live { position: absolute; top: 12px; left: 12px; font-size: 11px; letter-spacing: .08em; color: #ff4d4d; }
+.o-media { position: absolute; right: 4%; top: 8%; width: 46%; opacity: 0; animation: media 12s infinite; }
+.o-media img { width: 100%; border-radius: 8px; display: block; box-shadow: 0 8px 30px rgba(0,0,0,.6); }
+.o-media figcaption { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 12px; }
+.o-media .av, .o-note .av { width: 22px; height: 22px; font-size: 11px; }
+@keyframes media { 0%, 28% { opacity: 0; transform: scale(.9); } 31%, 62% { opacity: 1; transform: none; } 65%, 100% { opacity: 0; transform: scale(.96); } }
+.o-note { position: absolute; left: 4%; bottom: 7%; display: flex; gap: 8px; align-items: flex-start; max-width: 60%;
+  background: rgba(10,10,10,.92); border: 1px solid #2a2a2a; border-radius: 10px; padding: 10px 12px; font-size: 13px; opacity: 0; animation: note 12s infinite; }
+.o-note b { display: block; font-size: 11px; color: var(--muted); }
+@keyframes note { 0%, 66% { opacity: 0; transform: translateX(-12px); } 69%, 88% { opacity: 1; transform: none; } 91%, 100% { opacity: 0; } }
+.demo-note { font-size: 13px; color: var(--muted); margin-bottom: 40px; }
+
+.tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+.tabs button { font: inherit; font-size: 14px; color: var(--muted); background: none; border: 1px solid var(--line); border-radius: 999px; padding: 8px 16px; cursor: pointer; }
+.tabs button:hover { color: var(--fg); border-color: #444; }
+.tabs button[aria-selected="true"] { color: #000; background: var(--fg); border-color: var(--fg); }
+.shot { background: var(--card); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; margin: 0 0 12px; }
+.shot img { display: block; width: 100%; height: auto; }
+.shot figcaption { padding: 14px 18px; font-size: 14px; color: var(--muted); border-top: 1px solid var(--line); }
+
+@media (max-width: 860px) {
+  .demo { grid-template-columns: 1fr; }
+  .relay-node { padding: 8px 0 32px; }
+  .chat { min-height: 0; }
+  .grid { grid-template-columns: 1fr 1fr; }
+  .split { grid-template-columns: 1fr; }
+  .flow { grid-template-columns: 1fr; }
+  .flow .arrow { transform: rotate(90deg); }
+}
+@media (max-width: 560px) {
+  .grid { grid-template-columns: 1fr; }
+  nav .links a:not(:last-child) { display: none; }
+  .hero { padding: 40px 0 64px; }
+  .radar { width: 150px; height: 150px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .radar::before, .radar::after { animation: none; opacity: 0; }
+  .msg, .o-media, .o-note, .st-ok { animation: none; opacity: 1; }
+  .relay-node img, .st-check { animation: none; }
+  html { scroll-behavior: auto; }
+}
+</style>
+</head>
+<body>
+<header class="wrap">
+  <nav>
+    <a class="brand" href="#"><img src="/relay.jpg" alt="">Relay</a>
+    <div class="links">
+      <a href="#how">Demo</a>
+      <a href="#screens">Panel</a>
+      <a href="#features">Features</a>
+      <a href="#privacy">Privacy</a>
+      <a href="https://github.com/inerthel-agi/relay">GitHub</a>
+    </div>
+  </nav>
+</header>
+
+<main>
+  <div class="wrap hero">
+    <div class="radar"><img src="/relay.jpg" alt="Relay logo"></div>
+    <h1>Your Discord channel,<br><span>live on stream.</span></h1>
+    <p class="lede">Relay is a free Windows app that sends the images, GIFs, videos, sounds and messages from one Discord channel to OBS and to desktop widgets. You stay in control of what goes on screen.</p>
+    <div class="cta">
+      <a class="btn primary" href="https://github.com/inerthel-agi/relay/releases/latest">Download for Windows</a>
+      <a class="btn" href="https://github.com/inerthel-agi/relay">View source</a>
+    </div>
+    <p class="note">Windows 10 / 11 · Installer or portable · MIT license</p>
+  </div>
+
+  <section id="how">
+    <div class="wrap">
+      <p class="eyebrow">How it works</p>
+      <h2>Viewers post. Relay checks. OBS shows.</h2>
+      <div class="demo" aria-label="Animated example: a Discord post goes through Relay and appears in OBS">
+        <div class="pane discord">
+          <div class="pane__bar"><span class="dots"><i></i><i></i><i></i></span># clips</div>
+          <div class="chat">
+            <div class="msg m1"><span class="av" style="background:#e11d48">N</span><div><b>Nova</b><img src="/screens/meme.jpg" alt="" loading="lazy"></div></div>
+            <div class="msg m2"><span class="av" style="background:#0891b2">P</span><div><b>Pixel</b><p>GG everyone, what a round!</p></div></div>
+          </div>
+        </div>
+        <div class="relay-node">
+          <img src="/relay.jpg" alt="">
+          <span class="st st-check">Checking…</span>
+          <span class="st st-ok">On stream ✓</span>
+        </div>
+        <div class="pane obs">
+          <div class="pane__bar"><span class="dots"><i></i><i></i><i></i></span>OBS · Live</div>
+          <div class="stage">
+            <span class="live">● LIVE</span>
+            <figure class="o-media"><img src="/screens/meme.jpg" alt=""><figcaption><span class="av" style="background:#e11d48">N</span>Nova</figcaption></figure>
+            <div class="o-note"><span class="av" style="background:#0891b2">P</span><div><b>Pixel</b><p>GG everyone, what a round!</p></div></div>
+          </div>
+        </div>
+      </div>
+      <p class="demo-note">Illustration of the flow. The real OBS layout, sizes and style are set in Relay.</p>
+      <div class="flow">
+        <div class="node"><b>Discord</b><p>Viewers post media, stickers or text in your Relay channel.</p></div>
+        <div class="arrow">→</div>
+        <div class="node"><b>Relay</b><p>Filters, moderates and queues everything on your PC.</p></div>
+        <div class="arrow">→</div>
+        <div class="node"><b>OBS &amp; widgets</b><p>Browser Sources and desktop widgets display it live.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="screens">
+    <div class="wrap">
+      <p class="eyebrow">The control panel</p>
+      <h2>Everything in one place.</h2>
+      <div class="tabs" role="tablist">
+        <button role="tab" aria-selected="true" data-src="/screens/moderation.jpg" data-cap="Approve or reject each media before it reaches the stream.">Moderation</button>
+        <button role="tab" aria-selected="false" data-src="/screens/overlay.jpg" data-cap="See which OBS sources and widgets are connected, and send local tests.">OBS &amp; widgets</button>
+        <button role="tab" aria-selected="false" data-src="/screens/history.jpg" data-cap="Replay, download or save any recent media.">History</button>
+        <button role="tab" aria-selected="false" data-src="/screens/discord.jpg" data-cap="Connect the bot and pick its channels. The token stays in Windows Credential Manager.">Discord</button>
+        <button role="tab" aria-selected="false" data-src="/screens/personalization.jpg" data-cap="Language, theme, design, accent color and text size.">Personalization</button>
+      </div>
+      <figure class="shot">
+        <div class="pane__bar"><span class="dots"><i></i><i></i><i></i></span>Relay</div>
+        <img id="shot" src="/screens/moderation.jpg" width="1440" height="900" alt="Relay control panel: Moderation page">
+        <figcaption id="shot-cap">Approve or reject each media before it reaches the stream.</figcaption>
+      </figure>
+      <p class="demo-note">Screenshots of Relay 1.4.1 with sample data.</p>
+    </div>
+  </section>
+
+  <section id="features">
+    <div class="wrap">
+      <p class="eyebrow">Features</p>
+      <h2>Everything your chat shares, on screen.</h2>
+      <div class="grid">
+        <div class="card"><h3>Media to OBS</h3><p>Images, GIFs from Tenor, Giphy and KLIPY, videos, audio and stickers play in order through one visual and one audio source.</p></div>
+        <div class="card"><h3>Message notifications</h3><p>Text posts become visual cards with the author's name and avatar, in OBS or in a desktop widget.</p></div>
+        <div class="card"><h3>Manual moderation</h3><p>Hold media for review and approve or reject each one from the panel. Nothing reaches the stream without your click.</p></div>
+        <div class="card"><h3>Anti-doxxing scanner</h3><p>A local scanner reads text in images and checks metadata to catch personal information before it is shown.</p></div>
+        <div class="card"><h3>YouTube music</h3><p>Viewers request songs from a dedicated channel. You reorder or remove them from the queue.</p></div>
+        <div class="card"><h3>Sounds &amp; reactions</h3><p>Trigger short sounds with an image or GIF, with cooldowns and allowed roles you choose.</p></div>
+        <div class="card"><h3>Desktop widgets</h3><p>Transparent, always-on-top windows for media and notifications. Drag, lock, click through.</p></div>
+        <div class="card"><h3>Panic button</h3><p>One click clears every output and pauses new playback. <code>Ctrl+Alt+S</code> skips from anywhere.</p></div>
+        <div class="card"><h3>Your look, your language</h3><p>True-black theme, any accent color, adjustable font size, and an interface in 10 languages.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="privacy">
+    <div class="wrap split">
+      <div>
+        <p class="eyebrow">Privacy by design</p>
+        <h2>It runs on your PC. It stays on your PC.</h2>
+        <p style="color:var(--muted)">No account, no cloud service, no tracking. The bot only needs to read the channels you pick.</p>
+      </div>
+      <ul class="checks">
+        <li><b>Local only.</b> The output server listens on <code>127.0.0.1</code>, never on your network.</li>
+        <li><b>Secrets protected.</b> Your bot token is stored in Windows Credential Manager, not in a file.</li>
+        <li><b>Signed updates.</b> Each release is verified with a pinned signature before it installs.</li>
+        <li><b>Open source.</b> Read every line on GitHub, under the MIT license.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="discord">
+    <div class="wrap split">
+      <div>
+        <p class="eyebrow">Control from Discord</p>
+        <h2>Manage it without leaving your server.</h2>
+        <p style="color:var(--muted)">Server administrators get a <code>/relay</code> command. Replies are only visible to them.</p>
+      </div>
+      <div class="term mono">
+        <div><span class="c">/relay channel</span> <span class="d">#clips</span></div>
+        <div><span class="c">/relay status</span> <span class="d">outputs, queue, widgets</span></div>
+        <div><span class="c">/relay test</span> <span class="d">media · audio · notification</span></div>
+        <div><span class="c">/relay reaction</span> <span class="d">airhorn</span></div>
+        <div><span class="c">/relay lock</span> <span class="d">pause the channel</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="final">
+    <div class="wrap">
+      <h2>Ready to go live?</h2>
+      <p class="lede" style="margin-top:0">Download Relay, invite your bot, add the sources to OBS.</p>
+      <div class="cta">
+        <a class="btn primary" href="https://github.com/inerthel-agi/relay/releases/latest">Download for Windows</a>
+        <a class="btn" href="https://github.com/inerthel-agi/relay/blob/main/USAGE.md">Read the guide</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>Relay · MIT license</span>
+    <span><a href="https://github.com/inerthel-agi/relay">GitHub</a> · <a href="https://github.com/inerthel-agi/relay/blob/main/CHANGELOG.md">Changelog</a> · <a href="https://github.com/inerthel-agi/relay/blob/main/SECURITY.md">Security</a></span>
+  </div>
+</footer>
+<script>
+const shot = document.getElementById("shot");
+const cap = document.getElementById("shot-cap");
+document.querySelectorAll(".tabs button").forEach((tab) => tab.addEventListener("click", () => {
+  document.querySelectorAll(".tabs button").forEach((t) => t.setAttribute("aria-selected", String(t === tab)));
+  shot.src = tab.dataset.src;
+  shot.alt = `Relay control panel: ${tab.textContent} page`;
+  cap.textContent = tab.dataset.cap;
+}));
+</script>
+</body>
+</html>
