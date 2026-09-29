@@ -149,6 +149,30 @@ footer a:hover { color: var(--fg); }
 .shot img { display: block; width: 100%; height: auto; }
 .shot figcaption { padding: 14px 18px; font-size: 14px; color: var(--muted); border-top: 1px solid var(--line); }
 
+.screen { position: relative; aspect-ratio: 16 / 10; background: #000; overflow: hidden; }
+.screen img { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; transition: opacity .35s; }
+.screen img.on { opacity: 1; }
+.cursor { position: absolute; left: 60%; top: 55%; width: 22px; height: 22px; z-index: 3; pointer-events: none;
+  transition: left .9s cubic-bezier(.45,0,.2,1), top .9s cubic-bezier(.45,0,.2,1);
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M4 2l15 9-6.5 1.6L9 19z' fill='%23fff' stroke='%23000' stroke-width='1.5' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat; }
+.cursor::after { content: ""; position: absolute; left: -9px; top: -9px; width: 20px; height: 20px; border-radius: 50%; border: 2px solid #fff; opacity: 0; }
+.cursor.click::after { animation: tap .45s ease-out; }
+@keyframes tap { from { opacity: .9; transform: scale(.3); } to { opacity: 0; transform: scale(2); } }
+.toast { position: absolute; right: 3%; bottom: 5%; z-index: 3; padding: 10px 16px; border-radius: 10px; font-size: 14px; font-weight: 600;
+  color: #b9f2d3; background: rgba(8,24,16,.95); border: 1px solid #1f6b47; opacity: 0; transform: translateY(8px); transition: opacity .3s, transform .3s; }
+.toast.show { opacity: 1; transform: none; }
+.tabs button { transition: color .2s, background .2s, border-color .2s; }
+
+/* Radar sweep over the logo circle */
+.radar .sweep { position: absolute; inset: 19%; z-index: 2; border-radius: 50%; mix-blend-mode: screen; pointer-events: none;
+  background: conic-gradient(from 0deg, transparent 0 290deg, rgba(255,255,255,.35) 360deg); animation: spin 4s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Reveal on scroll (class added by script only, so no-JS shows everything) */
+.rv { opacity: 0; transform: translateY(22px); transition: opacity .7s ease, transform .7s ease; }
+.rv.in { opacity: 1; transform: none; }
+.card:hover { transform: translateY(-3px); }
+.card { transition: border-color .2s, transform .2s; }
 @media (max-width: 860px) {
   .demo { grid-template-columns: 1fr; }
   .relay-node { padding: 8px 0 32px; }
@@ -167,6 +191,8 @@ footer a:hover { color: var(--fg); }
 @media (prefers-reduced-motion: reduce) {
   .radar::before, .radar::after { animation: none; opacity: 0; }
   .msg, .o-media, .o-note, .st-ok { animation: none; opacity: 1; }
+  .radar .sweep { animation: none; opacity: 0; }
+  .rv { opacity: 1; transform: none; transition: none; }
   .relay-node img, .st-check { animation: none; }
   html { scroll-behavior: auto; }
 }
@@ -188,7 +214,7 @@ footer a:hover { color: var(--fg); }
 
 <main>
   <div class="wrap hero">
-    <div class="radar"><img src="/relay.jpg" alt="Relay logo"></div>
+    <div class="radar"><img src="/relay.jpg" alt="Relay logo"><span class="sweep"></span></div>
     <h1>Your Discord channel,<br><span>live on stream.</span></h1>
     <p class="lede">Relay is a free Windows app that sends the images, GIFs, videos, sounds and messages from one Discord channel to OBS and to desktop widgets. You stay in control of what goes on screen.</p>
     <div class="cta">
@@ -240,18 +266,28 @@ footer a:hover { color: var(--fg); }
       <p class="eyebrow">The control panel</p>
       <h2>Everything in one place.</h2>
       <div class="tabs" role="tablist">
-        <button role="tab" aria-selected="true" data-src="/screens/moderation.jpg" data-cap="Approve or reject each media before it reaches the stream.">Moderation</button>
-        <button role="tab" aria-selected="false" data-src="/screens/overlay.jpg" data-cap="See which OBS sources and widgets are connected, and send local tests.">OBS &amp; widgets</button>
-        <button role="tab" aria-selected="false" data-src="/screens/history.jpg" data-cap="Replay, download or save any recent media.">History</button>
-        <button role="tab" aria-selected="false" data-src="/screens/discord.jpg" data-cap="Connect the bot and pick its channels. The token stays in Windows Credential Manager.">Discord</button>
-        <button role="tab" aria-selected="false" data-src="/screens/personalization.jpg" data-cap="Language, theme, design, accent color and text size.">Personalization</button>
+        <button role="tab" aria-selected="true" data-page="overview">Overview</button>
+        <button role="tab" aria-selected="false" data-page="moderation">Moderation</button>
+        <button role="tab" aria-selected="false" data-page="overlay">OBS &amp; widgets</button>
+        <button role="tab" aria-selected="false" data-page="history">History</button>
+        <button role="tab" aria-selected="false" data-page="discord">Discord</button>
+        <button role="tab" aria-selected="false" data-page="personalization">Personalization</button>
       </div>
       <figure class="shot">
         <div class="pane__bar"><span class="dots"><i></i><i></i><i></i></span>Relay</div>
-        <img id="shot" src="/screens/moderation.jpg" width="1440" height="900" alt="Relay control panel: Moderation page">
-        <figcaption id="shot-cap">Approve or reject each media before it reaches the stream.</figcaption>
+        <div class="screen" id="screen">
+          <img class="on" data-page="overview" src="/screens/overview.jpg" width="1440" height="900" alt="Relay control panel: Overview page">
+          <img data-page="moderation" src="/screens/moderation.jpg" width="1440" height="900" alt="Relay control panel: Moderation page">
+          <img data-page="overlay" src="/screens/overlay.jpg" width="1440" height="900" alt="Relay control panel: OBS and widgets page">
+          <img data-page="history" src="/screens/history.jpg" width="1440" height="900" alt="Relay control panel: History page">
+          <img data-page="discord" src="/screens/discord.jpg" width="1440" height="900" alt="Relay control panel: Discord page">
+          <img data-page="personalization" src="/screens/personalization.jpg" width="1440" height="900" alt="Relay control panel: Personalization page">
+          <span class="cursor" id="cursor" aria-hidden="true"></span>
+          <span class="toast" id="toast" aria-hidden="true">&#10003; Approved &middot; on stream</span>
+        </div>
+        <figcaption id="shot-cap">Setup checklist: Relay tells you what is left to do.</figcaption>
       </figure>
-      <p class="demo-note">Screenshots of Relay 1.4.1 with sample data.</p>
+      <p class="demo-note">Screenshots of Relay 1.4.1 with sample data. The cursor movement is an animation; click a tab to browse yourself.</p>
     </div>
   </section>
 
@@ -325,14 +361,65 @@ footer a:hover { color: var(--fg); }
   </div>
 </footer>
 <script>
-const shot = document.getElementById("shot");
+const screen = document.getElementById("screen");
+const cursor = document.getElementById("cursor");
+const toast = document.getElementById("toast");
 const cap = document.getElementById("shot-cap");
-document.querySelectorAll(".tabs button").forEach((tab) => tab.addEventListener("click", () => {
-  document.querySelectorAll(".tabs button").forEach((t) => t.setAttribute("aria-selected", String(t === tab)));
-  shot.src = tab.dataset.src;
-  shot.alt = `Relay control panel: ${tab.textContent} page`;
-  cap.textContent = tab.dataset.cap;
+const tabs = [...document.querySelectorAll(".tabs button")];
+const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const captions = {
+  overview: "Setup checklist: Relay tells you what is left to do.",
+  moderation: "Approve or reject each media before it reaches the stream.",
+  overlay: "See which OBS sources and widgets are connected, and send local tests.",
+  history: "Replay, download or save any recent media.",
+  discord: "Connect the bot and pick its channels. The token stays in Windows Credential Manager.",
+  personalization: "Language, theme, design, accent color and text size.",
+};
+// Cursor targets are % of the 1440x900 screenshot.
+const steps = [
+  { page: "overview", x: 60, y: 55 },
+  { page: "moderation", x: 5.9, y: 69.3, click: true },
+  { page: "moderation", x: 91, y: 86.3, click: true, toast: true },
+  { page: "overlay", x: 6.7, y: 55.9, click: true },
+  { page: "history", x: 5, y: 60.8, click: true },
+  { page: "personalization", x: 6.8, y: 82.8, click: true },
+];
+let run = 0, idle;
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function show(page) {
+  screen.querySelectorAll("img").forEach((i) => i.classList.toggle("on", i.dataset.page === page));
+  tabs.forEach((t) => t.setAttribute("aria-selected", String(t.dataset.page === page)));
+  cap.textContent = captions[page];
+}
+async function play() {
+  const id = ++run;
+  for (let i = 0; id === run; i = (i + 1) % steps.length) {
+    const s = steps[i];
+    cursor.style.left = s.x + "%"; cursor.style.top = s.y + "%";
+    await wait(i === 0 ? 1200 : 1000); if (id !== run) return;
+    if (s.click) { cursor.classList.remove("click"); void cursor.offsetWidth; cursor.classList.add("click"); await wait(250); if (id !== run) return; }
+    show(s.page);
+    if (s.toast) { toast.classList.add("show"); await wait(1800); toast.classList.remove("show"); if (id !== run) return; }
+    await wait(2200);
+  }
+}
+tabs.forEach((tab) => tab.addEventListener("click", () => {
+  run++; toast.classList.remove("show"); cursor.style.opacity = 0;
+  show(tab.dataset.page);
+  clearTimeout(idle);
+  if (!still) idle = setTimeout(() => { idle = 0; cursor.style.opacity = 1; play(); }, 12000);
 }));
+if (!still) new IntersectionObserver(([e]) => { if (e.isIntersecting) { if (!idle) play(); } else run++; }, { threshold: .4 }).observe(screen);
+else cursor.hidden = true;
+
+// Reveal on scroll.
+if (!still) {
+  const io = new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } }), { threshold: .15 });
+  document.querySelectorAll(".eyebrow, section h2, .node, .card, .checks li, .term, .demo, .shot, .final .lede").forEach((el, i) => {
+    el.classList.add("rv"); el.style.transitionDelay = (i % 3) * 80 + "ms"; io.observe(el);
+  });
+}
 </script>
 </body>
 </html>
