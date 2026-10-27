@@ -6,8 +6,8 @@ An offline-first Windows control surface with a calm technical tone: neutral sur
 
 ## Identity
 
-- Primary asset: `gui/assets/relay-radar.png`
-- Icon: white minimalist radar on a full black field
+- Primary asset: `gui/assets/relay-radar.png` (historical file name, kept because OBS pages request that path)
+- Icon: a message card breaking out of a stream frame: white frame and Relay green card (`#58B989`) on an ink field (`#111418`). Masters, variants and usage rules are in `branding/`.
 - Signature motion: audio waveform only while audio is playing
 - Product name: Relay
 
@@ -40,7 +40,7 @@ Default graphite palette:
 
 Notifications, the music card, media captions and the YouTube credit read `--out-*` tokens from `outputs/theme.css`. `outputs/theme.js` sets `data-output-style` and `data-output-background` on each output page from the `appearance` message.
 
-- Style: `auto` (follows the design) or one of the six designs, or `subtitle` (outlined text, no card). Background: `auto` (follows the theme), `light` or `dark`. Both live under Personalization → Notification style.
+- Style: `auto` (follows the design) or one of the ten designs, or `subtitle` (outlined text, no card). Background: `auto` (follows the theme), `light` or `dark`. Both live under Outputs → All outputs → Notification style.
 - Edges stay opaque. Shadows are either `none` or a hard offset with an opaque color; blur, glass and glows leave a black halo in OBS and are not allowed.
 - Message notifications: 220 to 340 px wide, 56 px minimum height, 32 px avatar, name 11 to 13 px as a label, message 14.5 to 18 px, three lines at most. In the Windows widget, text cards fill the window width.
 - Motion: entry and exit are defined per style (`--out-enter-*`, `--out-exit-*`), without overshoot. The exit uses a discrete `display` transition and the entry `@starting-style`. Reduced motion shortens every transition to 1 ms.
@@ -49,22 +49,24 @@ Notifications, the music card, media captions and the YouTube credit read `--out
 
 ## Interface
 
-- 14 pages in five task groups: Get started (Overview, Discord, Help), Content (Messages, Media, Music, Sounds and reactions), Broadcast (OBS & widgets, History), Safety (Moderation, Commands), App (Personalization, Changelog, About).
+- 15 pages in six foldable groups: Get started (Overview, Discord, Discord commands), Live (Control room), Content (Messages, Media, History, Music, Sounds and reactions), Broadcast (Outputs), Safety (Moderation), App (Settings, Help, Changelog, About). Folding a group never hides the open page; the compact sidebar ignores folding.
+- Simple / Advanced (`relay-interface-mode`, Simple by default) sets `data-ui-mode` on the root; Simple hides every element marked `data-advanced` and changes no setting. Opening an advanced page or a search result inside a `data-advanced` block switches to Advanced.
+- The Control room (`live`) holds the live controls: pinned message, current media and Skip, waiting queue, and the review queue.
 - Overview is a setup checklist (bot, invitation, Relay channel, OBS sources, test) followed by a dashboard. Relay opens there until the bot and Relay channel are set, then on the last visited page (`relay-last-page`).
-- The Discord page owns the connection and every channel select. Module pages show a `.channel-link` row that opens it.
+- The Discord page owns the connection and every channel select. Music and the trap show a `.channel-link` row that opens it; Messages and Media do not repeat the Relay channel.
 - Internal links use `data-go-to-page` and optionally `data-go-to-target`, which opens enclosing `<details>` and highlights the target.
 - Sidebar items may carry a `.navigation__badge`; top bar status pills are buttons that open their page.
-- The tray attention row opens the panel on a page through `tray_open_control_panel({ page })`; Rust accepts only `overview`, `discord`, `moderation` and `overlay`, then emits `relay-open-page` to the main window.
+- The tray attention row opens the panel on a page through `tray_open_control_panel({ page })`; Rust accepts only `overview`, `discord`, `live`, `moderation` and `overlay`, then emits `relay-open-page` to the main window.
 - Until the bot is connected, Overview shows a trial block (`#trial-mode`) that tests the media widget or OBS without Discord.
 - The panic button sits in the top bar before the status pills; below 1320px it shows only its icon. While paused, `#paused-banner` occupies the second row of `.workspace`.
-- The tray uses only `--tray-*` tokens: a state pill (`live`, `paused`, `offline`, `problem`), a two-line status card, Panic/Resume, and widget rows with switches.
+- The tray uses only `--tray-*` tokens: a state pill (`live`, `paused`, `offline`, `problem`), Discord and OBS status tiles, Open control panel as the main action, Skip and Panic/Resume with the shortcuts the panel stores in `relay-shortcut-labels`, and widget rows with switches.
 - Backend errors are English. `setSaveState(..., "error", message)` shows a translated category from `gui/diagnostics.mjs` in other languages and keeps the original as `title`.
 - The diagnostic report (`buildDiagnosticReport`) is plain English and passes every free-form value through `sanitizeDiagnosticText`.
-- Sections are numbered from 01 within each page.
+- Sections are not numbered; the Help setup steps are.
 - Each setting has one home. Other pages link to it instead of repeating the field.
 - Settings save automatically: toggles, menus and sliders shortly after they change, text and number fields on `change` (leaving the field or Enter). Secrets (Discord token, YouTube key) and custom commands keep an explicit button.
 - Action results without a status line on the current page appear in the shared toast (`#toast`).
-- 9 languages plus English (UK), English (India) and Spanish (Latin America) variants.
+- 13 languages, one entry each (en, fr, de, es, it, pt-BR, pl, tr, ru, zh, ko, ja, id). A regional locale saved by an older version keeps its language.
 - Light and dark themes. First launch and "Restore defaults" follow the Windows color scheme.
 - Images and GIFs use the configured timer. Video and audio play to completion.
 - Skip is available from the panel and the global shortcut `Ctrl+Alt+S`.

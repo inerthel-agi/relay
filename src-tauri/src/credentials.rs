@@ -9,6 +9,8 @@ use rand::{RngCore, rng};
 use serde::{Deserialize, Serialize};
 use windows_native_keyring_store::Store;
 
+use crate::ai::AiProvider;
+
 const SERVICE: &str = "eu.inerthel.relay";
 /// Former Credential Manager services, newest first. A value found there is
 /// moved to `SERVICE` the first time it is read.
@@ -17,8 +19,14 @@ const DISCORD_ACCOUNT: &str = "discord-credentials";
 const YOUTUBE_API_KEY_ACCOUNT: &str = "youtube-api-key";
 const RELAY_SECRET_ACCOUNT: &str = "relay-secret";
 const OBS_WEBSOCKET_ACCOUNT: &str = "obs-websocket-password";
+const OPENAI_API_KEY_ACCOUNT: &str = "openai-api-key";
+const ANTHROPIC_API_KEY_ACCOUNT: &str = "anthropic-api-key";
 static KEYRING_READY: OnceLock<Result<(), String>> = OnceLock::new();
 static RELAY_SECRET_CACHE: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+/// Whether each AI provider has a saved key (OpenAI, Anthropic). Read once,
+/// then kept up to date by `save_ai_api_key`, so the status never reads the
+/// secrets again.
+static AI_KEY_SAVED: Mutex<[Option<bool>; 2]> = Mutex::new([None, None]);
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -35,6 +43,8 @@ pub struct CredentialStatus {
     pub client_id: Option<String>,
     pub youtube_configured: bool,
     pub obs_password_configured: bool,
+    pub openai_configured: bool,
+    pub anthropic_configured: bool,
 }
 
 pub fn initialize_keyring() -> Result<()> {
@@ -145,10 +155,90 @@ pub fn load_obs_password() -> Result<Option<String>> {
     }
 }
 
+fn ai_api_key_account(provider: AiProvider) -> &'static str {
+    match provider {
+        AiProvider::OpenAi => OPENAI_API_KEY_ACCOUNT,
+        AiProvider::Anthropic => ANTHROPIC_API_KEY_ACCOUNT,
+    }
+}
+
+fn ai_key_slot(provider: AiProvider) -> usize {
+    match provider {
+        AiProvider::OpenAi => 0,
+        AiProvider::Anthropic => 1,
+    }
+}
+
+/// The remembered answer, or `read` when there is none yet; a failed read
+/// (`None`) counts as "not saved" without being remembered.
+fn remembered(
+    cache: &Mutex<[Option<bool>; 2]>,
+    slot: usize,
+    read: impl FnOnce() -> Option<bool>,
+) -> bool {
+    let mut cache = cache
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(saved) = cache[slot] {
+        return saved;
+    }
+    let saved = read();
+    cache[slot] = saved;
+    saved.unwrap_or(false)
+}
+
+fn ai_key_saved(provider: AiProvider) -> bool {
+    remembered(&AI_KEY_SAVED, ai_key_slot(provider), || {
+        load_ai_api_key(provider).ok().map(|key| key.is_some())
+    })
+}
+
+fn remember_ai_key(provider: AiProvider, saved: bool) {
+    AI_KEY_SAVED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)[ai_key_slot(provider)] = Some(saved);
+}
+
+/// API key of one AI provider; an empty value removes the saved one.
+pub fn save_ai_api_key(provider: AiProvider, api_key: &str) -> Result<()> {
+    let api_key = api_key.trim();
+    initialize_keyring()?;
+    let entry = Entry::new(SERVICE, ai_api_key_account(provider))?;
+    if api_key.is_empty() {
+        return match entry.delete_credential() {
+            Ok(()) | Err(KeyringError::NoEntry) => {
+                remember_ai_key(provider, false);
+                Ok(())
+            }
+            Err(error) => Err(error).context("failed to remove the AI API key"),
+        };
+    }
+    validate_ai_api_key(api_key)?;
+    entry
+        .set_password(api_key)
+        .context("failed to save the AI API key in Windows Credential Manager")?;
+    remember_ai_key(provider, true);
+    Ok(())
+}
+
+pub fn load_ai_api_key(provider: AiProvider) -> Result<Option<String>> {
+    initialize_keyring()?;
+    match Entry::new(SERVICE, ai_api_key_account(provider))?.get_password() {
+        Ok(api_key) => {
+            validate_ai_api_key(&api_key)?;
+            Ok(Some(api_key))
+        }
+        Err(KeyringError::NoEntry) => Ok(None),
+        Err(error) => Err(error).context("failed to read the AI API key"),
+    }
+}
+
 pub fn credential_status() -> Result<CredentialStatus> {
     let credentials = load_discord_credentials()?;
     let youtube_configured = load_youtube_api_key()?.is_some();
     let obs_password_configured = load_obs_password().ok().flatten().is_some();
+    let openai_configured = ai_key_saved(AiProvider::OpenAi);
+    let anthropic_configured = ai_key_saved(AiProvider::Anthropic);
     Ok(match credentials {
         Some((credentials, source)) => CredentialStatus {
             configured: true,
@@ -156,6 +246,8 @@ pub fn credential_status() -> Result<CredentialStatus> {
             client_id: Some(credentials.client_id),
             youtube_configured,
             obs_password_configured,
+            openai_configured,
+            anthropic_configured,
         },
         None => CredentialStatus {
             configured: false,
@@ -163,6 +255,8 @@ pub fn credential_status() -> Result<CredentialStatus> {
             client_id: None,
             youtube_configured,
             obs_password_configured,
+            openai_configured,
+            anthropic_configured,
         },
     })
 }
@@ -257,6 +351,18 @@ fn validate_discord_credentials(credentials: &DiscordCredentials) -> Result<()> 
     Ok(())
 }
 
+/// Shape only: provider key formats change, so no prefix is required.
+fn validate_ai_api_key(api_key: &str) -> Result<()> {
+    if !(20..=512).contains(&api_key.len())
+        || api_key
+            .chars()
+            .any(|character| character.is_control() || character.is_whitespace())
+    {
+        bail!("The AI API key is invalid.");
+    }
+    Ok(())
+}
+
 fn validate_youtube_api_key(api_key: &str) -> Result<()> {
     if !(20..=256).contains(&api_key.len())
         || api_key
@@ -267,3 +373,6 @@ fn validate_youtube_api_key(api_key: &str) -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

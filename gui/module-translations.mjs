@@ -13,7 +13,7 @@ const reactionQueueTranslations = {
 export const moduleTranslations = {
   en: {
     modReactionGeneral: "General settings", modReactionAccess: "Discord access", modReactionDisplay: "Display",
-    moduleMessages: "Messages", moduleReactions: "Sounds and reactions", pinCopy: "Keep an important message on screen while media and music continue.", reactionCopy: "Prepare short sounds and visuals, then trigger them here or from Discord.",
+    moduleMessages: "Messages", moduleReactions: "Sounds and reactions", reactionCopy: "Prepare short sounds and visuals, then trigger them here or from Discord.",
     modPin: "Pin", modUnpin: "Remove pinned message", modPinned: "Message pinned. Other messages are waiting.", modNoMessage: "No message is currently displayed.",
     modLibrary: "Media library", modLibraryCopy: "Keep local copies of images, GIFs and videos for future broadcasts.", modSearch: "Search the library", modImport: "Import from PC", modStorage: "Storage used", modName: "Name", modRename: "Rename", modPlay: "Play", modDelete: "Delete", modEmptyLibrary: "No saved media.", modDeleteConfirm: "Delete this Relay copy? Your original file will remain.", modCancel: "Cancel", modSaveLibrary: "Save to library",
     modMusicRequests: "Music requests", modRequestLimit: "Pending requests per member (0: unlimited)", modRejectDuplicates: "Reject duplicate pending tracks", modSaved: "Saved", modUp: "Move up", modDown: "Move down", modRemove: "Remove", modQueueEmpty: "No tracks waiting.",
@@ -21,7 +21,7 @@ export const moduleTranslations = {
   },
   fr: {
     modReactionGeneral: "Paramètres généraux", modReactionAccess: "Accès Discord", modReactionDisplay: "Affichage",
-    moduleMessages: "Messages", moduleReactions: "Sons et réactions", pinCopy: "Garde un message important à l’écran pendant que les médias et musiques continuent.", reactionCopy: "Prépare des sons courts et des visuels, puis déclenche-les ici ou depuis Discord.",
+    moduleMessages: "Messages", moduleReactions: "Sons et réactions", reactionCopy: "Prépare des sons courts et des visuels, puis déclenche-les ici ou depuis Discord.",
     modPin: "Épingler", modUnpin: "Retirer le message épinglé", modPinned: "Message épinglé. Les autres messages attendent.", modNoMessage: "Aucun message affiché actuellement.",
     modLibrary: "Bibliothèque de médias", modLibraryCopy: "Conserve des copies locales d’images, de GIF et de vidéos pour tes prochains lives.", modSearch: "Rechercher dans la bibliothèque", modImport: "Importer depuis le PC", modStorage: "Espace utilisé", modName: "Nom", modRename: "Renommer", modPlay: "Diffuser", modDelete: "Supprimer", modEmptyLibrary: "Aucun média enregistré.", modDeleteConfirm: "Supprimer cette copie de Relay ? Le fichier original sera conservé.", modCancel: "Annuler", modSaveLibrary: "Enregistrer dans la bibliothèque",
     modMusicRequests: "Demandes musicales", modRequestLimit: "Demandes en attente par membre (0 : illimité)", modRejectDuplicates: "Refuser les titres déjà en attente", modSaved: "Enregistré", modUp: "Monter", modDown: "Descendre", modRemove: "Retirer", modQueueEmpty: "Aucun titre en attente.",
@@ -29,7 +29,7 @@ export const moduleTranslations = {
   },
   es: {
     modReactionGeneral: "Ajustes generales", modReactionAccess: "Acceso a Discord", modReactionDisplay: "Visualización",
-    moduleMessages: "Mensajes", moduleReactions: "Sonidos y reacciones", pinCopy: "Mantén un mensaje importante en pantalla mientras los medios y la música continúan.", reactionCopy: "Prepara sonidos cortos y elementos visuales y actívalos aquí o desde Discord.",
+    moduleMessages: "Mensajes", moduleReactions: "Sonidos y reacciones", reactionCopy: "Prepara sonidos cortos y elementos visuales y actívalos aquí o desde Discord.",
     modPin: "Fijar", modUnpin: "Quitar mensaje fijado", modPinned: "Mensaje fijado. Los demás mensajes están esperando.", modNoMessage: "No hay ningún mensaje mostrado actualmente.",
     modLibrary: "Biblioteca de medios", modLibraryCopy: "Guarda copias locales de imágenes, GIF y vídeos para futuras emisiones.", modSearch: "Buscar en la biblioteca", modImport: "Importar desde el PC", modStorage: "Espacio utilizado", modName: "Nombre", modRename: "Cambiar nombre", modPlay: "Emitir", modDelete: "Eliminar", modEmptyLibrary: "No hay medios guardados.", modDeleteConfirm: "¿Eliminar esta copia de Relay? El archivo original se conservará.", modCancel: "Cancelar", modSaveLibrary: "Guardar en la biblioteca",
     modMusicRequests: "Solicitudes musicales", modRequestLimit: "Solicitudes pendientes por miembro (0: ilimitadas)", modRejectDuplicates: "Rechazar pistas pendientes duplicadas", modSaved: "Guardado", modUp: "Subir", modDown: "Bajar", modRemove: "Quitar", modQueueEmpty: "No hay pistas esperando.",
@@ -37,7 +37,7 @@ export const moduleTranslations = {
   },
   de: {
     modReactionGeneral: "Allgemeine Einstellungen", modReactionAccess: "Discord-Zugriff", modReactionDisplay: "Anzeige",
-    moduleMessages: "Nachrichten", moduleReactions: "Töne und Reaktionen", pinCopy: "Halte eine wichtige Nachricht auf dem Bildschirm, während Medien und Musik weiterlaufen.", reactionCopy: "Bereite kurze Töne und visuelle Inhalte vor und löse sie hier oder über Discord aus.",
+    moduleMessages: "Nachrichten", moduleReactions: "Töne und Reaktionen", reactionCopy: "Bereite kurze Töne und visuelle Inhalte vor und löse sie hier oder über Discord aus.",
     modPin: "Anheften", modUnpin: "Angeheftete Nachricht entfernen", modPinned: "Nachricht angeheftet. Andere Nachrichten warten.", modNoMessage: "Zurzeit wird keine Nachricht angezeigt.",
     modLibrary: "Medienbibliothek", modLibraryCopy: "Speichere lokale Kopien von Bildern, GIFs und Videos für spätere Ausgaben.", modSearch: "Bibliothek durchsuchen", modImport: "Vom PC importieren", modStorage: "Verwendeter Speicher", modName: "Name", modRename: "Umbenennen", modPlay: "Ausgeben", modDelete: "Löschen", modEmptyLibrary: "Keine Medien gespeichert.", modDeleteConfirm: "Diese Relay-Kopie löschen? Die Originaldatei bleibt erhalten.", modCancel: "Abbrechen", modSaveLibrary: "In Bibliothek speichern",
     modMusicRequests: "Musikanfragen", modRequestLimit: "Wartende Anfragen pro Mitglied (0: unbegrenzt)", modRejectDuplicates: "Doppelte wartende Titel ablehnen", modSaved: "Gespeichert", modUp: "Nach oben", modDown: "Nach unten", modRemove: "Entfernen", modQueueEmpty: "Keine Titel warten.",
@@ -45,7 +45,7 @@ export const moduleTranslations = {
   },
   ru: {
     modReactionGeneral: "Общие настройки", modReactionAccess: "Доступ в Discord", modReactionDisplay: "Отображение",
-    moduleMessages: "Сообщения", moduleReactions: "Звуки и реакции", pinCopy: "Оставляйте важное сообщение на экране, пока медиа и музыка продолжают воспроизводиться.", reactionCopy: "Подготовьте короткие звуки и визуальные материалы, а затем запускайте их здесь или через Discord.",
+    moduleMessages: "Сообщения", moduleReactions: "Звуки и реакции", reactionCopy: "Подготовьте короткие звуки и визуальные материалы, а затем запускайте их здесь или через Discord.",
     modPin: "Закрепить", modUnpin: "Убрать закреплённое сообщение", modPinned: "Сообщение закреплено. Остальные сообщения ожидают.", modNoMessage: "Сейчас нет отображаемого сообщения.",
     modLibrary: "Медиатека", modLibraryCopy: "Сохраняйте локальные копии изображений, GIF и видео для будущих показов.", modSearch: "Поиск в медиатеке", modImport: "Импортировать с ПК", modStorage: "Занято места", modName: "Название", modRename: "Переименовать", modPlay: "Показать", modDelete: "Удалить", modEmptyLibrary: "Сохранённых медиа нет.", modDeleteConfirm: "Удалить эту копию Relay? Исходный файл останется.", modCancel: "Отмена", modSaveLibrary: "Сохранить в медиатеку",
     modMusicRequests: "Музыкальные запросы", modRequestLimit: "Ожидающих запросов на участника (0: без ограничений)", modRejectDuplicates: "Отклонять дубликаты ожидающих треков", modSaved: "Сохранено", modUp: "Выше", modDown: "Ниже", modRemove: "Убрать", modQueueEmpty: "Ожидающих треков нет.",
@@ -53,7 +53,7 @@ export const moduleTranslations = {
   },
   zh: {
     modReactionGeneral: "常规设置", modReactionAccess: "Discord 访问", modReactionDisplay: "显示",
-    moduleMessages: "消息", moduleReactions: "声音和反应", pinCopy: "在媒体和音乐继续播放时，将重要消息保留在屏幕上。", reactionCopy: "准备短声音和视觉内容，然后在这里或通过 Discord 触发。",
+    moduleMessages: "消息", moduleReactions: "声音和反应", reactionCopy: "准备短声音和视觉内容，然后在这里或通过 Discord 触发。",
     modPin: "固定", modUnpin: "移除固定消息", modPinned: "消息已固定。其他消息正在等待。", modNoMessage: "当前没有显示消息。",
     modLibrary: "媒体库", modLibraryCopy: "保存图片、GIF 和视频的本地副本，以便日后播放。", modSearch: "搜索媒体库", modImport: "从电脑导入", modStorage: "已用空间", modName: "名称", modRename: "重命名", modPlay: "播放", modDelete: "删除", modEmptyLibrary: "没有已保存的媒体。", modDeleteConfirm: "删除这个 Relay 副本？原始文件会保留。", modCancel: "取消", modSaveLibrary: "保存到媒体库",
     modMusicRequests: "音乐请求", modRequestLimit: "每位成员的待处理请求数（0：不限）", modRejectDuplicates: "拒绝重复的待处理曲目", modSaved: "已保存", modUp: "上移", modDown: "下移", modRemove: "移除", modQueueEmpty: "没有等待中的曲目。",
@@ -61,7 +61,7 @@ export const moduleTranslations = {
   },
   ko: {
     modReactionGeneral: "일반 설정", modReactionAccess: "Discord 접근", modReactionDisplay: "표시",
-    moduleMessages: "메시지", moduleReactions: "소리 및 반응", pinCopy: "미디어와 음악이 계속 재생되는 동안 중요한 메시지를 화면에 유지합니다.", reactionCopy: "짧은 소리와 시각 자료를 준비한 다음 여기 또는 Discord에서 실행합니다.",
+    moduleMessages: "메시지", moduleReactions: "소리 및 반응", reactionCopy: "짧은 소리와 시각 자료를 준비한 다음 여기 또는 Discord에서 실행합니다.",
     modPin: "고정", modUnpin: "고정된 메시지 제거", modPinned: "메시지를 고정했습니다. 다른 메시지는 대기 중입니다.", modNoMessage: "현재 표시 중인 메시지가 없습니다.",
     modLibrary: "미디어 라이브러리", modLibraryCopy: "이미지, GIF, 동영상의 로컬 복사본을 저장해 나중에 방송합니다.", modSearch: "라이브러리 검색", modImport: "PC에서 가져오기", modStorage: "사용 중인 저장 공간", modName: "이름", modRename: "이름 바꾸기", modPlay: "방송", modDelete: "삭제", modEmptyLibrary: "저장된 미디어가 없습니다.", modDeleteConfirm: "이 Relay 복사본을 삭제할까요? 원본 파일은 유지됩니다.", modCancel: "취소", modSaveLibrary: "라이브러리에 저장",
     modMusicRequests: "음악 요청", modRequestLimit: "멤버당 대기 요청 수 (0: 무제한)", modRejectDuplicates: "대기 중인 중복 트랙 거부", modSaved: "저장됨", modUp: "위로 이동", modDown: "아래로 이동", modRemove: "제거", modQueueEmpty: "대기 중인 트랙이 없습니다.",
@@ -69,7 +69,7 @@ export const moduleTranslations = {
   },
   ja: {
     modReactionGeneral: "一般設定", modReactionAccess: "Discord アクセス", modReactionDisplay: "表示",
-    moduleMessages: "メッセージ", moduleReactions: "サウンドとリアクション", pinCopy: "メディアや音楽の再生中も、大切なメッセージを画面に表示し続けます。", reactionCopy: "短いサウンドとビジュアルを用意し、ここまたは Discord から実行します。",
+    moduleMessages: "メッセージ", moduleReactions: "サウンドとリアクション", reactionCopy: "短いサウンドとビジュアルを用意し、ここまたは Discord から実行します。",
     modPin: "固定", modUnpin: "固定メッセージを解除", modPinned: "メッセージを固定しました。他のメッセージは待機中です。", modNoMessage: "現在表示中のメッセージはありません。",
     modLibrary: "メディアライブラリ", modLibraryCopy: "画像、GIF、動画のローカルコピーを保存して、後で配信できます。", modSearch: "ライブラリを検索", modImport: "PC からインポート", modStorage: "使用中の容量", modName: "名前", modRename: "名前を変更", modPlay: "配信", modDelete: "削除", modEmptyLibrary: "保存されたメディアはありません。", modDeleteConfirm: "この Relay のコピーを削除しますか？元のファイルは残ります。", modCancel: "キャンセル", modSaveLibrary: "ライブラリに保存",
     modMusicRequests: "音楽リクエスト", modRequestLimit: "メンバーごとの待機リクエスト数（0：無制限）", modRejectDuplicates: "待機中の重複トラックを拒否", modSaved: "保存済み", modUp: "上へ", modDown: "下へ", modRemove: "削除", modQueueEmpty: "待機中のトラックはありません。",
@@ -77,7 +77,7 @@ export const moduleTranslations = {
   },
   id: {
     modReactionGeneral: "Pengaturan umum", modReactionAccess: "Akses Discord", modReactionDisplay: "Tampilan",
-    moduleMessages: "Pesan", moduleReactions: "Suara dan reaksi", pinCopy: "Pertahankan pesan penting di layar saat media dan musik terus berjalan.", reactionCopy: "Siapkan suara singkat dan visual, lalu jalankan di sini atau dari Discord.",
+    moduleMessages: "Pesan", moduleReactions: "Suara dan reaksi", reactionCopy: "Siapkan suara singkat dan visual, lalu jalankan di sini atau dari Discord.",
     modPin: "Sematkan", modUnpin: "Hapus pesan yang disematkan", modPinned: "Pesan disematkan. Pesan lain sedang menunggu.", modNoMessage: "Tidak ada pesan yang sedang ditampilkan.",
     modLibrary: "Pustaka media", modLibraryCopy: "Simpan salinan lokal gambar, GIF, dan video untuk siaran berikutnya.", modSearch: "Cari di pustaka", modImport: "Impor dari PC", modStorage: "Penyimpanan terpakai", modName: "Nama", modRename: "Ganti nama", modPlay: "Siaran", modDelete: "Hapus", modEmptyLibrary: "Belum ada media tersimpan.", modDeleteConfirm: "Hapus salinan Relay ini? File asli tetap ada.", modCancel: "Batal", modSaveLibrary: "Simpan ke pustaka",
     modMusicRequests: "Permintaan musik", modRequestLimit: "Permintaan tertunda per anggota (0: tanpa batas)", modRejectDuplicates: "Tolak trek tertunda yang duplikat", modSaved: "Tersimpan", modUp: "Naikkan", modDown: "Turunkan", modRemove: "Hapus", modQueueEmpty: "Tidak ada trek yang menunggu.",

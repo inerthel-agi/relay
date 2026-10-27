@@ -13,9 +13,9 @@
 2. **Gate** (`src-tauri/src/moderation.rs`, `ModerationRuntime::evaluate`). It runs on the raw Discord message, before any scan, in this order:
    - ignored members are dropped;
    - trusted roles or members pass and skip manual review, cooldowns and spam checks; so do the server owner and members whose roles grant Administrator, Manage Server or Manage Messages (read from the Discord cache). Privacy rules still apply to them;
-   - the per-member cooldown drops media or notifications that come too soon;
+   - the per-member cooldown drops media or notifications that come too soon; with **Tell the member** on (default), the bot replies in the channel with a mention and deletes the reply after 10 s (Discord has no ephemeral reply to a plain message), at most once a minute per member and five times a minute in all;
    - notification spam (mentions, capitals, emoji, repeated characters) is dropped;
-   - media seen within 10 minutes is dropped as a duplicate;
+   - media seen within the repeated media window (`duplicateWindowSeconds`, 5 to 3600 s, 1 minute by default) is dropped as a duplicate;
    - recent accounts (from the Discord ID), recent members (`joined_at`) and raids (more than N media per minute) are held for review.
 
    The verdict is remembered per message ID for 10 minutes so the state layer can apply holds and trust.

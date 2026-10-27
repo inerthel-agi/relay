@@ -4,11 +4,12 @@ const test = require("node:test");
 
 const panelHtml = fs.readFileSync(__dirname + "/../gui/panel.html", "utf8");
 const panelSource = require("./test-source.cjs").panelSource();
+// One entry per language since the English and Spanish regional variants were merged.
 const locales = [
-  "en-US", "en-GB", "en-IN", "fr-FR", "de-DE", "es-ES", "es-419",
+  "en-US", "fr-FR", "de-DE", "es-ES", "it-IT", "pt-BR", "pl-PL", "tr-TR",
   "ru-RU", "zh-CN", "ko-KR", "ja-JP", "id-ID",
 ];
-const flags = ["us", "gb", "in", "fr", "de", "es", "mx", "ru", "cn", "kr", "jp", "id"];
+const flags = ["us", "fr", "de", "es", "it", "br", "pl", "tr", "ru", "cn", "kr", "jp", "id"];
 
 test("the language picker exposes every supported regional locale", () => {
   for (const locale of locales) {
@@ -38,12 +39,15 @@ test("every regional locale uses a bundled SVG flag", () => {
   }
 });
 
-test("regional variants keep a local dictionary and regional locale", () => {
-  assert.match(panelSource, /locale: "en-GB", language: "en"/);
-  assert.match(panelSource, /locale: "en-IN", language: "en"/);
-  assert.match(panelSource, /locale: "es-419", language: "es"/);
+test("merged regional variants keep the user's language and every language has a dictionary", () => {
+  for (const merged of ["en-GB", "en-IN", "es-419"]) {
+    assert.doesNotMatch(panelSource, new RegExp(`locale: "${merged}"`), merged);
+  }
+  // A locale saved by an older version falls back to its language's single entry.
+  assert.ok(panelSource.includes('if (!languageOptionByLocale.has(locale)) locale = defaultLocaleByLanguage[locale.split("-")[0]] || "en-US";'));
   for (const [locale, language] of [
     ["ru-RU", "ru"], ["zh-CN", "zh"], ["ko-KR", "ko"], ["ja-JP", "ja"], ["id-ID", "id"],
+    ["it-IT", "it"], ["pt-BR", "pt"], ["pl-PL", "pl"], ["tr-TR", "tr"],
   ]) {
     assert.match(panelSource, new RegExp(`locale: "${locale}", language: "${language}"`), locale);
     assert.match(panelSource, new RegExp(`translations\\.${language} =`), language);

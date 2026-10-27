@@ -20,7 +20,7 @@ This guide walks through a complete, concrete setup: from creating the Discord b
 9. [On-screen widgets](#9-on-screen-widgets)
 10. [Tray & shortcuts](#10-tray--shortcuts)
 11. [The /relay command](#11-the-relay-command)
-12. [Personalization](#12-personalization)
+12. [Settings](#12-settings)
 13. [Troubleshooting](#13-troubleshooting)
 
 ---
@@ -80,7 +80,7 @@ A shorter English walkthrough also lives in [`docs/youtube-api-setup.md`](docs/y
 1. In Relay → **Music**.
 2. Paste the key into **YouTube API key** and choose a **Music channel**.
 3. Click **Save music settings**. The key field clears afterward: the key is stored in **Windows Credential Manager** and is never shown again.
-4. In that Discord channel, type a search (e.g. `jennie seoul city`), pick a result, then choose preview (~30 s) or full track. Relay mixes **relevance** with **newest uploads** (up to 15 tracks ≤ **3 minutes**).
+4. In that Discord channel, type a search (e.g. `jennie seoul city`), pick a result, then choose preview (~30 s) or full track. Relay keeps YouTube’s **relevance** order (up to 15 tracks from **1 to 5 minutes**). Each Discord search costs one `search.list` call (100 quota units) plus one `videos.list` call (1 unit). The same search repeated within 6 hours reuses its results and costs nothing. A YouTube link pasted alone (e.g. `https://youtu.be/…`) picks that video directly for 1 unit.
 
 ### Quotas and common errors
 
@@ -89,7 +89,7 @@ A shorter English walkthrough also lives in [`docs/youtube-api-setup.md`](docs/y
 | Bot says the YouTube key is missing / invalid | Key saved in Relay; length/format OK; bot restarted after save |
 | Search returns API / quota errors | YouTube Data API v3 enabled on the **same** project as the key; quota not exhausted ([Quotas](https://console.cloud.google.com/apis/api/youtube.googleapis.com/quotas)) |
 | `403` / accessNotConfigured | API not enabled, or key restricted to the wrong APIs |
-| Empty results for a real song | Query too vague, or only videos longer than 3 minutes matched |
+| Empty results for a real song | Query too vague, or only videos shorter than 1 minute or longer than 5 minutes matched |
 
 Default free quota is usually enough for personal streaming. Create a **new** key (and delete the old one) if it leaks.
 
@@ -106,7 +106,7 @@ Changes apply immediately, no restart needed. Alternatively, a server administra
 
 ## 5. Add the sources in OBS
 
-The panel shows ready-to-copy **Browser Source URLs** (Overlay → OBS Browser Sources). They replace the older separate medias / audios / stickers / TTS / notifications / YouTube sources.
+The panel shows ready-to-copy **Browser Source URLs** (Outputs → OBS Browser Sources). They replace the older separate medias / audios / stickers / TTS / notifications / YouTube sources.
 
 | Source | URL | Suggested size | Purpose |
 |---|---|---|---|
@@ -205,14 +205,16 @@ Server **administrators** can manage Relay from Discord (replies are ephemeral):
 | `/relay lock` | Lock or unlock the Relay channel |
 | `/relay changelog <#channel>` | Post the latest Relay release notes from GitHub |
 
-## 12. Personalization
+## 12. Settings
 
-In the panel's appearance settings:
+In the panel's Settings page:
 
 - **Theme**: light or dark (true-black, OLED-friendly) — also applied to the window title bar.
-- **Accent color**: any RGB color.
+- **Accent color**: eight presets, a HEX field or any color from the picker (RGB values are folded).
+- **Design**: ten designs, including Midnight and Ember (dark only), Dawn and Cloud.
 - **Font scale**: 80–140 %.
-- **Language**: English (US, UK, and India), Français, Deutsch, Español, Español (Latinoamérica), Русский, 简体中文, 한국어, 日本語, and Bahasa Indonesia.
+- **Language**: English, Français, Deutsch, Español, Italiano, Português (Brasil), Polski, Türkçe, Русский, 简体中文, 한국어, 日本語, and Bahasa Indonesia.
+- **Simple / Advanced** (top of the sidebar): Simple shows the essentials only; Advanced shows every page and setting. Nothing is turned off by Simple.
 
 Appearance changes are broadcast live to connected overlays.
 

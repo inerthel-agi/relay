@@ -1,4 +1,8 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, VecDeque},
+    sync::{LazyLock, Mutex},
+    time::{Duration, Instant},
+};
 
 use anyhow::{Result, bail};
 use reqwest::Client;
@@ -11,7 +15,9 @@ const MAX_TRACK_DURATION_SECONDS: u64 = 300;
 /// Drop Shorts-length edits; most spam clips land under a minute.
 const MIN_TRACK_DURATION_SECONDS: u64 = 60;
 const RELEVANCE_CANDIDATE_LIMIT: usize = 40;
-const RECENT_CANDIDATE_LIMIT: usize = 15;
+/// Repeated searches within this window reuse the first answer (no quota).
+const SEARCH_CACHE_TTL: Duration = Duration::from_secs(6 * 60 * 60);
+const SEARCH_CACHE_LIMIT: usize = 200;
 const RESULT_LIMIT: usize = 15;
 const MAX_QUERY_CHARS: usize = 200;
 /// Keep the Discord dropdown aligned with youtube.com relevance for the first picks.
@@ -99,50 +105,204 @@ struct Thumbnail {
     url: String,
 }
 
+/// Recent search results, so a repeated request costs no quota (search.list = 100 units).
+/// In memory only: lost when Relay restarts.
+#[derive(Default)]
+struct SearchCache {
+    entries: VecDeque<(String, Instant, Vec<YouTubeTrack>)>,
+}
+
+impl SearchCache {
+    /// Same words, case and spacing ignored.
+    fn key(query: &str) -> String {
+        query
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_lowercase()
+    }
+
+    fn get(&mut self, key: &str, now: Instant) -> Option<Vec<YouTubeTrack>> {
+        self.entries
+            .retain(|(_, stored, _)| now.duration_since(*stored) < SEARCH_CACHE_TTL);
+        self.entries
+            .iter()
+            .find(|(cached, _, _)| cached == key)
+            .map(|(_, _, tracks)| tracks.clone())
+    }
+
+    fn insert(&mut self, key: String, tracks: Vec<YouTubeTrack>, now: Instant) {
+        self.entries.retain(|(cached, _, _)| *cached != key);
+        if self.entries.len() >= SEARCH_CACHE_LIMIT {
+            self.entries.pop_front();
+        }
+        self.entries.push_back((key, now, tracks));
+    }
+}
+
+static SEARCH_CACHE: LazyLock<Mutex<SearchCache>> = LazyLock::new(Mutex::default);
+
+fn client() -> Result<Client> {
+    Client::builder()
+        .timeout(std::time::Duration::from_secs(12))
+        .build()
+        .map_err(|_| anyhow::anyhow!("Unable to initialize the YouTube client."))
+}
+
 pub async fn search(query: &str, api_key: &str) -> Result<Vec<YouTubeTrack>> {
     let query = normalize_query(query)?;
     if api_key.trim().is_empty() {
         bail!("YouTube is not configured.");
     }
+    let key = SearchCache::key(&query);
+    if let Some(tracks) = cache().get(&key, Instant::now()) {
+        return Ok(tracks);
+    }
 
-    let client = Client::builder()
-        .timeout(std::time::Duration::from_secs(12))
-        .build()
-        .map_err(|_| anyhow::anyhow!("Unable to initialize the YouTube client."))?;
-
-    // Relevance matches the website ranking. Date is a best-effort filler only —
-    // a quota/API hiccup on one call must not blank the whole Discord search.
-    let (relevance_result, recent_result) = tokio::join!(
-        search_page(
-            &client,
-            api_key,
-            &query,
-            "relevance",
-            RELEVANCE_CANDIDATE_LIMIT
-        ),
-        search_page(&client, api_key, &query, "date", RECENT_CANDIDATE_LIMIT),
-    );
-    let (relevance, recent) = match (relevance_result, recent_result) {
-        (Ok(relevance), Ok(recent)) => (relevance, recent),
-        (Ok(relevance), Err(_)) => (relevance, Vec::new()),
-        (Err(_), Ok(recent)) => (Vec::new(), recent),
-        (Err(relevance_error), Err(_)) => return Err(relevance_error),
-    };
-
-    let search_items = merge_search_candidates(relevance, recent);
+    let client = client()?;
+    // One search.list per query (100 quota units): relevance matches the website ranking.
+    let search_items = search_page(&client, api_key, &query, RELEVANCE_CANDIDATE_LIMIT).await?;
     if search_items.is_empty() {
         return Ok(Vec::new());
     }
 
     let details = fetch_video_details(&client, api_key, &search_items).await?;
-    Ok(map_search_results(search_items, details))
+    let tracks = map_search_results(search_items, details);
+    // An empty answer is not kept: a new upload may match soon.
+    if !tracks.is_empty() {
+        cache().insert(key, tracks.clone(), Instant::now());
+    }
+    Ok(tracks)
+}
+
+fn cache() -> std::sync::MutexGuard<'static, SearchCache> {
+    // A poisoned cache only holds search results: keep using it.
+    SEARCH_CACHE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Video ID of a pasted YouTube link (watch, youtu.be, shorts, embed, live, music).
+/// Only a message that is just the link counts; anything else stays a search.
+pub fn video_id_from_link(text: &str) -> Option<String> {
+    let text = text.trim();
+    if text.chars().any(char::is_whitespace) {
+        return None;
+    }
+    let url = reqwest::Url::parse(text).ok()?;
+    if !matches!(url.scheme(), "https" | "http") {
+        return None;
+    }
+    let host = url.host_str()?.to_ascii_lowercase();
+    let host = host.strip_prefix("www.").unwrap_or(&host);
+    let mut segments = url.path_segments()?.filter(|segment| !segment.is_empty());
+    let id = match host {
+        "youtu.be" => segments.next()?.to_owned(),
+        "youtube.com" | "m.youtube.com" | "music.youtube.com" => match segments.next()? {
+            "watch" => url
+                .query_pairs()
+                .find(|(name, _)| name == "v")
+                .map(|(_, value)| value.into_owned())?,
+            "shorts" | "embed" | "live" => segments.next()?.to_owned(),
+            _ => return None,
+        },
+        _ => return None,
+    };
+    (id.len() == 11
+        && id
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_')))
+    .then_some(id)
+}
+
+#[derive(Debug, Deserialize)]
+struct LookupResponse {
+    #[serde(default)]
+    items: Vec<LookupItem>,
+}
+
+#[derive(Debug, Deserialize)]
+struct LookupItem {
+    id: String,
+    snippet: LookupSnippet,
+    #[serde(rename = "contentDetails")]
+    content_details: VideoContentDetails,
+    status: Option<LookupStatus>,
+}
+
+#[derive(Debug, Deserialize)]
+struct LookupSnippet {
+    #[serde(flatten)]
+    video: VideoSnippet,
+    #[serde(rename = "categoryId")]
+    category_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct LookupStatus {
+    #[serde(default)]
+    embeddable: bool,
+}
+
+/// One pasted link: videos.list only (1 quota unit instead of 101 for a search).
+/// The track passes the same duration, spam and artwork rules as search results.
+pub async fn lookup(video_id: &str, api_key: &str) -> Result<Vec<YouTubeTrack>> {
+    if api_key.trim().is_empty() {
+        bail!("YouTube is not configured.");
+    }
+    let response = client()?
+        .get(VIDEOS_ENDPOINT)
+        .query(&[
+            ("part", "snippet,contentDetails,status"),
+            ("id", video_id),
+            ("key", api_key),
+        ])
+        .send()
+        .await
+        .map_err(|_| anyhow::anyhow!("YouTube video lookup failed."))?;
+    let status = response.status();
+    let body = response
+        .bytes()
+        .await
+        .map_err(|_| anyhow::anyhow!("YouTube video lookup returned an invalid response."))?;
+    if !status.is_success() {
+        bail!(
+            "{}",
+            youtube_error_message(&body, status.as_u16(), "video lookup")
+        );
+    }
+    let response = serde_json::from_slice::<LookupResponse>(&body)
+        .map_err(|_| anyhow::anyhow!("YouTube video lookup returned an invalid response."))?;
+    Ok(lookup_results(response.items))
+}
+
+fn lookup_results(items: Vec<LookupItem>) -> Vec<YouTubeTrack> {
+    let mut search_items = Vec::new();
+    let mut details = HashMap::new();
+    for item in items {
+        // Search asks for embeddable videos only; the OBS player needs the same.
+        if !item.status.is_some_and(|status| status.embeddable) {
+            continue;
+        }
+        let Some(duration_seconds) = parse_iso8601_duration(&item.content_details.duration) else {
+            continue;
+        };
+        details.insert(
+            item.id.clone(),
+            VideoDetails {
+                duration_seconds,
+                category_id: item.snippet.category_id,
+            },
+        );
+        search_items.push((item.id, item.snippet.video));
+    }
+    map_search_results(search_items, details)
 }
 
 async fn search_page(
     client: &Client,
     api_key: &str,
     query: &str,
-    order: &str,
     max_results: usize,
 ) -> Result<Vec<(String, VideoSnippet)>> {
     let max_results = max_results.clamp(1, 50).to_string();
@@ -153,7 +313,7 @@ async fn search_page(
             ("type", "video"),
             ("videoEmbeddable", "true"),
             ("maxResults", max_results.as_str()),
-            ("order", order),
+            ("order", "relevance"),
             ("q", query),
             ("key", api_key),
         ])
@@ -179,27 +339,6 @@ async fn search_page(
         .into_iter()
         .filter_map(|item| item.id.video_id.map(|video_id| (video_id, item.snippet)))
         .collect())
-}
-
-/// Relevance leads; recent uploads only fill gaps afterward (never outrank top picks).
-fn merge_search_candidates(
-    relevance: Vec<(String, VideoSnippet)>,
-    recent: Vec<(String, VideoSnippet)>,
-) -> Vec<(String, VideoSnippet)> {
-    let mut seen = HashSet::new();
-    let mut merged = Vec::with_capacity(relevance.len() + recent.len());
-
-    for item in relevance {
-        if seen.insert(item.0.clone()) {
-            merged.push(item);
-        }
-    }
-    for item in recent {
-        if seen.insert(item.0.clone()) {
-            merged.push(item);
-        }
-    }
-    merged
 }
 
 async fn fetch_video_details(

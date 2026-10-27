@@ -1335,3 +1335,29 @@ async fn staff_gifs_are_not_dropped_by_the_member_cooldown() {
     second.author.id = UserId::new(323_456_789_012_345_679);
     assert_eq!(outputs(second, true).await, 1);
 }
+
+#[tokio::test]
+async fn the_final_media_check_keeps_the_media_filter_scope() {
+    use crate::moderation::FilterScopes;
+    let mut config = AppConfig {
+        privacy_auto_delete_blocked_messages: false,
+        privacy_concepts: vec![privacy::ForbiddenConcept {
+            canonical: "blockedname".into(),
+            aliases: Vec::new(),
+            regexes: vec!["blockedname".into()],
+        }],
+        ..relay_config()
+    };
+    config.moderation.filter_scopes = FilterScopes {
+        media: false,
+        ..FilterScopes::default()
+    };
+    let (_directory, core) = relay_core(config).await;
+    // No text: the message only feeds the media output, whose filter is off.
+    let mut message = relay_message(1_000_000_000_000_000_091, "");
+    message.attachments = vec![attachment(92, "blockedname.png", "image/png")];
+    assert_eq!(
+        relay_outputs(&core, &message).await,
+        vec![Output::Media("image", None)]
+    );
+}

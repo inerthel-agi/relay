@@ -71,6 +71,15 @@ Object.assign(trayTranslations.zh, {"panic": "紧急", "resume": "恢复", "live
 Object.assign(trayTranslations.ko, {"panic": "긴급", "resume": "다시 시작", "live": "작동 중", "paused": "일시 중지", "problem": "문제"});
 Object.assign(trayTranslations.ja, {"panic": "緊急停止", "resume": "再開", "live": "稼働中", "paused": "一時停止", "problem": "問題あり"});
 Object.assign(trayTranslations.id, {"panic": "Panik", "resume": "Lanjutkan", "live": "Aktif", "paused": "Dijeda", "problem": "Masalah"});
+// Italian, Brazilian Portuguese, Polish and Turkish, complete dictionaries.
+Object.assign(trayTranslations, {
+  it: {"relayStatus":"Stato di Relay","connectionStatus":"Stato della connessione","discord":"Discord","localRelay":"Relay locale","openPanel":"Apri il pannello di controllo","displayWidgets":"Widget a schermo","mediaOverlay":"Overlay dei media","messageNotifications":"Notifiche dei messaggi","startWithWindows":"Avvia con Windows","quitRelay":"Esci da Relay","checking":"Controllo","connecting":"Connessione…","zeroOutputs":"0 uscite","online":"Online","offline":"Offline","waitingDiscord":"In attesa di Discord","output":"uscita","outputs":"uscite","hidden":"Nascosto","visibleLocked":"Visibile · Bloccato","visibleMovable":"Visibile · Spostabile","hide":"Nascondi","show":"Mostra","lock":"Blocca","unlock":"Sblocca","mediaWidget":"widget dei media","notificationWidget":"widget delle notifiche","unavailable":"Non disponibile","notResponding":"Relay non risponde","pendingReview":"{count} media in attesa di moderazione","reviewNow":"Controlla ora","discordNotReady":"Discord non è connesso","openDiscordSettings":"Apri le impostazioni Discord","panic":"Panico","resume":"Riprendi","live":"Live","paused":"In pausa","problem":"Problema"},
+  pt: {"relayStatus":"Status do Relay","connectionStatus":"Status da conexão","discord":"Discord","localRelay":"Relay local","openPanel":"Abrir painel de controle","displayWidgets":"Widgets de exibição","mediaOverlay":"Overlay de mídia","messageNotifications":"Notificações de mensagens","startWithWindows":"Iniciar com o Windows","quitRelay":"Sair do Relay","checking":"Verificando","connecting":"Conectando…","zeroOutputs":"0 saídas","online":"Online","offline":"Offline","waitingDiscord":"Aguardando o Discord","output":"saída","outputs":"saídas","hidden":"Oculto","visibleLocked":"Visível · Bloqueado","visibleMovable":"Visível · Móvel","hide":"Ocultar","show":"Mostrar","lock":"Bloquear","unlock":"Desbloquear","mediaWidget":"widget de mídia","notificationWidget":"widget de notificações","unavailable":"Indisponível","notResponding":"O Relay não está respondendo","pendingReview":"{count} mídias aguardando moderação","reviewNow":"Revisar agora","discordNotReady":"O Discord não está conectado","openDiscordSettings":"Abrir configurações do Discord","panic":"Pânico","resume":"Retomar","live":"Ao vivo","paused":"Pausado","problem":"Problema"},
+  pl: {"relayStatus":"Stan Relay","connectionStatus":"Stan połączenia","discord":"Discord","localRelay":"Relay lokalny","openPanel":"Otwórz panel sterowania","displayWidgets":"Widżety wyświetlania","mediaOverlay":"Nakładka mediów","messageNotifications":"Powiadomienia o wiadomościach","startWithWindows":"Uruchamiaj z Windows","quitRelay":"Zamknij Relay","checking":"Sprawdzanie","connecting":"Łączenie…","zeroOutputs":"0 wyjść","online":"Online","offline":"Offline","waitingDiscord":"Czekam na Discord","output":"wyjście","outputs":"wyjść","hidden":"Ukryty","visibleLocked":"Widoczny · Zablokowany","visibleMovable":"Widoczny · Przesuwalny","hide":"Ukryj","show":"Pokaż","lock":"Zablokuj","unlock":"Odblokuj","mediaWidget":"widżet mediów","notificationWidget":"widżet powiadomień","unavailable":"Niedostępny","notResponding":"Relay nie odpowiada","pendingReview":"Media czekające na moderację: {count}","reviewNow":"Sprawdź teraz","discordNotReady":"Discord nie jest połączony","openDiscordSettings":"Otwórz ustawienia Discord","panic":"Panika","resume":"Wznów","live":"Na żywo","paused":"Wstrzymano","problem":"Problem"},
+  tr: {"relayStatus":"Relay durumu","connectionStatus":"Bağlantı durumu","discord":"Discord","localRelay":"Yerel Relay","openPanel":"Kontrol panelini aç","displayWidgets":"Widget'ları göster","mediaOverlay":"Medya katmanı","messageNotifications":"Mesaj bildirimleri","startWithWindows":"Windows ile başlat","quitRelay":"Relay'den çık","checking":"Denetleniyor","connecting":"Bağlanıyor…","zeroOutputs":"0 çıkış","online":"Çevrimiçi","offline":"Çevrimdışı","waitingDiscord":"Discord bekleniyor","output":"çıkış","outputs":"çıkış","hidden":"Gizli","visibleLocked":"Görünür · Kilitli","visibleMovable":"Görünür · Taşınabilir","hide":"Gizle","show":"Göster","lock":"Kilitle","unlock":"Kilidi aç","mediaWidget":"medya widget'ı","notificationWidget":"bildirim widget'ı","unavailable":"Kullanılamıyor","notResponding":"Relay yanıt vermiyor","pendingReview":"Moderasyon bekleyen medya: {count}","reviewNow":"Şimdi incele","discordNotReady":"Discord bağlı değil","openDiscordSettings":"Discord ayarlarını aç","panic":"Panik","resume":"Devam et","live":"Canlı","paused":"Duraklatıldı","problem":"Sorun"},
+});
+// Skip the current media from the tray (same command and shortcut as the panel).
+for (const [code, label] of Object.entries({"en":"Skip","fr":"Passer","es":"Saltar","de":"Überspringen","it":"Salta","pt":"Pular","pl":"Pomiń","tr":"Atla","ru":"Пропустить","zh":"跳过","ko":"건너뛰기","ja":"スキップ","id":"Lewati"})) trayTranslations[code].skip = label;
 
 const trayRegionalTranslations = {
   "en-US": {
@@ -124,7 +133,7 @@ function applyTrayLanguage() {
     ? storedLocale
     : language === "en" ? "en-US" : language;
   document.documentElement.lang = locale;
-  document.documentElement.dataset.design = ["paper", "neo-brutalism", "gridline", "lumen", "signal"].includes(storedDesign)
+  document.documentElement.dataset.design = ["paper", "neo-brutalism", "gridline", "lumen", "signal", "midnight", "ember", "dawn", "cloud"].includes(storedDesign)
     ? storedDesign
     : "graphite";
   document.documentElement.dataset.theme = storedTheme === "light" ? "light" : "dark";
@@ -135,6 +144,13 @@ function applyTrayLanguage() {
   applyTrayAccent();
   for (const element of document.querySelectorAll("[data-i18n]")) {
     element.textContent = translate(element.dataset.i18n);
+  }
+  let shortcuts = {};
+  try { shortcuts = JSON.parse(localStorage.getItem("relay-shortcut-labels") || "{}"); } catch { /* Optional. */ }
+  for (const name of ["skip", "panic"]) {
+    const key = document.querySelector(`#${name}-shortcut`);
+    key.textContent = typeof shortcuts[name] === "string" ? shortcuts[name] : "";
+    key.hidden = !key.textContent;
   }
   for (const element of document.querySelectorAll("[data-i18n-aria]")) {
     element.setAttribute("aria-label", translate(element.dataset.i18nAria));
@@ -214,7 +230,7 @@ function renderAttention(status) {
   const pending = (status.pendingMedia || []).length;
   const button = document.querySelector("#tray-attention");
   if (pending > 0) {
-    attentionPage = "moderation";
+    attentionPage = "live";
     document.querySelector("#tray-attention-label").textContent = translate("pendingReview").replace("{count}", pending);
     document.querySelector("#tray-attention-action").textContent = translate("reviewNow");
   } else if (!status.bot.connected) {
@@ -269,6 +285,10 @@ elements.startup.addEventListener("click", () => {
 });
 elements.panic.addEventListener("click", () => runAction(elements.panic, outputsPaused ? "resume_outputs" : "panic_stop"));
 elements.quit.addEventListener("click", () => invoke("tray_quit"));
+document.querySelector("#skip-media").addEventListener("click", (event) => runAction(event.currentTarget, "skip_media"));
+invoke("get_app_version")
+  .then((version) => { document.querySelector("#tray-version").textContent = `v${version}`; })
+  .catch(() => {});
 
 window.refreshTray = refreshTray;
 // No browser menu (Back, Refresh, Print…) on right click; text fields keep Copy and Paste.

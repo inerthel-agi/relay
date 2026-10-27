@@ -22,7 +22,7 @@ Relay is a Windows desktop application that relays Discord media to authenticate
 
 1. Serenity receives a Discord message in the Relay channel. Music and the security trap use their own channels. Two different former media and message channels keep their single role until the user chooses one (`AppConfig::channel_feeds`).
 2. Relay splits the message (`RelayMessagePlan` in `bot.rs`): text for one notification, unless it is a typed slash command, a system message or only GIF links; supported attachments, stickers and Discord GIF embeds as media. The moderation gate checks every lane the message feeds.
-3. The privacy scanner checks message text with the word filter of every output the message feeds, then attachment names and applicable local image metadata or OCR signals. The notification is released after every media check, so a blocked part keeps the whole message off stream.
+3. The privacy scanner checks message text with the word filter of every output the message feeds, then attachment names and applicable local image metadata or OCR signals. When the user turned them on, the AI image check and the personal-data relay (`ai/image_guard.rs`) then look at each image, or three FFmpeg frames of a GIF or video, of a member who is not a moderator or trusted: a block deletes the message and cancels all its parts, a hold sends the rest of the message to review. The notification is released after every media check, so a blocked part keeps the whole message off stream.
 4. `AppCore` applies the current privacy policy before a media item reaches history, cache, moderation approval, WebSocket, OBS, or a widget.
 5. Allowed media enters the relevant local FIFO queue. Medium-risk items can enter the existing local moderation queue. Blocked items remain out of public Relay outputs.
 6. The local Axum server broadcasts authorized events to connected output clients. Browser Sources and Windows widgets keep independent display state where required.
@@ -58,7 +58,11 @@ The local server exposes authenticated routes for the `/obs/visual` and `/obs/au
 | Local output server | `src-tauri/src/server.rs` and the matching output directory |
 | Windows widgets | `src-tauri/src/widget.rs`, `src-tauri/src/notification_widget.rs` |
 | Message notifications | `src-tauri/src/state.rs`, `notifications/` |
-| UI, themes, and translations | `gui/panel.html`, `gui/panel.css`, `gui/panel.js`, `gui/tray.*` |
+| UI, themes, and translations | `gui/panel.html`, `gui/panel.css`, `gui/panel.js`, `gui/translations.mjs`, `gui/tray.*` |
+| Sidebar groups and Simple / Advanced | `gui/navigation-layout.mjs`, `gui/panel.html` (`data-advanced`) |
+| Help quick fixes and AI help pace | `gui/help-ui.mjs` (display), `ai/troubleshoot.rs` (`HelpPace`, applied by Relay) |
+| AI image check and personal-data relay | `src-tauri/src/ai/image_guard.rs`, `ai/client.rs` (`moderate_image`), `media_compat.rs` (`frames_from_url`) |
+| Accent color picker | `gui/accent-picker.mjs` |
 
 ## Validation layers
 

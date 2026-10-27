@@ -17,7 +17,7 @@ Use a disposable Discord server and synthetic local media. Do not use tokens, pr
 | --- | --- | --- |
 | Start without credentials | Launch Relay before configuring Discord credentials. | The interface remains usable and shows the bot as offline. |
 | Bot connection | Save valid credentials and select a test Relay channel. | The bot status becomes online and visible text channels can be refreshed. |
-| Local server | Open the Overlay page. | The server status is online and the preview can connect. |
+| Local server | Open the Outputs page. | The server status is online and the preview can connect. |
 | OBS source | Add one generated Browser Source URL to OBS. | Output readiness lists an OBS client for that output. |
 | Windows widgets | Show, move, and lock each widget. | The widget follows its visibility and lock settings without blocking Relay. |
 | Local output test | Connect an OBS source or widget, then use **Test output**. | The test appears only on the selected local output and no Discord message is sent. |

@@ -1,7 +1,7 @@
 // Resolves the stream style shared by every output (notifications, music card, captions).
 // Loaded before each output script; also required directly by the Node tests.
 (function outputTheme(root) {
-  const designs = ["graphite", "paper", "neo-brutalism", "gridline", "lumen", "signal"];
+  const designs = ["graphite", "paper", "neo-brutalism", "gridline", "lumen", "signal", "midnight", "ember", "dawn", "cloud"];
   const styles = [...designs, "subtitle"];
 
   /** "auto" follows the panel design and theme; any other value is kept if known. */

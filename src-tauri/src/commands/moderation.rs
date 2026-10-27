@@ -1,11 +1,15 @@
 //! Moderation page commands: presets, message tester, decision log, held
 //! messages, Discord actions from the queue and AutoMod synchronization.
 
-use std::sync::Arc;
+use std::{
+    collections::{BTreeSet, HashMap},
+    sync::{Arc, atomic::Ordering},
+    time::Duration,
+};
 
 use serde::Serialize;
 use serenity::all::{
-    Action, ChannelId, EditAutoModRule, GuildId, Trigger, UserId, automod::EventType,
+    Action, ChannelId, EditAutoModRule, GuildId, Trigger, User, UserId, automod::EventType,
 };
 use tauri::State;
 
@@ -31,6 +35,8 @@ pub struct ModerationOverview {
     active_preset: Option<ModerationPreset>,
     summary: LogSummary,
     entries: Vec<LogEntry>,
+    /// Discord name of each logged author Relay could find, by ID.
+    author_names: HashMap<String, String>,
     pending_texts: Vec<PendingText>,
     packs: Vec<PackInfo>,
     live_streaming: bool,
@@ -59,9 +65,11 @@ pub async fn moderation_overview(
 ) -> Result<ModerationOverview, String> {
     let config = core.config.read().await.clone();
     let (entries, summary) = core.moderation_entries();
+    let author_names = author_names(core.inner(), &entries).await;
     Ok(ModerationOverview {
         active_preset: presets::matching(&config),
         summary,
+        author_names,
         entries,
         pending_texts: core.pending_texts.read().await.iter().cloned().collect(),
         packs: WordPack::ALL
@@ -80,6 +88,107 @@ pub async fn moderation_overview(
             .lock()
             .is_ok_and(|runtime| runtime.raid_active(crate::clock::now_ms())),
     })
+}
+
+/// Discord API lookups per background pass, each with its own time limit.
+const NAME_LOOKUPS_PER_PASS: usize = 10;
+const NAME_LOOKUP_TIMEOUT: Duration = Duration::from_secs(5);
+/// Pause before the next pass when Discord did not answer.
+const NAME_LOOKUP_RETRY: Duration = Duration::from_secs(60);
+
+fn display_name(user: &User) -> String {
+    user.global_name
+        .clone()
+        .unwrap_or_else(|| user.name.clone())
+}
+
+/// Discord answered that this user does not exist: no name to wait for.
+fn unknown_user(error: &serenity::Error) -> bool {
+    matches!(
+        error,
+        serenity::Error::Http(serenity::http::HttpError::UnsuccessfulRequest(response))
+            if response.status_code.as_u16() == 404
+    )
+}
+
+fn remember_name(core: &AppCore, id: &str, name: Option<String>) {
+    if let Ok(mut names) = core.author_names.lock() {
+        names.insert(id.to_owned(), name);
+    }
+}
+
+/// Names of the logged authors, for display only. The page never waits for
+/// Discord: it reads what Relay knows (memory, then Discord's cache), and
+/// unknown authors are looked up in the background, one pass at a time, to
+/// show on a later refresh. Kept in memory, never in the log file.
+async fn author_names(core: &Arc<AppCore>, entries: &[LogEntry]) -> HashMap<String, String> {
+    let cache = core
+        .bot_runtime
+        .lock()
+        .await
+        .as_ref()
+        .map(|runtime| runtime.cache.clone());
+    let ids: BTreeSet<&str> = entries
+        .iter()
+        .filter_map(|entry| entry.author_id.as_deref())
+        .collect();
+    let mut names = HashMap::new();
+    let mut unknown = Vec::new();
+    for id in ids {
+        let known = core
+            .author_names
+            .lock()
+            .ok()
+            .and_then(|names| names.get(id).cloned());
+        match known {
+            Some(Some(name)) => {
+                names.insert(id.to_owned(), name);
+            }
+            Some(None) => {}
+            None => {
+                let Some(user_id) = id
+                    .parse::<u64>()
+                    .ok()
+                    .filter(|id| *id != 0)
+                    .map(UserId::new)
+                else {
+                    continue;
+                };
+                match cache
+                    .as_ref()
+                    .and_then(|cache| cache.user(user_id).map(|user| display_name(&user)))
+                {
+                    Some(name) => {
+                        remember_name(core, id, Some(name.clone()));
+                        names.insert(id.to_owned(), name);
+                    }
+                    None => unknown.push(user_id),
+                }
+            }
+        }
+    }
+    if !unknown.is_empty() && !core.author_lookup_running.swap(true, Ordering::SeqCst) {
+        let core = core.clone();
+        tauri::async_runtime::spawn(async move {
+            let mut failed = false;
+            if let Ok(http) = discord_http(&core).await {
+                for user_id in unknown.into_iter().take(NAME_LOOKUPS_PER_PASS) {
+                    let id = user_id.to_string();
+                    match tokio::time::timeout(NAME_LOOKUP_TIMEOUT, http.get_user(user_id)).await {
+                        Ok(Ok(user)) => remember_name(&core, &id, Some(display_name(&user))),
+                        Ok(Err(error)) if unknown_user(&error) => remember_name(&core, &id, None),
+                        // Network, rate limit or token problem: tried again later.
+                        _ => failed = true,
+                    }
+                }
+            }
+            if failed {
+                tokio::time::sleep(NAME_LOOKUP_RETRY).await;
+            }
+            core.author_lookup_running.store(false, Ordering::SeqCst);
+        });
+    }
+    names
 }
 
 #[tauri::command]
@@ -359,3 +468,6 @@ pub(crate) fn automod_keywords(config: &AppConfig) -> Vec<String> {
     keywords.truncate(AUTOMOD_KEYWORD_LIMIT);
     keywords
 }
+
+#[cfg(test)]
+mod tests;

@@ -23,6 +23,7 @@
       <symbol id="nav-icon-personalization" viewBox="0 0 24 24"><path d="M4 7h16M4 17h16M8 4v6M16 14v6"/><circle cx="8" cy="7" r="2"/><circle cx="16" cy="17" r="2"/></symbol>
       <symbol id="nav-icon-changelog" viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></symbol>
       <symbol id="nav-icon-discord" viewBox="0 0 24 24"><path d="M8 7.5c2.6-.9 5.4-.9 8 0l1.3 2.2c1 2 1.5 4.1 1.5 6.3-1.5 1.1-3 1.7-4.5 2l-.8-1.6M10.5 16.4l-.8 1.6c-1.5-.3-3-.9-4.5-2 0-2.2.5-4.3 1.5-6.3L8 7.5"/><circle cx="9.5" cy="12.5" r="1.1"/><circle cx="14.5" cy="12.5" r="1.1"/></symbol>
+      <symbol id="nav-icon-live" viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.5"/><path d="M7.8 7.8a6 6 0 0 0 0 8.4M16.2 7.8a6 6 0 0 1 0 8.4M5 5a10 10 0 0 0 0 14M19 5a10 10 0 0 1 0 14"/></symbol>
       <symbol id="nav-icon-about" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 10v5M12 7.3h.01"/></symbol>
     </svg>
     <div class="app-shell">
@@ -34,8 +35,22 @@
           </div>
         </div>
 
+        <!-- Simple hides the pages and settings marked data-advanced; nothing is disabled. -->
+        <div class="interface-mode" role="group" aria-label="Display mode" data-i18n-aria-label="interfaceModeLabel">
+          <button class="interface-mode__button" type="button" data-interface-mode="simple" data-short="S" aria-pressed="true">
+            <span data-i18n="interfaceModeSimple">Simple</span>
+          </button>
+          <button class="interface-mode__button" type="button" data-interface-mode="advanced" data-short="A" aria-pressed="false">
+            <span data-i18n="interfaceModeAdvanced">Advanced</span>
+          </button>
+        </div>
+        <p id="interface-mode-hint" class="interface-mode__hint" data-i18n="interfaceModeSimpleHint">Essentials only. Switch to Advanced for every setting.</p>
+
         <nav class="navigation" aria-label="Primary navigation" data-i18n-aria-label="navPrimaryLabel">
-          <p class="navigation__group" data-i18n="navGroupStart">Get started</p>
+          <button class="navigation__group" type="button" data-nav-group="start" aria-expanded="true">
+            <span data-i18n="navGroupStart">Get started</span>
+            <svg class="navigation__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
           <button class="navigation__item is-active" type="button" data-page-target="overview" aria-current="page">
             <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#nav-icon-overview"></use></svg>
             <span class="navigation__label" data-i18n="navOverview">Overview</span>
@@ -45,11 +60,23 @@
             <span class="navigation__label" data-i18n="navDiscord">Discord</span>
             <span class="navigation__badge" data-nav-badge="discord" hidden></span>
           </button>
-          <button class="navigation__item" type="button" data-page-target="help">
-            <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#nav-icon-help"></use></svg>
-            <span class="navigation__label" data-i18n="navHelp">Help</span>
+          <button class="navigation__item" type="button" data-page-target="commands" data-advanced>
+            <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#nav-icon-commands"></use></svg>
+            <span class="navigation__label" data-i18n="navDiscordCommands">Discord commands</span>
           </button>
-          <p class="navigation__group" data-i18n="navGroupContent">Content</p>
+          <button class="navigation__group" type="button" data-nav-group="live" aria-expanded="true">
+            <span data-i18n="navGroupLive">Live</span>
+            <svg class="navigation__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <button class="navigation__item" type="button" data-page-target="live">
+            <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#nav-icon-live"></use></svg>
+            <span class="navigation__label" data-i18n="navLive">Control room</span>
+            <span class="navigation__badge" data-nav-badge="live" hidden></span>
+          </button>
+          <button class="navigation__group" type="button" data-nav-group="content" aria-expanded="true">
+            <span data-i18n="navGroupContent">Content</span>
+            <svg class="navigation__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
           <button class="navigation__item" type="button" data-page-target="messages">
             <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v12H9l-5 4V4Z"/><path d="M8 8h8M8 12h5"/></svg>
             <span class="navigation__label" data-i18n="moduleMessages">Messages</span>
@@ -58,44 +85,53 @@
             <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#nav-icon-media"></use></svg>
             <span class="navigation__label" data-i18n="navMedia">Media</span>
           </button>
+          <button class="navigation__item navigation__item--sub" type="button" data-page-target="history" data-advanced>
+            <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#nav-icon-history"></use></svg>
+            <span class="navigation__label" data-i18n="navHistory">History</span>
+          </button>
           <button class="navigation__item" type="button" data-page-target="music">
             <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#nav-icon-music"></use></svg>
             <span class="navigation__label" data-i18n="navMusic">Music</span>
           </button>
-          <button class="navigation__item" type="button" data-page-target="reactions">
+          <button class="navigation__item" type="button" data-page-target="reactions" data-advanced>
             <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10h4l5-5v14l-5-5H4v-4ZM17 8a6 6 0 0 1 0 8M20 5a10 10 0 0 1 0 14"/></svg>
             <span class="navigation__label" data-i18n="moduleReactions">Sounds and reactions</span>
           </button>
-          <p class="navigation__group" data-i18n="navGroupBroadcast">Broadcast</p>
+          <button class="navigation__group" type="button" data-nav-group="broadcast" aria-expanded="true">
+            <span data-i18n="navGroupBroadcast">Broadcast</span>
+            <svg class="navigation__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
           <button class="navigation__item" type="button" data-page-target="overlay">
             <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#nav-icon-overlay"></use></svg>
-            <span class="navigation__label" data-i18n="navOverlay">Overlay</span>
+            <span class="navigation__label" data-i18n="navOutputs">Outputs</span>
             <span class="navigation__badge" data-nav-badge="overlay" hidden></span>
           </button>
-          <button class="navigation__item" type="button" data-page-target="history">
-            <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#nav-icon-history"></use></svg>
-            <span class="navigation__label" data-i18n="navHistory">History</span>
+          <button class="navigation__group" type="button" data-nav-group="safety" aria-expanded="true">
+            <span data-i18n="navGroupSafety">Safety</span>
+            <svg class="navigation__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
           </button>
-          <p class="navigation__group" data-i18n="navGroupSafety">Safety</p>
           <button class="navigation__item" type="button" data-page-target="moderation">
             <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#nav-icon-moderation"></use></svg>
             <span class="navigation__label" data-i18n="navModeration">Moderation</span>
             <span class="navigation__badge" data-nav-badge="moderation" hidden></span>
           </button>
-          <button class="navigation__item" type="button" data-page-target="commands">
-            <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#nav-icon-commands"></use></svg>
-            <span class="navigation__label" data-i18n="navCommands">Commands</span>
+          <button class="navigation__group" type="button" data-nav-group="app" aria-expanded="true">
+            <span data-i18n="navGroupApp">App</span>
+            <svg class="navigation__chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
           </button>
-          <p class="navigation__group" data-i18n="navGroupApp">App</p>
           <button class="navigation__item" type="button" data-page-target="personalization">
             <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#nav-icon-personalization"></use></svg>
-            <span class="navigation__label" data-i18n="navPersonalization">Personalization</span>
+            <span class="navigation__label" data-i18n="navSettings">Settings</span>
           </button>
-          <button class="navigation__item" type="button" data-page-target="changelog">
+          <button class="navigation__item" type="button" data-page-target="help">
+            <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#nav-icon-help"></use></svg>
+            <span class="navigation__label" data-i18n="navHelp">Help</span>
+          </button>
+          <button class="navigation__item" type="button" data-page-target="changelog" data-advanced>
             <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#nav-icon-changelog"></use></svg>
             <span class="navigation__label" data-i18n="navChangelog">Changelog</span>
           </button>
-          <button class="navigation__item" type="button" data-page-target="about">
+          <button class="navigation__item" type="button" data-page-target="about" data-advanced>
             <svg class="navigation__icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#nav-icon-about"></use></svg>
             <span class="navigation__label" data-i18n="navAbout">About</span>
           </button>
@@ -126,7 +162,7 @@
               aria-expanded="false"
               aria-controls="update-menu"
             >
-              <span><span class="version__platform">Windows · </span>v<span data-app-version>1.4.1</span></span>
+              <span><span class="version__platform">Windows · </span>v<span data-app-version>1.5.0</span></span>
               <span id="update-available-dot" class="update-available-dot" hidden></span>
               <svg class="update-check__icon" viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M20 6v5h-5M4 18v-5h5M6.1 9a7 7 0 0 1 11.3-2.1L20 11M4 13l2.6 4.1A7 7 0 0 0 17.9 15"/>
@@ -389,6 +425,44 @@
             </section>
           </section>
 
+          <!-- Control room: everything used during a stream, kept out of the settings pages. -->
+          <section class="page" data-page="live" hidden>
+            <div class="page-intro page-intro--compact">
+              <h2 data-i18n="liveTitle">Everything you touch during a stream.</h2>
+              <p data-i18n="liveCopy">Pinned message, current media and queue. Panic and the music player stay in the top bar on every page.</p>
+            </div>
+            <section class="panel-section panel-section--wide" id="message-module"></section>
+            <section class="panel-section panel-section--wide live-media">
+              <section class="transport">
+                <div class="transport__identity">
+                  <img src="./assets/relay-radar.png" alt="">
+                  <div>
+                    <span class="transport__label" data-i18n="transportLabel">Live transport</span>
+                    <strong data-i18n="transportReady">Ready for the next media</strong>
+                  </div>
+                </div>
+                <button id="skip-media" class="button button--skip" type="button">
+                  <span data-i18n="skip">Skip media</span>
+                  <kbd id="skip-shortcut-key">Ctrl Alt S</kbd>
+                </button>
+              </section>
+              <section class="queue-panel"><h3 data-i18n="queueTitle"></h3><p id="queue-state" role="status"></p><ol id="queue-list"></ol></section>
+            </section>
+            <section class="panel-section panel-section--wide live-review">
+              <div class="moderation-header">
+                <div>
+                  <span class="kicker" data-i18n="pendingMedia">Pending media</span>
+                  <strong id="moderation-count">0 / 50</strong>
+                </div>
+                <p class="moderation-shortcuts" data-i18n="moderationShortcuts">Keyboard: A approve, R reject, arrows to move.</p>
+                <button id="clear-pending-media" class="button button--quiet" type="button" data-i18n="clearPending">Reject all</button>
+              </div>
+              <p id="moderation-empty" class="empty-state" data-i18n="moderationEmpty">No media is waiting for approval.</p>
+              <ol id="moderation-list" class="history-list moderation-list" tabindex="0" aria-describedby="moderation-shortcuts-help"></ol>
+              <span id="moderation-shortcuts-help" class="visually-hidden" data-i18n="moderationShortcuts">Keyboard: A approve, R reject, arrows to move.</span>
+            </section>
+          </section>
+
           <section class="page" data-page="discord" hidden>
             <div class="page-intro page-intro--compact">
               <p class="kicker" data-i18n="discordKicker">Discord</p>
@@ -399,7 +473,6 @@
             <details class="panel-section panel-section--wide panel-disclosure" id="disclosure-discord-connection" open>
                 <summary class="section-heading">
                   <div>
-                    <span class="section-number">01</span>
                     <h3 data-i18n="credentialsTitle">Discord connection</h3>
                   </div>
                   <span id="credential-state" class="save-state" role="status"></span>
@@ -469,7 +542,6 @@
             <section class="panel-section panel-section--wide discord-channels" id="discord-channels">
               <div class="section-heading">
                 <div>
-                  <span class="section-number">02</span>
                   <h3 data-i18n="channelsTitle">Channels</h3>
                 </div>
                 <span class="section-actions">
@@ -574,7 +646,6 @@
             <section class="panel-section panel-section--wide discord-check" id="discord-check">
               <div class="section-heading">
                 <div>
-                  <span class="section-number">03</span>
                   <h3 data-i18n="checkTitle">Bot check</h3>
                 </div>
                 <button id="run-discord-check" class="button button--quiet" type="button" data-i18n="checkRun">Check now</button>
@@ -591,23 +662,16 @@
           </section>
 
           <section class="page" data-page="messages" hidden>
-            <div class="page-intro page-intro--compact"><h2 data-i18n="moduleMessages">Messages</h2><p data-i18n="pinCopy">Keep an important message on screen while media and music continue.</p></div>
-            <section class="panel-section panel-section--wide" id="message-module"></section>
+            <div class="page-intro page-intro--compact"><h2 data-i18n="moduleMessages">Messages</h2><p data-i18n="messagesSettingsCopy">How Discord messages appear on stream: duration, length and waiting queue.</p></div>
             <section class="panel-section panel-section--wide">
               <div class="section-heading">
                 <div>
-                  <span class="section-number">01</span>
                   <h3 data-i18n="messageNotifications">Message notifications</h3>
                 </div>
                 <span id="messages-save-state" class="save-state" role="status"></span>
               </div>
               <p class="section-copy" data-i18n="messageNotificationsHelp">Message notifications remain visual; optional notification sounds can be configured separately.</p>
               <form id="messages-form" class="settings-list">
-                <p class="channel-link">
-                  <span data-i18n="channelLinkLabel">Discord channel</span>
-                  <strong data-channel-name="channel"></strong>
-                  <button class="text-link" type="button" data-go-to-page="discord" data-go-to-target="channel" data-i18n="channelChange">Change</button>
-                </p>
                 <label class="setting-row">
                   <span>
                     <strong data-i18n="notificationDuration">Notification duration</strong>
@@ -618,7 +682,7 @@
                     <small data-i18n="seconds">sec</small>
                   </span>
                 </label>
-                <label class="setting-row">
+                <label class="setting-row" data-advanced>
                   <span>
                     <strong data-i18n="notificationCharacterLimit">Message character limit</strong>
                     <small data-i18n="notificationCharacterLimitHelp">Use 0 for unlimited message length.</small>
@@ -628,7 +692,7 @@
                     <small data-i18n="characters">chars</small>
                   </span>
                 </label>
-                <label class="setting-row">
+                <label class="setting-row" data-advanced>
                   <span>
                     <strong data-i18n="notificationQueueLimit">Message queue capacity</strong>
                     <small data-i18n="notificationQueueLimitHelp">Maximum waiting messages, from 1 to 50.</small>
@@ -636,16 +700,6 @@
                   <span class="field__unit field__unit--short">
                     <input id="notification-queue-limit" name="notificationQueueLimit" type="number" min="1" max="50" step="1" required>
                     <small data-i18n="items">items</small>
-                  </span>
-                </label>
-                <label class="setting-row setting-row--switch">
-                  <span>
-                    <strong data-i18n="enableObsNotifications">Enable OBS overlay</strong>
-                    <small data-i18n="enableObsNotificationsHelp">Does not change the Windows widget.</small>
-                  </span>
-                  <span class="switch">
-                    <input id="notifications-obs" name="notificationsObsEnabled" type="checkbox">
-                    <span class="switch__track" aria-hidden="true"></span>
                   </span>
                 </label>
                 <div class="settings-actions">
@@ -671,7 +725,6 @@
               <details class="panel-section panel-disclosure" id="disclosure-music-1" open>
                 <summary class="section-heading">
                   <div>
-                    <span class="section-number">01</span>
                     <h3 data-i18n="musicSettingsTitle">Music settings</h3>
                   </div>
                   <span id="music-save-state" class="save-state" role="status"></span>
@@ -696,7 +749,6 @@
               <details class="panel-section panel-disclosure" id="disclosure-music-2">
                 <summary class="section-heading">
                   <div>
-                    <span class="section-number">02</span>
                     <h3 data-i18n="ytGuideTitle">YouTube Data API setup</h3>
                   </div>
                 </summary>
@@ -780,57 +832,23 @@
               </details>
             </div>
 
-            <details class="panel-section panel-disclosure panel-section--wide" id="disclosure-music-3">
-              <summary class="section-heading">
-                <div>
-                  <span class="section-number">03</span>
-                  <h3 data-i18n="musicOverlayTitle">Overlay OBS / Windows</h3>
-                </div>
-              </summary>
-              <p class="section-copy" data-i18n="musicOverlayCopy">Windows Now Playing uses the 16:9 media floating widget. Message notifications use the separate compact notification widget.</p>
-              <p class="section-copy" data-i18n="outputSettingsOnOverlay">The OBS Browser Source URL and the media widget size are set on the Overlay page.</p>
-              <button class="button button--quiet" type="button" data-go-to-page="overlay" data-i18n="openOverlayPage">Open Overlay</button>
-            </details>
           </section>
 
           <section class="page" data-page="media" hidden>
             <div class="page-intro page-intro--compact">
-              <p class="kicker" data-i18n="mediaKicker">Playback queue</p>
               <h2 data-i18n="mediaTitle">Media, on your terms.</h2>
               <p data-i18n="mediaCopy">Images use a display timer. Video and audio continue naturally until they end.</p>
             </div>
-            <p class="channel-link channel-link--page">
-              <span data-i18n="channelLinkLabel">Discord channel</span>
-              <strong data-channel-name="channel"></strong>
-              <button class="text-link" type="button" data-go-to-page="discord" data-go-to-target="channel" data-i18n="channelChange">Change</button>
-            </p>
 
-            <section class="transport">
-              <div class="transport__identity">
-                <img src="./assets/relay-radar.png" alt="">
-                <div>
-                  <span class="transport__label" data-i18n="transportLabel">Live transport</span>
-                  <strong data-i18n="transportReady">Ready for the next media</strong>
-                </div>
-              </div>
-              <button id="skip-media" class="button button--skip" type="button">
-                <span data-i18n="skip">Skip media</span>
-                <kbd id="skip-shortcut-key">Ctrl Alt S</kbd>
-              </button>
-            </section>
-
-            <section class="panel-section panel-section--wide" id="library-module"></section>
-
+            <section class="panel-section panel-section--wide" id="library-module" data-advanced></section>
 
             <section class="panel-section panel-section--wide">
               <div class="section-heading">
                 <div>
-                  <span class="section-number">01</span>
                   <h3 data-i18n="playbackTitle">Playback settings</h3>
                 </div>
                 <span id="media-save-state" class="save-state" role="status"></span>
               </div>
-              <section class="queue-panel"><h3 data-i18n="queueTitle"></h3><p id="queue-state" role="status"></p><ol id="queue-list"></ol></section>
               <form id="media-form" class="settings-list">
                 <details class="settings-disclosure" open>
                   <summary>
@@ -988,7 +1006,7 @@
               <p data-i18n="overlayCopy">The canvas stays transparent until media enters the queue.</p>
             </div>
 
-            <details class="preview-section geometry-disclosure" id="disclosure-overlay-preview">
+            <details class="preview-section geometry-disclosure" id="disclosure-overlay-preview" data-advanced>
               <summary class="preview-toolbar">
                 <span data-i18n="livePreview">Live preview</span>
                 <span class="preview-badge" data-i18n="transparentCanvas">Transparent canvas</span>
@@ -1002,7 +1020,6 @@
             <details class="panel-section panel-disclosure panel-section--wide output-readiness-section" id="disclosure-overlay-1" open>
               <summary class="section-heading">
                 <div>
-                  <span class="section-number">01</span>
                   <h3 data-i18n="outputReadiness">Output readiness</h3>
                 </div>
               </summary>
@@ -1050,11 +1067,9 @@
               </div>
             </details>
 
-            <div class="split-layout split-layout--overlay">
-              <details class="panel-section panel-disclosure" id="disclosure-overlay-2">
+            <details class="panel-section panel-disclosure panel-section--wide" id="disclosure-overlay-2">
                 <summary class="section-heading">
                   <div>
-                    <span class="section-number">02</span>
                     <h3 data-i18n="browserSource">OBS Browser Sources</h3>
                   </div>
                 </summary>
@@ -1128,10 +1143,10 @@
                 <button id="regenerate-secret" class="button button--quiet regenerate-secret" type="button" data-i18n="regenerateSecret">Reconnect OBS sources</button>
               </details>
 
-              <details class="panel-section panel-disclosure" id="disclosure-overlay-3">
+              <h3 class="output-group" data-advanced data-i18n="navMedia">Media</h3>
+              <details class="panel-section panel-disclosure panel-section--wide" id="disclosure-overlay-3" data-advanced>
                 <summary class="section-heading">
                   <div>
-                    <span class="section-number">03</span>
                     <h3 data-i18n="floatingWidget">Media floating widget</h3>
                   </div>
                 </summary>
@@ -1142,13 +1157,26 @@
                 </div>
                 <p class="fine-print" data-i18n="widgetHelp">Unlock, position it on any monitor, then lock it to pass clicks through.</p>
               </details>
-            </div>
 
+            <h3 class="output-group" data-i18n="moduleMessages">Messages</h3>
+            <section class="panel-section panel-section--wide">
+              <div class="settings-list">
+                <label class="setting-row setting-row--switch">
+                  <span>
+                    <strong data-i18n="enableObsNotifications">Enable OBS overlay</strong>
+                    <small data-i18n="enableObsNotificationsHelp">Does not change the Windows widget.</small>
+                  </span>
+                  <span class="switch">
+                    <input id="notifications-obs" name="notificationsObsEnabled" type="checkbox" form="messages-form">
+                    <span class="switch__track" aria-hidden="true"></span>
+                  </span>
+                </label>
+              </div>
+            </section>
             <div class="notification-output-grid">
               <details class="panel-section panel-disclosure panel-section--wide notification-output-card" data-output="obs" id="disclosure-overlay-4">
                 <summary class="section-heading">
                   <div>
-                    <span class="section-number">04</span>
                     <h3 data-i18n="obsNotificationOutput">OBS message notification overlay</h3>
                   </div>
                 </summary>
@@ -1165,10 +1193,9 @@
                 </label>
               </details>
 
-              <details class="panel-section panel-disclosure panel-section--wide notification-output-card" data-output="windows" id="disclosure-overlay-5">
+              <details class="panel-section panel-disclosure panel-section--wide notification-output-card" data-output="windows" id="disclosure-overlay-5" data-advanced>
                 <summary class="section-heading">
                   <div>
-                    <span class="section-number">05</span>
                     <h3 data-i18n="windowsNotificationWidget">Windows Notification Widget</h3>
                   </div>
                 </summary>
@@ -1202,10 +1229,60 @@
               </details>
             </div>
 
-            <details class="panel-section panel-disclosure panel-section--wide output-geometry-section" id="disclosure-overlay-6">
+            <h3 class="output-group" data-i18n="navMusic">Music</h3>
+            <details class="panel-section panel-disclosure panel-section--wide" id="disclosure-music-3">
               <summary class="section-heading">
                 <div>
-                  <span class="section-number">06</span>
+                  <h3 data-i18n="musicOverlayTitle">Overlay OBS / Windows</h3>
+                </div>
+              </summary>
+              <p class="section-copy" data-i18n="musicOverlayCopy">Windows Now Playing uses the 16:9 media floating widget. Message notifications use the separate compact notification widget.</p>
+            </details>
+
+            <h3 class="output-group" data-advanced data-i18n="outputsAll">All outputs</h3>
+            <section class="panel-section panel-section--wide personalization-card" id="stream-style" data-advanced>
+              <h3 data-i18n="streamStyleTitle">Notification style</h3>
+              <p class="section-copy" data-i18n="streamStyleCopy">Applies to notifications, the music card and media captions on your stream and widgets. Automatic follows the Relay design and theme.</p>
+              <div class="stream-style">
+                <div class="stream-style__controls">
+                  <fieldset class="stream-style__group">
+                    <legend data-i18n="streamStyleLabel">Style</legend>
+                    <div class="choice-chips">
+                      <label class="choice-chip"><input type="radio" name="stream-style" value="auto" checked><span data-i18n="streamStyleAuto">Automatic</span></label>
+                      <label class="choice-chip"><input type="radio" name="stream-style" value="graphite"><span>Graphite</span></label>
+                      <label class="choice-chip"><input type="radio" name="stream-style" value="paper"><span>Paper</span></label>
+                      <label class="choice-chip"><input type="radio" name="stream-style" value="neo-brutalism"><span>Neo-Brutalism</span></label>
+                      <label class="choice-chip"><input type="radio" name="stream-style" value="gridline"><span>Gridline</span></label>
+                      <label class="choice-chip"><input type="radio" name="stream-style" value="lumen"><span>Lumen</span></label>
+                      <label class="choice-chip"><input type="radio" name="stream-style" value="signal"><span>Signal</span></label>
+                      <label class="choice-chip"><input type="radio" name="stream-style" value="midnight"><span>Midnight</span></label>
+                      <label class="choice-chip"><input type="radio" name="stream-style" value="ember"><span>Ember</span></label>
+                      <label class="choice-chip"><input type="radio" name="stream-style" value="dawn"><span>Dawn</span></label>
+                      <label class="choice-chip"><input type="radio" name="stream-style" value="cloud"><span>Cloud</span></label>
+                      <label class="choice-chip"><input type="radio" name="stream-style" value="subtitle"><span data-i18n="streamStyleSubtitle">Subtitle</span></label>
+                    </div>
+                  </fieldset>
+                  <fieldset class="stream-style__group">
+                    <legend data-i18n="streamBackgroundLabel">Background</legend>
+                    <div class="choice-chips">
+                      <label class="choice-chip"><input type="radio" name="stream-background" value="auto" checked><span data-i18n="streamBackgroundAuto">Automatic</span></label>
+                      <label class="choice-chip"><input type="radio" name="stream-background" value="light"><span data-i18n="light">Light</span></label>
+                      <label class="choice-chip"><input type="radio" name="stream-background" value="dark"><span data-i18n="dark">Dark</span></label>
+                    </div>
+                  </fieldset>
+                  <p id="stream-style-status" class="stream-style__status" role="status"></p>
+                  <button id="stream-style-reset" class="button button--quiet" type="button" data-i18n="streamStyleReset" hidden>Back to automatic</button>
+                </div>
+                <div class="stream-style__preview">
+                  <span class="kicker" data-i18n="livePreview">Live preview</span>
+                  <iframe id="stream-style-preview" title="Notification preview" data-i18n-title="streamStyleTitle"></iframe>
+                </div>
+              </div>
+            </section>
+
+            <details class="panel-section panel-disclosure panel-section--wide output-geometry-section" id="disclosure-overlay-6" data-advanced>
+              <summary class="section-heading">
+                <div>
                   <h3 data-i18n="sizeAndCrop">Size and crop</h3>
                 </div>
               </summary>
@@ -1217,21 +1294,21 @@
           <section class="page" data-page="moderation" hidden>
             <div class="page-intro page-intro--compact">
               <p class="kicker" data-i18n="moderationKicker">Broadcast safety</p>
-              <h2 data-i18n="moderationTitle">You decide what reaches OBS.</h2>
-              <p data-i18n="moderationCopy">Optionally hold incoming media until you approve it locally.</p>
+              <h2 data-i18n="moderationLevelTitle">How careful should Relay be?</h2>
+              <p data-i18n="moderationLevelCopy">Pick a level. You can fine-tune each part below.</p>
             </div>
 
             <section class="panel-section panel-section--wide moderation-toolbar" aria-labelledby="moderation-presets-title">
               <div class="moderation-toolbar__presets">
-                <h3 id="moderation-presets-title" data-i18n="moderationPresets">Presets</h3>
-                <div id="moderation-preset-bar" class="choice-chips" role="group" aria-labelledby="moderation-presets-title">
-                  <button class="choice-chip" type="button" data-moderation-preset="relaxed"><span data-i18n="presetRelaxed">Relaxed</span></button>
-                  <button class="choice-chip" type="button" data-moderation-preset="standard"><span data-i18n="presetStandard">Standard</span></button>
-                  <button class="choice-chip" type="button" data-moderation-preset="strict"><span data-i18n="presetStrict">Strict</span></button>
-                  <button class="choice-chip" type="button" data-moderation-preset="event"><span data-i18n="presetEvent">Big event</span></button>
+                <h3 id="moderation-presets-title" data-i18n="moderationProtectionLevel">Protection level</h3>
+                <div id="moderation-preset-bar" class="choice-chips preset-cards" role="group" aria-labelledby="moderation-presets-title">
+                  <button class="choice-chip preset-card" type="button" data-moderation-preset="relaxed"><span class="preset-card__body"><strong data-i18n="presetRelaxed">Relaxed</strong><small data-i18n="presetRelaxedHelp">Nothing waits for you. Personal data is still scanned.</small></span></button>
+                  <button class="choice-chip preset-card" type="button" data-moderation-preset="standard"><span class="preset-card__body"><strong data-i18n="presetStandard">Standard</strong><small data-i18n="presetStandardHelp">Images wait for your approval. Hate and scam words are blocked.</small></span></button>
+                  <button class="choice-chip preset-card" type="button" data-moderation-preset="strict"><span class="preset-card__body"><strong data-i18n="presetStrict">Strict</strong><small data-i18n="presetStrictHelp">Every media waits for you. More words, 30 s between messages.</small></span></button>
+                  <button class="choice-chip preset-card" type="button" data-moderation-preset="event"><span class="preset-card__body"><strong data-i18n="presetEvent">Big event</strong><small data-i18n="presetEventHelp">Maximum protection against raids and big audiences.</small></span></button>
                   <span id="moderation-preset-custom" class="moderation-preset-custom" data-i18n="presetCustom" hidden>Custom</span>
                 </div>
-                <p id="moderation-preset-help" class="section-copy" data-i18n="presetHelp">One click sets the switches below. Channels, your own words, private data and exempt roles are never changed.</p>
+                <p id="moderation-preset-help" class="section-copy" data-advanced data-i18n="presetHelp">One click sets the switches below. Channels, your own words, private data and exempt roles are never changed.</p>
                 <div id="moderation-preset-confirm" class="moderation-confirm" hidden>
                   <p id="moderation-preset-changes"></p>
                   <div class="section-actions">
@@ -1242,6 +1319,22 @@
                 <div id="moderation-preset-undo" class="moderation-confirm" hidden>
                   <p id="moderation-preset-applied"></p>
                   <button id="moderation-preset-undo-button" class="button button--quiet" type="button" data-i18n="presetUndo">Undo</button>
+                </div>
+              </div>
+            </section>
+
+            <details class="panel-section panel-section--wide moderation-tools" data-advanced>
+              <summary data-i18n="moderationToolsTitle">Statistics, test a message, my presets</summary>
+              <div class="moderation-tools__body">
+                <div id="moderation-ai-settings" class="moderation-ai-settings" hidden>
+                  <label class="field">
+                    <span data-i18n="aiSettingsWish">Describe the settings you want</span>
+                    <textarea id="moderation-ai-wish" rows="2" maxlength="500" spellcheck="false" data-i18n-placeholder="aiSettingsWishPlaceholder"></textarea>
+                  </label>
+                  <div class="section-actions">
+                    <button id="moderation-ai-suggest" class="button button--quiet" type="button" data-i18n="aiSettingsSuggest">Ask the AI for settings</button>
+                    <small id="moderation-ai-suggest-result" class="moderation-ai-advice" hidden></small>
+                  </div>
                 </div>
                 <div class="moderation-own-presets">
                   <label class="field">
@@ -1258,7 +1351,6 @@
                     <button id="moderation-own-preset-delete" class="button button--quiet" type="button" data-i18n="deletePreset">Delete</button>
                   </div>
                 </div>
-              </div>
               <div class="moderation-toolbar__side">
                 <div class="moderation-summary" aria-live="polite">
                   <span class="kicker" data-i18n="moderationLastDay">Last 24 hours</span>
@@ -1283,39 +1375,30 @@
                       <option value="music" data-i18n="laneMusic">Music</option>
                     </select>
                     <button id="moderation-test-button" class="button button--quiet" type="button" data-i18n="testRun">Test</button>
+                    <button id="moderation-test-ai" class="button button--quiet" type="button" data-i18n="aiTestAdvice" hidden>Ask the AI</button>
                   </div>
                   <p id="moderation-test-result" class="moderation-test-result" role="status"></p>
+                  <p id="moderation-test-ai-result" class="moderation-ai-advice" role="status" hidden></p>
                 </div>
               </div>
-            </section>
-
-            <div class="moderation-header">
-              <div>
-                <span class="kicker" data-i18n="pendingMedia">Pending media</span>
-                <strong id="moderation-count">0 / 50</strong>
               </div>
-              <p class="moderation-shortcuts" data-i18n="moderationShortcuts">Keyboard: A approve, R reject, arrows to move.</p>
-              <button id="clear-pending-media" class="button button--quiet" type="button" data-i18n="clearPending">Reject all</button>
-            </div>
-            <p id="moderation-empty" class="empty-state" data-i18n="moderationEmpty">No media is waiting for approval.</p>
-            <ol id="moderation-list" class="history-list moderation-list" tabindex="0" aria-describedby="moderation-shortcuts-help"></ol>
-            <span id="moderation-shortcuts-help" class="visually-hidden" data-i18n="moderationShortcuts">Keyboard: A approve, R reject, arrows to move.</span>
+            </details>
+
+
 
             <section class="panel-section panel-section--wide moderation-settings">
               <div class="section-heading">
                 <div>
-                  <span class="section-number">01</span>
-                  <h3 data-i18n="moderationSettings">Moderation settings</h3>
+                  <h3 data-i18n="moderationFineTune">Fine-tune</h3>
                 </div>
                 <span id="moderation-save-state" class="save-state" role="status"></span>
               </div>
               <form id="moderation-form" class="settings-list">
                 <details id="moderation-automod" class="settings-disclosure moderation-disclosure" open>
                   <summary>
-                    <span class="moderation-disclosure__number">A</span>
                     <span class="moderation-disclosure__summary">
-                      <strong data-i18n="automaticFilterWords">Automatic filtering</strong>
-                      <small data-i18n="automaticFilterWordsHelp">Filter words are saved automatically after you stop typing. They run even when manual moderation and the local image scan are off.</small>
+                      <strong data-i18n="modPartWords">Blocked words</strong>
+                      <small data-i18n="modPartWordsHelp">Words and phrases kept off your stream.</small>
                     </span>
                     <i aria-hidden="true"></i>
                   </summary>
@@ -1385,10 +1468,9 @@
 
                 <details id="moderation-manual" class="settings-disclosure moderation-disclosure">
                   <summary>
-                    <span class="moderation-disclosure__number">B</span>
                     <span class="moderation-disclosure__summary">
-                      <strong data-i18n="manualModeration">Manual moderation</strong>
-                      <small data-i18n="manualModerationHelp">Hold media for approval independently from automatic filtering.</small>
+                      <strong data-i18n="modPartManual">Approve before showing</strong><span class="state-badge" data-state-for="moderation-enabled"></span>
+                      <small data-i18n="modPartManualHelp">Media waits until you approve it.</small>
                     </span>
                     <i aria-hidden="true"></i>
                   </summary>
@@ -1513,10 +1595,9 @@
 
                 <details id="moderation-privacy" class="settings-disclosure moderation-disclosure">
                   <summary>
-                    <span class="moderation-disclosure__number">C</span>
                     <span class="moderation-disclosure__summary">
-                      <strong data-i18n="privacyProtection">Anti-doxxing protection</strong>
-                      <small data-i18n="privacyProtectionHelp">Scan locally before Discord text or media can reach history, WebSocket, Windows widgets, or OBS.</small>
+                      <strong data-i18n="modPartPrivacy">Personal data protection</strong><span class="state-badge" data-state-for="privacy-scan-enabled"></span>
+                      <small data-i18n="modPartPrivacyHelp">Scans text and images for addresses, phone numbers and other private data.</small>
                     </span>
                     <i aria-hidden="true"></i>
                   </summary>
@@ -1587,6 +1668,26 @@
                       <label><input type="checkbox" name="privacy-category" value="ocr"><span data-i18n="privacyCategoryOcr">Local OCR</span></label>
                       <label><input type="checkbox" name="privacy-category" value="document"><span data-i18n="privacyCategoryDocument">Administrative documents</span></label>
                     </fieldset>
+                    <div class="privacy-ai-relay">
+                    <label class="setting-row setting-row--switch">
+                      <span>
+                        <strong data-i18n="aiPersonalRelay">Ask the AI when the scan finds nothing</strong>
+                        <small data-i18n="aiPersonalRelayHelp">Your AI provider looks for anything that could locate or identify someone: a house number, a street sign, a plate, a document, a screen. One paid request per image. Data the local scan finds is never sent.</small>
+                      </span>
+                      <span class="switch">
+                        <input id="moderation-ai-personal-relay" type="checkbox">
+                        <span class="switch__track" aria-hidden="true"></span>
+                      </span>
+                    </label>
+                    <fieldset id="moderation-ai-personal-scope" class="privacy-categories">
+                      <legend data-i18n="aiPersonalScope">Images sent to the AI</legend>
+                      <label><input id="moderation-ai-personal-photos" type="checkbox"><span data-i18n="aiPersonalPhotos">Photos</span></label>
+                      <label><input id="moderation-ai-personal-screenshots" type="checkbox"><span data-i18n="aiPersonalScreenshots">Screenshots</span></label>
+                      <label><input id="moderation-ai-personal-videos" type="checkbox"><span data-i18n="aiPersonalVideos">GIFs and videos (3 frames)</span></label>
+                      <label><input id="moderation-ai-personal-incomplete" type="checkbox"><span data-i18n="aiPersonalIncomplete">Images the scan could not finish</span></label>
+                    </fieldset>
+                    <small id="moderation-ai-personal-provider" class="ai-step__hint" data-i18n="aiPersonalNeedsProvider" hidden>Choose an AI provider in AI assistant first.</small>
+                    </div>
                     <label class="field field--full">
                       <span data-i18n="privacyCustomPatterns">Private data to protect</span>
                       <textarea id="privacy-custom-patterns" rows="5" autocomplete="off" spellcheck="false" data-i18n-placeholder="privacyCustomPatternsPlaceholder" placeholder="One value per line"></textarea>
@@ -1599,9 +1700,8 @@
                     </label>
                   </div>
                 </details>
-                <details id="moderation-spam" class="settings-disclosure moderation-disclosure">
+                <details id="moderation-spam" class="settings-disclosure moderation-disclosure" data-advanced>
                   <summary>
-                    <span class="moderation-disclosure__number">D</span>
                     <span class="moderation-disclosure__summary">
                       <strong data-i18n="spamAndLinks">Spam and links</strong>
                       <small data-i18n="spamAndLinksHelp">Limits per member, raid protection, repeated media and dangerous links.</small>
@@ -1619,6 +1719,16 @@
                         <span data-i18n="unitSeconds">s</span>
                       </span>
                     </label>
+                    <label class="setting-row setting-row--switch">
+                      <span>
+                        <strong data-i18n="cooldownNotice">Tell the member</strong>
+                        <small data-i18n="cooldownNoticeHelp">Replies in the channel when a message came too soon, then deletes the reply after 10 s. At most once a minute per member. Needs Send Messages.</small>
+                      </span>
+                      <span class="switch">
+                        <input id="moderation-cooldown-notice" type="checkbox">
+                        <span class="switch__track" aria-hidden="true"></span>
+                      </span>
+                    </label>
                     <label class="setting-row">
                       <span>
                         <strong data-i18n="raidLimit">Raid protection</strong>
@@ -1632,11 +1742,21 @@
                     <label class="setting-row setting-row--switch">
                       <span>
                         <strong data-i18n="blockDuplicates">Ignore repeated media</strong>
-                        <small data-i18n="blockDuplicatesHelp">The same file, sticker or link posted again within 10 minutes is shown once.</small>
+                        <small data-i18n="blockDuplicatesHelp">The same file, sticker or link posted again within the time below is shown once.</small>
                       </span>
                       <span class="switch">
                         <input id="moderation-duplicates" type="checkbox">
                         <span class="switch__track" aria-hidden="true"></span>
+                      </span>
+                    </label>
+                    <label class="setting-row">
+                      <span>
+                        <strong data-i18n="duplicateWindow">Repeated media window</strong>
+                        <small data-i18n="duplicateWindowHelp">How long the same media stays ignored after it was shown.</small>
+                      </span>
+                      <span class="number-with-unit">
+                        <input id="moderation-duplicate-window" type="number" min="5" max="3600" step="1" inputmode="numeric">
+                        <span data-i18n="unitSeconds">s</span>
                       </span>
                     </label>
                     <label class="setting-row setting-row--switch">
@@ -1681,12 +1801,11 @@
                     </label>
                   </div>
                 </details>
-                <details id="moderation-sanctions" class="settings-disclosure moderation-disclosure">
+                <details id="moderation-sanctions" class="settings-disclosure moderation-disclosure" data-advanced>
                   <summary>
-                    <span class="moderation-disclosure__number">E</span>
                     <span class="moderation-disclosure__summary">
-                      <strong data-i18n="sanctionsAndTrap">Sanctions and trap</strong>
-                      <small data-i18n="sanctionsAndTrapHelp">Warnings, automatic timeouts, the compromised account trap and Discord AutoMod.</small>
+                      <strong data-i18n="modPartSanctions">Sanctions</strong>
+                      <small data-i18n="modPartSanctionsHelp">Warnings, automatic timeouts and the trap channel.</small>
                     </span>
                     <i aria-hidden="true"></i>
                   </summary>
@@ -1764,12 +1883,11 @@
                     <p id="moderation-automod-state" class="save-state" role="status"></p>
                   </div>
                 </details>
-                <details id="moderation-live" class="settings-disclosure moderation-disclosure">
+                <details id="moderation-live" class="settings-disclosure moderation-disclosure" data-advanced>
                   <summary>
-                    <span class="moderation-disclosure__number">F</span>
                     <span class="moderation-disclosure__summary">
-                      <strong data-i18n="liveProtection">Live protection</strong>
-                      <small data-i18n="liveProtectionHelp">Automatic live mode, maximum media length and loudness limiter.</small>
+                      <strong data-i18n="modPartLive">During a stream</strong>
+                      <small data-i18n="modPartLiveHelp">Automatic stricter mode while OBS is live.</small>
                     </span>
                     <i aria-hidden="true"></i>
                   </summary>
@@ -1818,16 +1936,180 @@
                     </label>
                   </div>
                 </details>
+                <details id="moderation-ai" class="settings-disclosure moderation-disclosure" data-advanced>
+                  <summary>
+                    <span class="moderation-disclosure__summary">
+                      <strong data-i18n="aiAssistant">AI assistant</strong>
+                      <small data-i18n="aiAssistantSummary">Optional. An AI can advise you on messages held for review.</small>
+                    </span>
+                    <i aria-hidden="true"></i>
+                  </summary>
+                  <div class="settings-disclosure__content moderation-disclosure__content">
+                    <section class="ai-step" data-ai-step="1">
+                      <h4 class="ai-step__title"><span class="ai-step__number">1</span><span data-i18n="aiStepProvider">Choose a provider</span></h4>
+                      <div class="ai-providers" role="group" aria-label="AI provider" data-i18n-aria-label="aiProvider">
+                        <button class="ai-provider" type="button" data-ai-provider=""><strong data-i18n="aiProviderOff">Off</strong><small data-i18n="aiProviderOffHelp">No AI</small></button>
+                        <button class="ai-provider" type="button" data-ai-provider="openai"><strong>OpenAI</strong><small data-i18n="aiProviderOpenaiHelp">ChatGPT models</small></button>
+                        <button class="ai-provider" type="button" data-ai-provider="anthropic"><strong>Anthropic</strong><small data-i18n="aiProviderAnthropicHelp">Claude models</small></button>
+                      </div>
+                      <label class="setting-row" hidden>
+                      <span>
+                        <strong data-i18n="aiProvider">Provider</strong>
+                        <small data-i18n="aiProviderHelp">Relay never switches to the other provider on its own.</small>
+                      </span>
+                      <select id="moderation-ai-provider">
+                        <option value="" data-i18n="aiProviderNone">None</option>
+                        <option value="openai">OpenAI</option>
+                        <option value="anthropic">Anthropic</option>
+                      </select>
+                    </label>
+                    </section>
+                    <section class="ai-step" data-ai-step="2">
+                      <h4 class="ai-step__title"><span class="ai-step__number">2</span><span data-i18n="aiStepKey">Paste its API key</span></h4>
+                      <div class="moderation-ai__keys">
+                      <div class="moderation-ai__key">
+                        <label class="field">
+                          <span data-i18n="aiKeyOpenai">OpenAI API key</span>
+                          <input id="moderation-ai-key-openai" type="password" autocomplete="off" spellcheck="false" maxlength="512">
+                        </label>
+                        <span class="moderation-ai__actions">
+                          <button class="button button--quiet" type="button" data-ai-key-save="openai" data-i18n="aiKeySave">Save key</button>
+                          <button class="button button--quiet" type="button" data-ai-key-forget="openai" data-i18n="aiKeyForget">Forget key</button>
+                        </span>
+                        <small id="moderation-ai-key-state-openai" class="moderation-ai__state"></small>
+                      </div>
+                      <div class="moderation-ai__key">
+                        <label class="field">
+                          <span data-i18n="aiKeyAnthropic">Anthropic API key</span>
+                          <input id="moderation-ai-key-anthropic" type="password" autocomplete="off" spellcheck="false" maxlength="512">
+                        </label>
+                        <span class="moderation-ai__actions">
+                          <button class="button button--quiet" type="button" data-ai-key-save="anthropic" data-i18n="aiKeySave">Save key</button>
+                          <button class="button button--quiet" type="button" data-ai-key-forget="anthropic" data-i18n="aiKeyForget">Forget key</button>
+                        </span>
+                        <small id="moderation-ai-key-state-anthropic" class="moderation-ai__state"></small>
+                      </div>
+                      <p id="moderation-ai-key-result" class="save-state" role="status"></p>
+                    </div>
+                      <small class="ai-step__hint" data-i18n="aiKeysStored">Keys are stored in Windows Credential Manager, never in Relay's files.</small>
+                      <small id="moderation-ai-free-key-hint" class="ai-step__hint" data-i18n="aiFreeKeyHint" hidden>With Anthropic, the OpenAI key is used only for OpenAI's free image filter.</small>
+                    </section>
+                    <section class="ai-step" data-ai-step="3">
+                      <h4 class="ai-step__title"><span class="ai-step__number">3</span><span data-i18n="aiStepUse">Choose what the AI does</span></h4>
+                      <label class="setting-row setting-row--switch">
+                      <span>
+                        <strong data-i18n="aiAdviseHeld">Advise me on held messages</strong>
+                        <small data-i18n="aiAdviseHeldHelp">Shows a suggestion next to each held message. You still decide.</small>
+                      </span>
+                      <span class="switch">
+                        <input id="moderation-ai-message-advice" type="checkbox">
+                        <span class="switch__track" aria-hidden="true"></span>
+                      </span>
+                    </label>
+                      <label class="setting-row setting-row--switch">
+                      <span>
+                        <strong data-i18n="aiCheckBefore">Check messages before they appear</strong>
+                        <small data-i18n="aiCheckBeforeHelp">Up to 6 s delay per message. A clear problem sends it to review. A single short word (test, gg) is shown at once.</small>
+                      </span>
+                      <span class="switch">
+                        <input id="moderation-ai-watch" type="checkbox">
+                        <span class="switch__track" aria-hidden="true"></span>
+                      </span>
+                    </label>
+                      <label class="setting-row setting-row--switch">
+                      <span>
+                        <strong data-i18n="aiImageGuard">Block harmful images</strong>
+                        <small data-i18n="aiImageGuardHelp">Checks each image of a member before it appears. An image the AI finds or suspects harmful is blocked. The AI can make mistakes.</small>
+                      </span>
+                      <span class="switch">
+                        <input id="moderation-ai-image-guard" type="checkbox">
+                        <span class="switch__track" aria-hidden="true"></span>
+                      </span>
+                    </label>
+                      <div id="moderation-ai-image-guard-options" class="ai-image-guard">
+                      <fieldset class="privacy-categories ai-guard-categories">
+                        <legend data-i18n="aiImageGuardCategories">What to block</legend>
+                        <label><input type="checkbox" name="ai-guard-category" value="sexual"><span data-i18n="aiGuardSexual">Sexual content</span><em class="ai-badge" data-i18n="aiBadgeFree">Free</em></label>
+                        <label><input type="checkbox" name="ai-guard-category" value="violence"><span data-i18n="aiGuardViolence">Violence</span><em class="ai-badge" data-i18n="aiBadgeFree">Free</em></label>
+                        <label><input type="checkbox" name="ai-guard-category" value="selfHarm"><span data-i18n="aiGuardSelfHarm">Self-harm</span><em class="ai-badge" data-i18n="aiBadgeFree">Free</em></label>
+                        <label><input type="checkbox" name="ai-guard-category" value="hate"><span data-i18n="aiGuardHate">Hate and extremism</span><em class="ai-badge ai-badge--paid" data-i18n="aiBadgePaid">Paid</em></label>
+                        <label><input type="checkbox" name="ai-guard-category" value="harassment"><span data-i18n="aiGuardHarassment">Harassment</span><em class="ai-badge ai-badge--paid" data-i18n="aiBadgePaid">Paid</em></label>
+                        <label><input type="checkbox" name="ai-guard-category" value="spam"><span data-i18n="aiGuardSpam">Spam and scams</span><em class="ai-badge ai-badge--paid" data-i18n="aiBadgePaid">Paid</em></label>
+                      </fieldset>
+                      <small class="ai-step__hint" data-i18n="aiImageGuardCost">Free: OpenAI's moderation filter, with your OpenAI key, whatever the provider. Paid: one request to your provider per image.</small>
+                      <small class="ai-step__hint" data-i18n="aiImageGuardHold">Held, never shown: images with personal data (never sent), and any image the AI cannot check (no key, limit reached, provider down). Moderators and trusted members are not checked.</small>
+                      <label class="setting-row setting-row--switch">
+                      <span>
+                        <strong data-i18n="aiImageGuardDelete">Delete the Discord message too</strong>
+                        <small data-i18n="aiImageGuardDeleteHelp">Requires Manage Messages.</small>
+                      </span>
+                      <span class="switch">
+                        <input id="moderation-ai-image-delete" type="checkbox">
+                        <span class="switch__track" aria-hidden="true"></span>
+                      </span>
+                    </label>
+                      <label class="setting-row setting-row--switch">
+                      <span>
+                        <strong data-i18n="aiImageGuardAnimated">Also check GIFs and videos</strong>
+                        <small data-i18n="aiImageGuardAnimatedHelp">Three frames of each file are checked, so up to three requests.</small>
+                      </span>
+                      <span class="switch">
+                        <input id="moderation-ai-image-animated" type="checkbox">
+                        <span class="switch__track" aria-hidden="true"></span>
+                      </span>
+                    </label>
+                      </div>
+                    </section>
+                    <details class="ai-advanced">
+                      <summary data-i18n="aiAdvancedOptions">Model, limits and connection test</summary>
+                      <label class="setting-row">
+                      <span>
+                        <strong data-i18n="aiModel">Model</strong>
+                        <small id="moderation-ai-model-name"></small>
+                      </span>
+                      <select id="moderation-ai-tier">
+                        <option value="fast" data-i18n="aiModelFast">Fast and inexpensive</option>
+                        <option value="precise" data-i18n="aiModelPrecise">More precise, more expensive</option>
+                      </select>
+                    </label>
+                      <label class="setting-row">
+                      <span>
+                        <strong data-i18n="aiCallsPerHour">Requests per hour, at most</strong>
+                        <small data-i18n="aiCallsHelp">Relay stops asking the AI beyond these limits. Between 1 and 600 per hour, 10,000 per day.</small>
+                      </span>
+                      <span class="number-with-unit">
+                        <input id="moderation-ai-hour" type="number" min="1" max="600" step="1" inputmode="numeric" required>
+                      </span>
+                    </label>
+                      <label class="setting-row">
+                      <span>
+                        <strong data-i18n="aiCallsPerDay">Requests per day, at most</strong>
+                      </span>
+                      <span class="number-with-unit">
+                        <input id="moderation-ai-day" type="number" min="1" max="10000" step="1" inputmode="numeric" required>
+                      </span>
+                    </label>
+                      <div class="setting-row">
+                      <span>
+                        <strong data-i18n="aiTest">Test the connection</strong>
+                        <small data-i18n="aiTestHelp">Sends one short fixed message to the chosen provider, never Discord content. It counts toward your limits and costs a few tokens.</small>
+                        <small id="moderation-ai-test-result" class="moderation-ai__state" role="status"></small>
+                      </span>
+                      <button id="moderation-ai-test" class="button button--quiet" type="button" data-i18n="aiTest">Test the connection</button>
+                    </div>
+                    </details>
+                    <p class="help-note" data-i18n="aiPrivacyNoteShort">Only the provider you pick receives content. It bills API use separately from ChatGPT or Claude subscriptions.</p>
+                  </div>
+                </details>
                 <div class="settings-actions">
                   <p data-i18n="moderationLocalOnly">Decisions stay local and never notify Discord users.</p>
                 </div>
               </form>
             </section>
 
-            <section class="panel-section panel-section--wide moderation-log" aria-labelledby="moderation-log-title">
+            <section class="panel-section panel-section--wide moderation-log" aria-labelledby="moderation-log-title" data-advanced>
               <div class="section-heading">
                 <div>
-                  <span class="section-number">02</span>
                   <h3 id="moderation-log-title" data-i18n="moderationLog">Decision log</h3>
                 </div>
                 <button id="moderation-log-clear" class="button button--quiet" type="button" data-i18n="moderationLogClear">Clear log</button>
@@ -1852,7 +2134,6 @@
             <section class="panel-section panel-section--wide">
               <div class="section-heading">
                 <div>
-                  <span class="section-number">01</span>
                   <h3 data-i18n="defaultCommands">Default Commands</h3>
                 </div>
                 <span id="commands-save-state" class="save-state" role="status"></span>
@@ -1908,7 +2189,6 @@
             <section class="panel-section panel-section--wide custom-commands-section">
               <div class="section-heading custom-commands-heading">
                 <div>
-                  <span class="section-number">02</span>
                   <h3 data-i18n="customCommands">Custom Commands</h3>
                 </div>
                 <div class="section-actions">
@@ -2023,19 +2303,89 @@
 
           <section class="page help-page" data-page="help" hidden>
             <div class="page-intro page-intro--compact">
-              <p class="kicker" data-i18n="helpKicker">Setup guide</p>
-              <h2 data-i18n="helpTitle">From Discord to OBS.</h2>
-              <p data-i18n="helpCopy">Follow these steps once, then keep Relay running quietly in the system tray.</p>
+              <p class="kicker" data-i18n="navHelp">Help</p>
+              <h2 data-i18n="helpNeedTitle">What do you need?</h2>
+              <p data-i18n="helpNeedCopy">Fix a problem in a few clicks, or follow the first setup step by step.</p>
             </div>
 
-            <div class="help-start">
-              <span class="help-start__index">01—06</span>
-              <div>
-                <strong data-i18n="helpStartTitle">Recommended setup order</strong>
-                <p data-i18n="helpStartCopy">Discord application, permissions, channels, OBS sources, widgets, then a live test.</p>
+            <section class="panel-section panel-section--wide help-fix">
+              <h3 data-i18n="helpFixTitle">Something does not work?</h3>
+              <div class="help-symptoms" role="tablist" aria-label="Symptoms" data-i18n-aria-label="helpFixTitle">
+                <button id="help-fix-tab-media" class="help-symptom" type="button" role="tab" aria-selected="true" aria-controls="help-fix-media" data-help-symptom="media" data-i18n="helpFixMedia">Media does not show</button>
+                <button id="help-fix-tab-message" class="help-symptom" type="button" role="tab" aria-selected="false" aria-controls="help-fix-message" data-help-symptom="message" data-i18n="helpFixMessage">Message does not show</button>
+                <button id="help-fix-tab-sound" class="help-symptom" type="button" role="tab" aria-selected="false" aria-controls="help-fix-sound" data-help-symptom="sound" data-i18n="helpFixSound">No sound</button>
+                <button id="help-fix-tab-obs" class="help-symptom" type="button" role="tab" aria-selected="false" aria-controls="help-fix-obs" data-help-symptom="obs" data-i18n="helpFixObs">OBS source is blank</button>
+                <button id="help-fix-tab-bot" class="help-symptom" type="button" role="tab" aria-selected="false" aria-controls="help-fix-bot" data-help-symptom="bot" data-i18n="helpFixBot">Bot is offline</button>
               </div>
-            </div>
+              <div id="help-fix-media" class="help-fix__panel" role="tabpanel" aria-labelledby="help-fix-tab-media">
+                <ol class="help-fix__steps">
+                  <li data-i18n="helpFixMedia1">Check that it was posted in the Relay channel (Discord page).</li>
+                  <li data-i18n="helpFixMedia2">Look in Control room: it may be waiting for your approval.</li>
+                  <li data-i18n="helpFixMedia3">A member who posts again too soon is ignored (Moderation → Spam and links).</li>
+                  <li data-i18n="helpFixMedia4">If Relay is paused by Panic, press Resume.</li>
+                </ol>
+                <button class="button button--primary" type="button" data-go-to-page="live" data-i18n="helpFixOpenLive">Open Control room</button>
+              </div>
+              <div id="help-fix-message" class="help-fix__panel" role="tabpanel" aria-labelledby="help-fix-tab-message" hidden>
+                <ol class="help-fix__steps">
+                  <li data-i18n="helpFixMessage1">Commands (/…) and system messages are never shown. A message with only a GIF link shows as media.</li>
+                  <li data-i18n="helpFixMessage2">Check the message was posted in the Relay channel, then send a new one.</li>
+                  <li data-i18n="helpFixMessage3">Check that the OBS message overlay is enabled.</li>
+                </ol>
+                <button class="button button--primary" type="button" data-go-to-page="overlay" data-i18n="helpFixOpenOutputs">Open Outputs</button>
+              </div>
+              <div id="help-fix-sound" class="help-fix__panel" role="tabpanel" aria-labelledby="help-fix-tab-sound" hidden>
+                <ol class="help-fix__steps">
+                  <li data-i18n="helpFixSound1">Turn on the notification sound for OBS or Windows.</li>
+                  <li data-i18n="helpFixSound2">In OBS, check the Browser Source volume is not muted.</li>
+                  <li data-i18n="helpFixSound3">Send a new message to test.</li>
+                </ol>
+                <button class="button button--primary" type="button" data-go-to-page="overlay" data-i18n="helpFixOpenOutputs">Open Outputs</button>
+              </div>
+              <div id="help-fix-obs" class="help-fix__panel" role="tabpanel" aria-labelledby="help-fix-tab-obs" hidden>
+                <ol class="help-fix__steps">
+                  <li data-i18n="helpFixObs1">Refresh the Browser Source once in OBS.</li>
+                  <li data-i18n="helpFixObs2">Check Relay is running and the port matches the one in Settings → System.</li>
+                  <li data-i18n="helpFixObs3">Use Test output in Outputs → Output readiness.</li>
+                </ol>
+                <button class="button button--primary" type="button" data-go-to-page="overlay" data-i18n="helpFixOpenOutputs">Open Outputs</button>
+              </div>
+              <div id="help-fix-bot" class="help-fix__panel" role="tabpanel" aria-labelledby="help-fix-tab-bot" hidden>
+                <ol class="help-fix__steps">
+                  <li data-i18n="helpFixBot1">Turn on Message Content Intent in the Discord Developer Portal.</li>
+                  <li data-i18n="helpFixBot2">Do not regenerate the token for an intent error.</li>
+                  <li data-i18n="helpFixBot3">Run Bot check on the Discord page.</li>
+                </ol>
+                <button class="button button--primary" type="button" data-go-to-page="discord" data-i18n="helpFixOpenDiscord">Open Discord</button>
+              </div>
+            </section>
 
+            <section class="panel-section panel-section--wide help-stuck">
+              <h3 data-i18n="helpStuckTitle">Still stuck?</h3>
+              <div class="diagnostic-tools">
+                  <button id="copy-diagnostic" class="button button--quiet" type="button" data-i18n="copyDiagnostic">Copy diagnostic</button>
+                  <small data-i18n="copyDiagnosticHelp">Copies a support report with versions, output status and recent errors. It never includes your token, private links or channel IDs.</small>
+                  <span id="diagnostic-state" class="save-state" role="status"></span>
+                </div>
+              <div id="ai-help" class="ai-help">
+                    <label class="field">
+                      <span data-i18n="aiHelpQuestion">Ask the AI why something does not work</span>
+                      <textarea id="ai-help-question" rows="2" maxlength="500" spellcheck="false" data-i18n-placeholder="aiHelpPlaceholder"></textarea>
+                    </label>
+                    <small data-i18n="aiHelpSends">Sends your question and a report of states, counters and rule codes to the AI provider you chose in Moderation. Never your token, links, IDs, names or messages.</small>
+                    <div class="section-actions">
+                      <button id="ai-help-ask" class="button button--quiet" type="button" data-i18n="aiHelpAsk">Ask the AI</button>
+                <p id="ai-help-quota" class="ai-help__quota" role="status"></p>
+                    </div>
+                    <ul id="ai-help-answer" class="ai-help__answer" aria-live="polite" hidden></ul>
+                    <details id="ai-help-report" class="ai-help__report" hidden>
+                      <summary data-i18n="aiHelpReport">What was sent</summary>
+                      <pre id="ai-help-report-text"></pre>
+                    </details>
+                  </div>
+            </section>
+
+            <h3 class="output-group" data-i18n="helpFirstSetup">First setup</h3>
             <div class="help-accordions">
               <details class="help-disclosure" open>
                 <summary>
@@ -2139,34 +2489,10 @@
                 </div>
               </details>
 
-              <details class="help-disclosure">
-                <summary>
-                  <span class="help-disclosure__number">06</span>
-                  <span>
-                    <strong data-i18n="helpTroubleshootingTitle">Troubleshooting</strong>
-                    <small data-i18n="helpTroubleshootingSummary">Fast checks when nothing appears</small>
-                  </span>
-                  <i aria-hidden="true"></i>
-                </summary>
-                <div class="help-disclosure__content">
-                  <ul>
-                    <li data-i18n="helpTroubleshooting1">No media: check the Relay channel on the Discord page and the bot's permissions in that channel.</li>
-                    <li data-i18n="helpTroubleshooting2">No message notification: check that the message was posted in the Relay channel, then send a new one.</li>
-                    <li data-i18n="helpTroubleshooting3">No notification sound: enable the notification sound in OBS or Windows, then send a new message.</li>
-                    <li data-i18n="helpTroubleshooting4">Blank OBS source: refresh it once and confirm Relay is running on the displayed local port.</li>
-                    <li data-i18n="helpTroubleshooting5">Never regenerate a Discord token for a gateway-intent error; enable the intent instead.</li>
-                  </ul>
-                  <div class="diagnostic-tools">
-                    <button id="copy-diagnostic" class="button button--quiet" type="button" data-i18n="copyDiagnostic">Copy diagnostic</button>
-                    <small data-i18n="copyDiagnosticHelp">Copies a support report with versions, output status and recent errors. It never includes your token, private links or channel IDs.</small>
-                    <span id="diagnostic-state" class="save-state" role="status"></span>
-                  </div>
-                </div>
-              </details>
 
               <details id="privacy-details" class="help-disclosure">
                 <summary>
-                  <span class="help-disclosure__number">07</span>
+                  <span class="help-disclosure__number">06</span>
                   <span>
                     <strong data-i18n="privacyDetailsTitle">Privacy and regional rights</strong>
                     <small data-i18n="privacyDetailsSummary">GDPR and equivalent laws worldwide</small>
@@ -2298,17 +2624,85 @@
                       <small data-i18n="signalDesignCopy">High contrast, broadcast and direct.</small>
                     </span>
                   </label>
+                  <label class="design-choice design-choice--midnight">
+                    <input type="radio" name="interface-design" value="midnight">
+                    <span class="design-choice__preview" aria-hidden="true"><i></i><i></i><i></i></span>
+                    <span class="design-choice__copy">
+                      <strong>Midnight</strong>
+                      <small data-i18n="midnightDesignCopy">Deep blue glass with a soft glow. Dark only.</small>
+                    </span>
+                  </label>
+                  <label class="design-choice design-choice--ember">
+                    <input type="radio" name="interface-design" value="ember">
+                    <span class="design-choice__preview" aria-hidden="true"><i></i><i></i><i></i></span>
+                    <span class="design-choice__copy">
+                      <strong>Ember</strong>
+                      <small data-i18n="emberDesignCopy">Black with a warm orange glow. Dark only.</small>
+                    </span>
+                  </label>
+                  <label class="design-choice design-choice--dawn">
+                    <input type="radio" name="interface-design" value="dawn">
+                    <span class="design-choice__preview" aria-hidden="true"><i></i><i></i><i></i></span>
+                    <span class="design-choice__copy">
+                      <strong>Dawn</strong>
+                      <small data-i18n="dawnDesignCopy">Warm cream with a peach sunrise wash.</small>
+                    </span>
+                  </label>
+                  <label class="design-choice design-choice--cloud">
+                    <input type="radio" name="interface-design" value="cloud">
+                    <span class="design-choice__preview" aria-hidden="true"><i></i><i></i><i></i></span>
+                    <span class="design-choice__copy">
+                      <strong>Cloud</strong>
+                      <small data-i18n="cloudDesignCopy">Airy light dashboard, soft cards and shadows.</small>
+                    </span>
+                  </label>
                   </div>
                 </div>
               </details>
               <fieldset class="personalization-fieldset">
                 <legend data-i18n="accentColor">Accent color</legend>
-                <div class="rgb-controls">
-                  <label>R <input id="accent-r" type="number" min="0" max="255" value="88"></label>
-                  <label>G <input id="accent-g" type="number" min="0" max="255" value="185"></label>
-                  <label>B <input id="accent-b" type="number" min="0" max="255" value="137"></label>
-                  <input id="accent-picker" class="accent-preview" type="color" value="#58b989" aria-label="Choose accent color" data-i18n-aria-label="accentColor">
+                <!-- The native color input stays as the value holder; its grey system popup is replaced by #accent-popover. -->
+                <div class="accent-swatches" role="radiogroup" aria-label="Accent presets" data-i18n-aria-label="accentPresets">
+                  <button class="accent-swatch" type="button" role="radio" data-accent-hex="#58b989" aria-label="Relay green" data-i18n-aria-label="accentRelayGreen"></button>
+                  <button class="accent-swatch" type="button" role="radio" data-accent-hex="#3b82f6" aria-label="Blue" data-i18n-aria-label="accentBlue"></button>
+                  <button class="accent-swatch" type="button" role="radio" data-accent-hex="#6d5bff" aria-label="Violet" data-i18n-aria-label="accentViolet"></button>
+                  <button class="accent-swatch" type="button" role="radio" data-accent-hex="#d946ef" aria-label="Pink" data-i18n-aria-label="accentPink"></button>
+                  <button class="accent-swatch" type="button" role="radio" data-accent-hex="#ef4444" aria-label="Red" data-i18n-aria-label="accentRed"></button>
+                  <button class="accent-swatch" type="button" role="radio" data-accent-hex="#f97316" aria-label="Orange" data-i18n-aria-label="accentOrange"></button>
+                  <button class="accent-swatch" type="button" role="radio" data-accent-hex="#eab308" aria-label="Amber" data-i18n-aria-label="accentAmber"></button>
+                  <button class="accent-swatch" type="button" role="radio" data-accent-hex="#14b8a6" aria-label="Teal" data-i18n-aria-label="accentTeal"></button>
+                  <span class="accent-custom">
+                    <button id="accent-custom" class="accent-swatch accent-swatch--custom" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="accent-popover" aria-label="Custom color" data-i18n-aria-label="accentCustom"></button>
+                    <input id="accent-picker" class="accent-preview" type="color" value="#58b989" hidden aria-label="Choose accent color" data-i18n-aria-label="accentColor">
+                    <div id="accent-popover" class="accent-popover" role="dialog" aria-label="Custom color" data-i18n-aria-label="accentCustom" hidden>
+                      <div id="accent-area" class="accent-popover__area" tabindex="0" role="slider" aria-label="Saturation and brightness" data-i18n-aria-label="accentArea"><span class="accent-popover__thumb"></span></div>
+                      <input id="accent-hue" class="accent-popover__hue" type="range" min="0" max="360" step="1" aria-label="Hue" data-i18n-aria-label="accentHue">
+                      <div class="accent-popover__row">
+                        <button id="accent-dropper" class="accent-popover__dropper" type="button" title="Pick a color from the screen" aria-label="Pick a color from the screen" data-i18n-title="accentDropper" data-i18n-aria-label="accentDropper" hidden>
+                          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 7 3 3M5 19l2-.5L17.5 8a2.1 2.1 0 0 0-3-3L4 15.5 3.5 18z"/></svg>
+                        </button>
+                        <span class="accent-popover__dot" aria-hidden="true"></span>
+                        <input id="accent-popover-hex" class="accent-popover__hex" type="text" maxlength="7" spellcheck="false" aria-label="HEX color" data-i18n-aria-label="accentHex">
+                      </div>
+                    </div>
+                  </span>
                 </div>
+                <div class="accent-hex">
+                  <span class="accent-hex__chip" aria-hidden="true"></span>
+                  <label class="accent-hex__field">
+                    <span>HEX</span>
+                    <input id="accent-hex" type="text" maxlength="7" spellcheck="false" aria-label="HEX color" data-i18n-aria-label="accentHex">
+                  </label>
+                  <span id="accent-contrast" class="accent-hex__contrast"></span>
+                </div>
+                <details class="accent-rgb">
+                  <summary data-i18n="accentRgbValues">RGB values</summary>
+                  <div class="rgb-controls">
+                    <label>R <input id="accent-r" type="number" min="0" max="255" value="88"></label>
+                    <label>G <input id="accent-g" type="number" min="0" max="255" value="185"></label>
+                    <label>B <input id="accent-b" type="number" min="0" max="255" value="137"></label>
+                  </div>
+                </details>
               </fieldset>
               <label class="source-field font-scale-control">
                 <span><span data-i18n="fontSize">Text size</span> <strong id="font-scale-value">100%</strong></span>
@@ -2323,41 +2717,6 @@
               <div class="settings-actions">
                 <p id="personalization-state" role="status"></p>
                 <button id="reset-personalization" class="button button--quiet" type="button" data-i18n="resetDefaults">Restore defaults</button>
-              </div>
-            </section>
-            <section class="panel-section personalization-card" id="stream-style">
-              <h3 data-i18n="streamStyleTitle">Notification style</h3>
-              <p class="section-copy" data-i18n="streamStyleCopy">Applies to notifications, the music card and media captions on your stream and widgets. Automatic follows the Relay design and theme.</p>
-              <div class="stream-style">
-                <div class="stream-style__controls">
-                  <fieldset class="stream-style__group">
-                    <legend data-i18n="streamStyleLabel">Style</legend>
-                    <div class="choice-chips">
-                      <label class="choice-chip"><input type="radio" name="stream-style" value="auto" checked><span data-i18n="streamStyleAuto">Automatic</span></label>
-                      <label class="choice-chip"><input type="radio" name="stream-style" value="graphite"><span>Graphite</span></label>
-                      <label class="choice-chip"><input type="radio" name="stream-style" value="paper"><span>Paper</span></label>
-                      <label class="choice-chip"><input type="radio" name="stream-style" value="neo-brutalism"><span>Neo-Brutalism</span></label>
-                      <label class="choice-chip"><input type="radio" name="stream-style" value="gridline"><span>Gridline</span></label>
-                      <label class="choice-chip"><input type="radio" name="stream-style" value="lumen"><span>Lumen</span></label>
-                      <label class="choice-chip"><input type="radio" name="stream-style" value="signal"><span>Signal</span></label>
-                      <label class="choice-chip"><input type="radio" name="stream-style" value="subtitle"><span data-i18n="streamStyleSubtitle">Subtitle</span></label>
-                    </div>
-                  </fieldset>
-                  <fieldset class="stream-style__group">
-                    <legend data-i18n="streamBackgroundLabel">Background</legend>
-                    <div class="choice-chips">
-                      <label class="choice-chip"><input type="radio" name="stream-background" value="auto" checked><span data-i18n="streamBackgroundAuto">Automatic</span></label>
-                      <label class="choice-chip"><input type="radio" name="stream-background" value="light"><span data-i18n="light">Light</span></label>
-                      <label class="choice-chip"><input type="radio" name="stream-background" value="dark"><span data-i18n="dark">Dark</span></label>
-                    </div>
-                  </fieldset>
-                  <p id="stream-style-status" class="stream-style__status" role="status"></p>
-                  <button id="stream-style-reset" class="button button--quiet" type="button" data-i18n="streamStyleReset" hidden>Back to automatic</button>
-                </div>
-                <div class="stream-style__preview">
-                  <span class="kicker" data-i18n="livePreview">Live preview</span>
-                  <iframe id="stream-style-preview" title="Notification preview" data-i18n-title="streamStyleTitle"></iframe>
-                </div>
               </div>
             </section>
             <section class="panel-section personalization-card" id="system-settings">
@@ -2414,7 +2773,7 @@
                 <div>
                   <span class="kicker">Relay</span>
                   <strong>Relay</strong>
-                  <small>Windows · v<span data-app-version>1.4.1</span></small>
+                  <small>Windows · v<span data-app-version>1.5.0</span></small>
                 </div>
               </div>
               <div class="about-card__statement">
@@ -2493,6 +2852,7 @@
           <span class="history-item__author"></span>
           <span class="moderation-item__privacy"></span>
           <span class="moderation-item__countdown" hidden></span>
+          <button class="button button--quiet button--small moderation-item__ai" type="button" data-i18n="aiTestAdvice" hidden>Ask the AI</button>
         </div>
         <time class="history-item__time"></time>
         <div class="moderation-item__actions">

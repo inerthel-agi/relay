@@ -217,8 +217,11 @@ pub fn matching(config: &AppConfig) -> Option<ModerationPreset> {
 
 /// Stable setting keys a preset would change, translated by the panel.
 pub fn changed_keys(config: &AppConfig, preset: ModerationPreset) -> Vec<&'static str> {
-    let current = capture(config);
-    let target = fields(preset);
+    differences(&capture(config), &fields(preset))
+}
+
+/// Stable setting keys that differ between two sets of preset settings.
+pub fn differences(current: &PresetFields, target: &PresetFields) -> Vec<&'static str> {
     let mut keys = Vec::new();
     let mut check = |changed: bool, key: &'static str| {
         if changed {

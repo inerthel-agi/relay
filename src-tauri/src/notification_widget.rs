@@ -13,7 +13,7 @@ use crate::{
     state::AppCore,
 };
 
-const WINDOW_LABEL: &str = "notification-widget";
+pub(crate) const WINDOW_LABEL: &str = "notification-widget";
 const DEFAULT_MARGIN: i32 = 28;
 
 #[derive(Clone, Debug, Serialize)]
@@ -146,7 +146,7 @@ pub fn apply_configured_size(
             // resized window would be completely invisible.
             let position = ensure_partially_visible(app, position, width, height)?;
             if position != current_pos {
-                window.set_position(position)?;
+                crate::widget::place(&window, position)?;
                 // Panel resizes that move x (right-anchor) must persist; content-
                 // mode keeps top-left and relies on Moved / lock flush.
                 if preserve_right_edge {
@@ -341,7 +341,7 @@ async fn ensure_window(app: &AppHandle, core: Arc<AppCore>) -> Result<WebviewWin
         .visible(false)
         .build()?;
 
-    window.set_position(position)?;
+    crate::widget::place(&window, position)?;
     crate::widget::apply_lock(&window, config.notification_widget_locked)?;
     crate::widget::apply_monitor_constraints(&window)?;
     watch_geometry(&window, core.clone());
@@ -358,9 +358,16 @@ fn watch_geometry(window: &WebviewWindow, core: Arc<AppCore>) {
     window.clone().on_window_event(move |event| match event {
         tauri::WindowEvent::Moved(position) => {
             let _ = crate::widget::apply_monitor_constraints(&window);
+            let unlocked = core
+                .config
+                .try_read()
+                .map(|config| !config.notification_widget_locked)
+                .unwrap_or(true);
+            crate::widget::follow_move(&window, *position, unlocked);
             persist_position(core.clone(), *position);
         }
         tauri::WindowEvent::Resized(size) => {
+            crate::widget::remember_size(&window);
             persist_size(core.clone(), &window, *size);
         }
         tauri::WindowEvent::ScaleFactorChanged { .. } => {
@@ -424,7 +431,7 @@ async fn show_with_saved_placement(
         // Invalidate stale debounced writes from before hide, then place.
         core.notification_widget_move_generation
             .fetch_add(1, Ordering::Relaxed);
-        window.set_position(position)?;
+        crate::widget::place(window, position)?;
         if position.x != x || position.y != y {
             core.update_config(|config| write_position(config, position))
                 .await?;

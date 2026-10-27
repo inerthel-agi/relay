@@ -1,3 +1,4 @@
+mod ai;
 mod artwork;
 mod bot;
 mod changelog;
@@ -50,6 +51,7 @@ use crate::{
     bot::start_bot,
     changelog::get_changelog_markdown,
     commands::{
+        ai_help_asks, ai_review_media, ai_review_text, ai_suggest_settings, ai_troubleshoot,
         apply_config, approve_pending_media, check_discord_setup, choose_relay_channel,
         clear_notification_sound, clear_overlay, clear_pending_media, control_audio,
         download_history_media, forget_obs_password, get_bootstrap, get_media_artwork,
@@ -60,8 +62,8 @@ use crate::{
         set_media_caption_visibility, set_notification_sound_enabled,
         set_notification_sound_obs_enabled, set_notification_widget_locked,
         set_notification_widget_visible, set_output_geometry, set_panic_shortcut,
-        set_skip_shortcut, set_widget_locked, skip_media, store_youtube_api_key, test_output,
-        toggle_widget,
+        set_skip_shortcut, set_widget_locked, skip_media, store_ai_api_key, store_youtube_api_key,
+        test_ai_connection, test_output, toggle_widget,
     },
     config::{
         APP_IDENTIFIER, DEFAULT_SKIP_SHORTCUT, PREVIOUS_APP_IDENTIFIER, WEBVIEW_STORAGE_PATH,
@@ -217,6 +219,13 @@ pub fn run() {
             set_output_geometry,
             save_credentials,
             store_youtube_api_key,
+            store_ai_api_key,
+            test_ai_connection,
+            ai_review_text,
+            ai_review_media,
+            ai_suggest_settings,
+            ai_troubleshoot,
+            ai_help_asks,
             apply_config,
             choose_relay_channel,
             set_media_caption_visibility,
@@ -669,6 +678,7 @@ mod tray_page_tests {
     fn tray_opens_only_known_panel_pages() {
         assert_eq!(tray_panel_page("moderation"), Some("moderation"));
         assert_eq!(tray_panel_page("discord"), Some("discord"));
+        assert_eq!(tray_panel_page("live"), Some("live"));
         assert_eq!(tray_panel_page("about"), None);
         assert_eq!(tray_panel_page("../moderation"), None);
     }
@@ -982,7 +992,7 @@ fn tray_open_control_panel(app: AppHandle, window: WebviewWindow, page: Option<S
 
 /// Panel pages the tray may open directly; anything else just shows the panel.
 fn tray_panel_page(page: &str) -> Option<&'static str> {
-    ["overview", "discord", "moderation", "overlay"]
+    ["overview", "discord", "live", "moderation", "overlay"]
         .into_iter()
         .find(|allowed| *allowed == page)
 }

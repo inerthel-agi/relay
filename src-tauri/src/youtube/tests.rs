@@ -45,31 +45,151 @@ fn decodes_basic_html_entities_in_titles() {
 }
 
 #[test]
-fn merge_keeps_relevance_ahead_of_recent_uploads() {
-    let relevance = (1..=6)
-        .map(|index| {
-            (
-                format!("rel-{index}"),
-                snippet(&format!("Relevant {index}")),
-            )
-        })
-        .collect::<Vec<_>>();
-    let recent = vec![
-        ("new-1".into(), snippet("Brand new")),
-        ("rel-2".into(), snippet("Already in relevance")),
-        ("new-2".into(), snippet("Also new")),
-    ];
-    let merged = merge_search_candidates(relevance, recent);
-    let ids = merged
-        .iter()
-        .map(|(video_id, _)| video_id.as_str())
-        .collect::<Vec<_>>();
+fn search_uses_a_single_search_list_call() {
+    // Quota guard: each search.list costs 100 units, so search() must issue exactly one.
+    let source = include_str!("../youtube.rs");
+    let body = source
+        .split("pub async fn search(")
+        .nth(1)
+        .and_then(|rest| rest.split("\nasync fn ").next())
+        .expect("search body");
+    assert_eq!(body.matches("search_page(").count(), 1);
+    assert!(!body.contains("tokio::join!"));
+}
+
+#[test]
+fn pasted_youtube_links_resolve_to_their_video_id() {
+    for link in [
+        "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        "https://youtube.com/watch?list=PL1&v=dQw4w9WgXcQ&t=42s",
+        "https://m.youtube.com/watch?v=dQw4w9WgXcQ",
+        "https://music.youtube.com/watch?v=dQw4w9WgXcQ&si=abc",
+        "https://youtu.be/dQw4w9WgXcQ?si=abc",
+        "https://www.youtube.com/shorts/dQw4w9WgXcQ",
+        "https://www.youtube.com/embed/dQw4w9WgXcQ",
+        "https://www.youtube.com/live/dQw4w9WgXcQ",
+        "  https://youtu.be/dQw4w9WgXcQ  ",
+    ] {
+        assert_eq!(
+            video_id_from_link(link).as_deref(),
+            Some("dQw4w9WgXcQ"),
+            "{link}"
+        );
+    }
+    for text in [
+        "red velvet psycho",
+        "https://youtu.be/dQw4w9WgXcQ please",
+        "https://evil.example/watch?v=dQw4w9WgXcQ",
+        "https://youtube.com.evil.example/watch?v=dQw4w9WgXcQ",
+        "https://www.youtube.com/watch?v=short",
+        "https://www.youtube.com/watch?v=dQw4w9WgXc!",
+        "https://www.youtube.com/channel/UC1234567890",
+        "javascript:alert(1)",
+    ] {
+        assert_eq!(video_id_from_link(text), None, "{text}");
+    }
+}
+
+fn lookup_item(id: &str, duration: &str, embeddable: Option<bool>) -> LookupItem {
+    LookupItem {
+        id: id.into(),
+        snippet: LookupSnippet {
+            video: snippet("Pasted song"),
+            category_id: Some("10".into()),
+        },
+        content_details: VideoContentDetails {
+            duration: duration.into(),
+        },
+        status: embeddable.map(|embeddable| LookupStatus { embeddable }),
+    }
+}
+
+#[test]
+fn a_pasted_video_follows_the_search_rules() {
+    let tracks = lookup_results(vec![lookup_item("dQw4w9WgXcQ", "PT3M33S", Some(true))]);
+    assert_eq!(tracks.len(), 1);
+    assert_eq!(tracks[0].video_id, "dQw4w9WgXcQ");
+    assert_eq!(tracks[0].duration_seconds, 213);
+
+    // Not embeddable, unknown embed status, too long or too short: refused like in search.
+    for item in [
+        lookup_item("aaaaaaaaaaa", "PT3M", Some(false)),
+        lookup_item("bbbbbbbbbbb", "PT3M", None),
+        lookup_item("ccccccccccc", "PT12M", Some(true)),
+        lookup_item("ddddddddddd", "PT30S", Some(true)),
+    ] {
+        assert!(lookup_results(vec![item]).is_empty());
+    }
+}
+
+#[test]
+fn lookup_response_parses_videos_list() {
+    let body = br#"{"items":[{"id":"dQw4w9WgXcQ","snippet":{"title":"Song","channelTitle":"Artist","categoryId":"10","thumbnails":{"high":{"url":"https://i.ytimg.com/vi/x/hq.jpg"}}},"contentDetails":{"duration":"PT3M"},"status":{"embeddable":true}}]}"#;
+    let response = serde_json::from_slice::<LookupResponse>(body).unwrap();
+    let tracks = lookup_results(response.items);
+    assert_eq!(tracks[0].title, "Song");
+    assert_eq!(tracks[0].channel_title, "Artist");
+}
+
+fn track(video_id: &str) -> YouTubeTrack {
+    YouTubeTrack {
+        video_id: video_id.into(),
+        title: "Song".into(),
+        channel_title: "Channel".into(),
+        thumbnail: "https://i.ytimg.com/default.jpg".into(),
+        duration_seconds: 180,
+    }
+}
+
+#[test]
+fn repeated_searches_reuse_cached_results_until_they_expire() {
+    let mut cache = SearchCache::default();
+    let start = Instant::now();
     assert_eq!(
-        ids,
-        vec![
-            "rel-1", "rel-2", "rel-3", "rel-4", "rel-5", "rel-6", "new-1", "new-2"
-        ]
+        SearchCache::key("  Red   Velvet PSYCHO "),
+        "red velvet psycho"
     );
+    cache.insert(
+        SearchCache::key("red velvet psycho"),
+        vec![track("a")],
+        start,
+    );
+
+    let hit = cache.get(
+        &SearchCache::key("RED velvet  psycho"),
+        start + Duration::from_secs(60),
+    );
+    assert_eq!(hit.unwrap()[0].video_id, "a");
+    assert!(cache.get("other query", start).is_none());
+    assert!(
+        cache
+            .get(
+                "red velvet psycho",
+                start + SEARCH_CACHE_TTL + Duration::from_secs(1)
+            )
+            .is_none()
+    );
+    assert!(cache.entries.is_empty(), "expired entries are dropped");
+}
+
+#[test]
+fn search_cache_keeps_the_most_recent_queries_only() {
+    let mut cache = SearchCache::default();
+    let now = Instant::now();
+    for index in 0..=SEARCH_CACHE_LIMIT {
+        cache.insert(format!("query {index}"), vec![track("a")], now);
+    }
+    assert_eq!(cache.entries.len(), SEARCH_CACHE_LIMIT);
+    assert!(cache.get("query 0", now).is_none());
+    assert!(
+        cache
+            .get(&format!("query {SEARCH_CACHE_LIMIT}"), now)
+            .is_some()
+    );
+    // Re-inserting a query replaces it instead of duplicating it.
+    cache.insert("query 5".into(), vec![track("b")], now);
+    assert_eq!(cache.entries.len(), SEARCH_CACHE_LIMIT);
+    assert_eq!(cache.get("query 5", now).unwrap()[0].video_id, "b");
 }
 
 #[test]

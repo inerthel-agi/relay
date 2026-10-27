@@ -431,6 +431,26 @@ test("media fitting preserves portrait, landscape and square ratios with space f
   }
 });
 
+test("the maximum media size shrinks the media and keeps the current layout on the right", () => {
+  const { context } = createHarness();
+  const full = context.mediaLayout(408, 720, 1920, 1080, 1, 44, 0, {});
+  const half = context.mediaLayout(408, 720, 1920, 1080, 1, 44, 0, { maxSize: 50 });
+  assert.ok(Math.abs(half.height - full.height / 2) < 0.001);
+  assert.ok(Math.abs(half.width / half.height - 408 / 720) < 0.00001);
+  // Same right edge and same vertical centre as the full size.
+  assert.ok(Math.abs(half.left + half.displayedWidth - (full.left + full.displayedWidth)) < 0.001);
+  assert.equal(half.centerY, full.centerY);
+  assert.ok(Math.abs(half.bottom - (half.centerY + half.height / 2)) < 0.001);
+  // Missing or out of range values fall back to 100% and 10%.
+  assert.equal(context.mediaLayout(408, 720, 1920, 1080, 1, 44, 0, { maxSize: 0 }).height, full.height);
+  const tiny = context.mediaLayout(408, 720, 1920, 1080, 1, 44, 0, { maxSize: 1 });
+  assert.ok(Math.abs(tiny.height - full.height / 10) < 0.001);
+  // An anchored layout gets the smaller size too.
+  const anchored = context.mediaLayout(1280, 720, 1920, 1080, 1, 0, 0, { anchor: "topLeft", marginX: 20, marginY: 20, maxSize: 40 });
+  const ratio = Math.min((1920 - 40) * 0.4 / 1280, (1080 - 40) * 0.4 / 720);
+  assert.ok(Math.abs(anchored.displayedWidth - 1280 * ratio) < 0.001);
+});
+
 test("audio attribution is inside the card and respects the author toggle", () => {
   const { context, elements } = createHarness();
   vm.runInContext('setAuthor({ kind: "audio", author: { username: "Listener" } })', context);
@@ -1180,6 +1200,37 @@ test("OBS audio uses the unchanged bytes cached by Relay", () => {
     elements["#audio"].src,
     "/media-audio/123456789012345678?secret=private",
   );
+});
+
+test("the YouTube page shows only the audio card of Discord media, muted", () => {
+  const youtube = createHarness("?secret=private", "youtube");
+  sendMediaClock(youtube);
+  youtube.socket.emit("message", JSON.stringify({
+    type: "stageClock", payload: { mediaBusy: false, musicBusy: false, notificationBusy: false },
+  }));
+  const sentBefore = youtube.socket.sent.length;
+  // /medias shows images, GIFs and videos in the same Relay Visual source.
+  for (const media of [
+    { kind: "image", url: "https://cdn.discordapp.com/cat.png", filename: "cat.png", author: { username: "wl48" } },
+    { kind: "gif", url: "https://cdn.discordapp.com/cat.gif", filename: "cat.gif", author: { username: "wl48" } },
+    { kind: "video", url: "https://cdn.discordapp.com/clip.webm", filename: "clip.webm", author: { username: "wl48" } },
+  ]) {
+    sendMedia(youtube, media);
+    youtube.socket.emit("message", JSON.stringify({ type: "testOutput", payload: { target: "visual", media } }));
+  }
+  assert.equal(vm.runInContext("queue.length", youtube.context), 0);
+  assert.equal(vm.runInContext("currentMedia ?? null", youtube.context), null);
+  assert.notEqual(youtube.elements["#author-name"].textContent, "wl48");
+  assert.equal(youtube.socket.sent.slice(sentBefore).some((message) => message.payload?.lane === "media"), false);
+
+  // A Discord sound: the card shows here, silent, because /audios plays it.
+  sendMedia(youtube, { kind: "audio", url: "https://cdn.discordapp.com/track.mp3", filename: "track.mp3", author: { username: "wl48" } });
+  assert.equal(vm.runInContext("currentMedia?.kind", youtube.context), "audio");
+  assert.equal(youtube.elements["#audio"].muted, true);
+  assert.equal(youtube.elements["#audio"].volume, 0);
+  youtube.socket.emit("message", JSON.stringify({ type: "config", payload: { mediaVolume: 80 } }));
+  assert.equal(youtube.elements["#audio"].muted, true);
+  assert.equal(youtube.elements["#audio"].volume, 0);
 });
 
 test("audio playback reports live state and follows player controls", async () => {

@@ -17,7 +17,7 @@ use crate::{
     config::{AppConfig, DEFAULT_SKIP_SHORTCUT, HoneypotAction, OutputGeometry},
     credentials::{
         CredentialStatus, DiscordCredentials, credential_status, load_discord_credentials,
-        save_discord_credentials, save_youtube_api_key,
+        save_ai_api_key, save_discord_credentials, save_youtube_api_key,
     },
     custom_commands::CustomCommandDefinition,
     model::{
@@ -118,6 +118,9 @@ pub struct PanelConfig {
     /// Absent from older panels: keep the saved moderation settings then.
     #[serde(default)]
     moderation: Option<crate::moderation::ModerationSettings>,
+    /// Absent from older panels: keep the saved AI settings then.
+    #[serde(default)]
+    ai: Option<crate::ai::AiSettings>,
 }
 
 #[derive(Deserialize)]
@@ -498,6 +501,89 @@ pub async fn store_youtube_api_key(youtube_api_key: String) -> Result<Credential
     credential_status().map_err(display_error)
 }
 
+/// Saves or, with an empty key, removes the API key of one AI provider.
+/// The key is never sent back to the panel: only whether one is saved.
+#[tauri::command]
+pub async fn store_ai_api_key(
+    provider: crate::ai::AiProvider,
+    api_key: String,
+) -> Result<CredentialStatus, String> {
+    save_ai_api_key(provider, &api_key).map_err(display_error)?;
+    crate::ai::reset_gate();
+    credential_status().map_err(display_error)
+}
+
+/// AI opinion on a text typed in the moderation tester, with the same rules as
+/// held messages: personal data is never sent and the answer is only advice.
+#[tauri::command]
+pub async fn ai_review_text(
+    core: State<'_, Arc<AppCore>>,
+    text: String,
+) -> Result<crate::ai::advice::AiAdvice, String> {
+    if text.chars().count() > crate::privacy::PRIVACY_TEXT_LIMIT {
+        return Err("The test text must contain at most 4096 characters.".into());
+    }
+    let config = core.config.read().await.clone();
+    let language = core.interface_preferences.read().await.language.clone();
+    Ok(crate::ai::advice::advise(&config.ai, &config, &text, &language).await)
+}
+
+/// AI opinion on one waiting media, asked by the moderator. It is stored on the
+/// item as advice only; approving or rejecting stays the moderator's choice.
+#[tauri::command]
+pub async fn ai_review_media(
+    core: State<'_, Arc<AppCore>>,
+    id: u64,
+) -> Result<crate::ai::advice::AiAdvice, String> {
+    crate::ai::advice::advise_media(core.inner(), id)
+        .await
+        .ok_or_else(|| "This item is no longer waiting for review.".into())
+}
+
+/// Proposed values for the preset settings, from one sentence of the streamer.
+/// Nothing is saved: the panel applies the proposal only when asked.
+#[tauri::command]
+pub async fn ai_suggest_settings(
+    core: State<'_, Arc<AppCore>>,
+    wish: String,
+) -> Result<crate::ai::settings::SettingsAnswer, String> {
+    if wish.chars().count() > 500 {
+        return Err("The request must contain at most 500 characters.".into());
+    }
+    let config = core.config.read().await.clone();
+    let language = core.interface_preferences.read().await.language.clone();
+    Ok(crate::ai::settings::suggest(&config, &wish, &language).await)
+}
+
+/// Answers one troubleshooting question from a report Relay builds from an
+/// allowlist of states, counts and rule codes; the report is shown back.
+#[tauri::command]
+pub async fn ai_troubleshoot(
+    core: State<'_, Arc<AppCore>>,
+    question: String,
+) -> Result<crate::ai::troubleshoot::TroubleshootAnswer, String> {
+    if question.chars().count() > 500 {
+        return Err("The question must contain at most 500 characters.".into());
+    }
+    Ok(crate::ai::troubleshoot::ask(core.inner(), &question).await)
+}
+
+/// When the last questions to the AI help were asked (last 24 hours), so the
+/// panel shows the same wait as the one Relay applies.
+#[tauri::command]
+pub fn ai_help_asks() -> Vec<u64> {
+    crate::ai::troubleshoot::pace().recent(crate::clock::now_ms())
+}
+
+/// Sends one fixed message, never Discord content, to the chosen AI provider.
+#[tauri::command]
+pub async fn test_ai_connection(
+    core: State<'_, Arc<AppCore>>,
+) -> Result<crate::ai::AiTestResult, String> {
+    let settings = core.config.read().await.ai.clone();
+    Ok(crate::ai::test_connection(&settings).await)
+}
+
 #[tauri::command]
 pub async fn apply_config(
     app: AppHandle,
@@ -605,6 +691,9 @@ pub async fn apply_config(
                 let live_restore = current.moderation.live_restore.take();
                 current.moderation = moderation;
                 current.moderation.live_restore = live_restore;
+            }
+            if let Some(ai) = config.ai {
+                current.ai = ai;
             }
         })
         .await

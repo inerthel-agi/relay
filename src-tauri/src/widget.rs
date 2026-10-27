@@ -1,4 +1,7 @@
-use std::sync::{Arc, Mutex, atomic::Ordering};
+use std::{
+    collections::HashMap,
+    sync::{Arc, LazyLock, Mutex, atomic::Ordering},
+};
 
 use anyhow::{Context, Result};
 use serde::Serialize;
@@ -19,6 +22,11 @@ const ASPECT_RATIO: f64 = 16.0 / 9.0;
 /// YouTube error 150 rejects `http://127.0.0.1` even on loopback; `http://localhost` works.
 pub(crate) const YOUTUBE_EMBED_HOST: &str = "localhost";
 static WIDGET_TRANSITION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+/// Last top-left and size seen for each widget window, so dragging one moves
+/// the other along.
+type Placement = (PhysicalPosition<i32>, PhysicalSize<u32>);
+static LAST_PLACEMENTS: LazyLock<Mutex<HashMap<String, Placement>>> =
+    LazyLock::new(Default::default);
 
 fn establish_ephemeral_ownership(marker: &std::sync::atomic::AtomicBool, persistent: bool) -> bool {
     let owns_cleanup = !persistent;
@@ -321,7 +329,7 @@ async fn ensure_window(app: &AppHandle, core: Arc<AppCore>) -> Result<WebviewWin
         .visible(false)
         .build()?;
 
-    window.set_position(position)?;
+    place(&window, position)?;
     apply_lock(&window, config.widget_locked)?;
     apply_monitor_constraints(&window)?;
     watch_geometry(&window, core.clone());
@@ -353,9 +361,16 @@ fn watch_geometry(window: &WebviewWindow, core: Arc<AppCore>) {
     window.clone().on_window_event(move |event| match event {
         tauri::WindowEvent::Moved(position) => {
             let _ = apply_monitor_constraints(&window);
+            let unlocked = core
+                .config
+                .try_read()
+                .map(|config| !config.widget_locked)
+                .unwrap_or(true);
+            follow_move(&window, *position, unlocked);
             persist_position(core.clone(), *position);
         }
         tauri::WindowEvent::Resized(size) => {
+            remember_size(&window);
             let size = *size;
             let previous = {
                 let mut last = last_size.lock().expect("widget size lock poisoned");
@@ -382,6 +397,78 @@ fn watch_geometry(window: &WebviewWindow, core: Arc<AppCore>) {
         }
         _ => {}
     });
+}
+
+fn remember(window: &WebviewWindow, position: PhysicalPosition<i32>) -> Option<Placement> {
+    let size = window.outer_size().unwrap_or_default();
+    LAST_PLACEMENTS
+        .lock()
+        .expect("widget placement lock poisoned")
+        .insert(window.label().to_owned(), (position, size))
+}
+
+/// Moves a widget window from code without dragging the other widget along.
+pub(crate) fn place(window: &WebviewWindow, position: PhysicalPosition<i32>) -> Result<()> {
+    remember(window, position);
+    window.set_position(position)?;
+    Ok(())
+}
+
+/// Called on every resize, so a resize from the top or left edge (which also
+/// moves the window) is not taken for a drag.
+pub(crate) fn remember_size(window: &WebviewWindow) {
+    if let Ok(position) = window.outer_position() {
+        remember(window, position);
+    }
+}
+
+/// A move the user made by dragging: the window is unlocked and focused, and
+/// its size did not change (a resize or a screen change moves it too).
+fn is_drag(
+    unlocked: bool,
+    focused: bool,
+    previous: Option<PhysicalSize<u32>>,
+    size: PhysicalSize<u32>,
+) -> bool {
+    unlocked && focused && previous == Some(size)
+}
+
+/// Where the other widget goes when one moved from `previous` to `current`.
+fn follow_target(
+    previous: Option<PhysicalPosition<i32>>,
+    current: PhysicalPosition<i32>,
+    other: PhysicalPosition<i32>,
+) -> Option<PhysicalPosition<i32>> {
+    let previous = previous?;
+    let (dx, dy) = (current.x - previous.x, current.y - previous.y);
+    ((dx, dy) != (0, 0)).then(|| PhysicalPosition::new(other.x + dx, other.y + dy))
+}
+
+/// Dragging an unlocked widget moves the other visible widget by the same amount.
+pub(crate) fn follow_move(window: &WebviewWindow, position: PhysicalPosition<i32>, unlocked: bool) {
+    let previous = remember(window, position);
+    let size = window.outer_size().unwrap_or_default();
+    let focused = window.is_focused().unwrap_or(false);
+    if !is_drag(unlocked, focused, previous.map(|(_, size)| size), size) {
+        return;
+    }
+    let other_label = if window.label() == WIDGET_LABEL {
+        crate::notification_widget::WINDOW_LABEL
+    } else {
+        WIDGET_LABEL
+    };
+    let Some(other) = window.app_handle().get_webview_window(other_label) else {
+        return;
+    };
+    if !other.is_visible().unwrap_or(false) {
+        return;
+    }
+    if let Ok(current) = other.outer_position()
+        && let Some(target) =
+            follow_target(previous.map(|(position, _)| position), position, current)
+    {
+        let _ = place(&other, target);
+    }
 }
 
 fn write_position(config: &mut crate::config::AppConfig, position: PhysicalPosition<i32>) {

@@ -7,7 +7,7 @@ const panelSource = require("./test-source.cjs").panelSource();
 const panelCss = require("./test-source.cjs").panelStyles();
 const traySource = fs.readFileSync(__dirname + "/../gui/tray.js", "utf8");
 const trayCss = fs.readFileSync(__dirname + "/../gui/tray.css", "utf8");
-const designs = ["graphite", "paper", "neo-brutalism", "gridline", "lumen", "signal"];
+const designs = ["graphite", "paper", "neo-brutalism", "gridline", "lumen", "signal", "midnight", "ember", "dawn", "cloud"];
 
 test("personalization exposes five accessible design choices in a retractable picker", () => {
   assert.match(panelHtml, /<details id="design-picker" class="design-picker">/);
@@ -20,7 +20,7 @@ test("personalization exposes five accessible design choices in a retractable pi
 });
 
 test("the selected design is persisted, applied and shared with the outputs", () => {
-  assert.match(panelSource, /const supportedDesigns = \["graphite", "paper", "neo-brutalism", "gridline", "lumen", "signal"\]/);
+  assert.match(panelSource, /const supportedDesigns = \["graphite", "paper", "neo-brutalism", "gridline", "lumen", "signal", "midnight", "ember", "dawn", "cloud"\]/);
   assert.match(panelSource, /localStorage\.getItem\("relay-design"\)/);
   assert.match(panelSource, /localStorage\.setItem\("relay-design", design\)/);
   assert.match(panelSource, /document\.documentElement\.dataset\.design = design/);

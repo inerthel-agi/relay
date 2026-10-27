@@ -10,29 +10,32 @@
     <main class="tray-panel">
       <header class="tray-header">
         <img class="tray-logo" src="assets/relay-radar.png" alt="">
-        <strong class="tray-brand">Relay</strong>
+        <span class="tray-title">
+          <strong class="tray-brand">Relay</strong>
+          <small id="tray-version" class="tray-version"></small>
+        </span>
         <span id="relay-indicator" class="state-pill" role="status" aria-label="Relay status" data-i18n-aria="relayStatus">
           <i aria-hidden="true"></i>
           <span id="relay-state-label" data-i18n="checking">Checking</span>
         </span>
       </header>
 
-      <section class="status-card" aria-label="Connection status" data-i18n-aria="connectionStatus">
-        <div class="status-line">
-          <span id="discord-dot" class="status-dot" aria-hidden="true"></span>
-          <span class="status-line__copy">
+      <section class="status-grid" aria-label="Connection status" data-i18n-aria="connectionStatus">
+        <div class="status-tile">
+          <span class="status-tile__head">
+            <span id="discord-dot" class="status-dot" aria-hidden="true"></span>
             <strong data-i18n="discord">Discord</strong>
-            <small id="discord-detail" data-i18n="connecting">Connecting…</small>
           </span>
-          <span id="discord-status" class="status-line__value" data-i18n="checking">Checking</span>
+          <span id="discord-status" class="status-tile__value" data-i18n="checking">Checking</span>
+          <small id="discord-detail" data-i18n="connecting">Connecting…</small>
         </div>
-        <div class="status-line">
-          <span id="server-dot" class="status-dot" aria-hidden="true"></span>
-          <span class="status-line__copy">
-            <strong data-i18n="localRelay">Local relay</strong>
-            <small id="server-detail" data-i18n="zeroOutputs">0 outputs</small>
+        <div class="status-tile">
+          <span class="status-tile__head">
+            <span id="server-dot" class="status-dot" aria-hidden="true"></span>
+            <strong>OBS</strong>
           </span>
-          <span id="server-status" class="status-line__value" data-i18n="checking">Checking</span>
+          <span id="server-status" class="status-tile__value" data-i18n="checking">Checking</span>
+          <small id="server-detail" data-i18n="zeroOutputs">0 outputs</small>
         </div>
       </section>
 
@@ -44,15 +47,22 @@
         <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 4.5 12.5 10 7 15.5"></path></svg>
       </button>
 
-      <div class="tray-actions">
-        <button id="panic-toggle" class="panic-action" type="button">
+      <button id="open-panel" class="open-panel open-panel--primary" type="button">
+        <span data-i18n="openPanel">Open control panel</span>
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 4.5 12.5 10 7 15.5"></path></svg>
+      </button>
+
+      <div class="quick-actions">
+        <button id="skip-media" class="quick-action" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l9 6-9 6zM17 5v14"></path></svg>
+          <span data-i18n="skip">Skip</span>
+          <kbd id="skip-shortcut" hidden></kbd>
+        </button>
+        <button id="panic-toggle" class="quick-action quick-action--danger" type="button">
           <svg id="panic-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 2.5 20h19L12 3Z"></path><path d="M12 9v5M12 17.2h.01"></path></svg>
           <svg id="resume-icon" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M8 5v14l11-7z"></path></svg>
           <span id="panic-label" data-i18n="panic">Panic</span>
-        </button>
-        <button id="open-panel" class="open-panel" type="button">
-          <span data-i18n="openPanel">Open control panel</span>
-          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 4.5 12.5 10 7 15.5"></path></svg>
+          <kbd id="panic-shortcut" hidden></kbd>
         </button>
       </div>
 
@@ -105,7 +115,10 @@
           <span class="switch-button__track" aria-hidden="true"></span>
           <span data-i18n="startWithWindows">Start with Windows</span>
         </button>
-        <button id="quit" class="footer-quit" type="button" data-i18n="quitRelay">Quit Relay</button>
+        <button id="quit" class="footer-quit" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v8M6.3 6.8a8 8 0 1 0 11.4 0"></path></svg>
+          <span data-i18n="quitRelay">Quit Relay</span>
+        </button>
       </footer>
     </main>
     <script src="tray.js" defer></script>

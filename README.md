@@ -16,10 +16,10 @@ Download the installer or portable executable from [Releases](https://github.com
 Run the downloaded installer:
 
 ```powershell
-.\Relay_1.4.1_x64-setup.exe
+.\Relay_1.5.0_x64-setup.exe
 ```
 
-Or run `Relay_1.4.1_x64-portable.exe` directly.
+Or run `Relay_1.5.0_x64-portable.exe` directly.
 
 To build from source with the prerequisites installed:
 

@@ -38,10 +38,12 @@ export function initializeModules({ invoke, t, getBootstrap }) {
   messages.append(pin, unpin);
 
   const libraryRoot = $("library-module"); libraryRoot.append(label("h3", "modLibrary"), label("p", "modLibraryCopy"));
-  const libraryState = status(libraryRoot), search = node("input"); search.type = "search"; search.setAttribute("aria-label", t("modSearch")); search.placeholder = t("modSearch");
+  const libraryState = status(libraryRoot), search = node("input"); search.type = "search"; search.setAttribute("aria-label", t("modSearch")); search.placeholder = t("modSearch"); search.dataset.i18nPlaceholder = "modSearch"; search.dataset.i18nAriaLabel = "modSearch";
   libraryRoot.append(search, button("modImport", async () => { await invoke("import_library_media"); await loadLibrary(); }));
   const libraryList = node("ul"); libraryList.className = "module-list"; libraryRoot.append(libraryList); search.addEventListener("input", renderLibrary);
-  async function loadLibrary() { const result = await invoke("get_media_library"); library = result.items; libraryState.textContent = `${t("modStorage")}: ${(result.totalBytes / 1048576).toFixed(1)} MiB`; renderLibrary(); if (reactionSettings) renderReactions(); }
+  let libraryBytes;
+  function renderStorage() { if (libraryBytes !== undefined) libraryState.textContent = `${t("modStorage")}: ${(libraryBytes / 1048576).toFixed(1)} MiB`; }
+  async function loadLibrary() { const result = await invoke("get_media_library"); library = result.items; libraryBytes = result.totalBytes; renderStorage(); renderLibrary(); if (reactionSettings) renderReactions(); }
   function renderLibrary() {
     libraryList.replaceChildren();
     for (const item of library.filter(item => item.name.toLocaleLowerCase().includes(search.value.toLocaleLowerCase()))) {
@@ -231,6 +233,6 @@ export function initializeModules({ invoke, t, getBootstrap }) {
   }
   void initialize().catch(error => reactionState.textContent = String(error));
   window.addEventListener("beforeunload", stopPreview);
-  window.addEventListener("relay-language-change", () => { for (const root of [messages, libraryRoot, musicRoot, reactions]) for (const element of root.querySelectorAll("[data-i18n]")) { if (element.tagName === "LABEL") { if (element.firstChild?.nodeType === Node.TEXT_NODE) element.firstChild.textContent = t(element.dataset.i18n); } else element.textContent = t(element.dataset.i18n); } renderLibrary(); renderAccess(); });
+  window.addEventListener("relay-language-change", () => { for (const root of [messages, libraryRoot, musicRoot, reactions]) for (const element of root.querySelectorAll("[data-i18n]")) { if (element.tagName === "LABEL") { if (element.firstChild?.nodeType === Node.TEXT_NODE) element.firstChild.textContent = t(element.dataset.i18n); } else element.textContent = t(element.dataset.i18n); } renderStorage(); renderLibrary(); renderAccess(); });
   return { refresh, loadLibrary };
 }

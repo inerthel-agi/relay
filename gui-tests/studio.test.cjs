@@ -9,6 +9,10 @@ test("presets validate stored data and preserve safe geometry", async () => {
   assert.equal(preset.geometry.contentScale, 400);
   assert.equal(preset.geometry.marginX, 0);
   assert.equal(preset.geometry.anchor, "legacy");
+  // Older presets have no maximum media size: the whole source.
+  assert.equal(preset.geometry.maxSize, 100);
+  assert.equal(normalizePreset({ name: "Small", geometry: { maxSize: 5 } }).geometry.maxSize, 10);
+  assert.equal(normalizePreset({ name: "Half", geometry: { maxSize: 50 } }).geometry.maxSize, 50);
   assert.deepEqual(readPresets({ getItem: () => "invalid json" }, "presets"), []);
   assert.equal(readPresets({ getItem: () => JSON.stringify(Array.from({length: 20}, () => preset)) }, "presets").length, 12);
 });

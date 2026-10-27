@@ -1,7 +1,7 @@
 // Personalization → Notification style: how notifications, the music card and
 // media captions look on stream. "auto" follows the Relay design and theme.
 
-export const streamStyles = ["auto", "graphite", "paper", "neo-brutalism", "gridline", "lumen", "signal", "subtitle"];
+export const streamStyles = ["auto", "graphite", "paper", "neo-brutalism", "gridline", "lumen", "signal", "midnight", "ember", "dawn", "cloud", "subtitle"];
 const streamBackgrounds = ["auto", "light", "dark"];
 const designNames = {
   graphite: "Graphite", paper: "Paper", "neo-brutalism": "Neo-Brutalism",

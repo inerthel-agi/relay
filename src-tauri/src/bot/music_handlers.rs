@@ -67,7 +67,12 @@ pub(super) async fn handle_music_message(
         music.mark_search_attempt(user_id, now);
     }
 
-    let mut results = match youtube::search(query, &api_key).await {
+    // A pasted link skips search.list: 1 quota unit instead of 101.
+    let found = match youtube::video_id_from_link(query) {
+        Some(video_id) => youtube::lookup(&video_id, &api_key).await,
+        None => youtube::search(query, &api_key).await,
+    };
+    let mut results = match found {
         Ok(results) => results,
         Err(error) => {
             let detail = error.to_string();

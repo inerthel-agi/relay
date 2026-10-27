@@ -572,6 +572,7 @@ async fn approval_rechecks_sensitive_pending_entries() {
     let mut pending_media = media(MediaKind::Image, "pending-sensitive");
     pending_media.content_type = "image/png".into();
     core.pending_media.write().await.push_back(PendingMedia {
+        ai_advice: None,
         id: 99,
         media: pending_media,
         sticker: None,
@@ -612,6 +613,7 @@ async fn approval_rechecks_cached_audio_artwork_before_publication() {
     let mut event = media(MediaKind::Audio, "pending-audio-artwork");
     event.artwork_id = Some("audio-artwork".into());
     core.pending_media.write().await.push_back(PendingMedia {
+        ai_advice: None,
         id: 100,
         media: event,
         sticker: None,
@@ -1141,6 +1143,96 @@ async fn safety_delay_publishes_unless_rejected_and_expiry_cleans_the_queue() {
     );
 }
 
+async fn hold_text_for(core: &AppCore, id: &str) {
+    let ticket = core
+        .register_stage_output(42, id, 0, StageLane::Notification)
+        .await;
+    let published = core
+        .publish_notification_card_if_allowed_with_ticket_and_roles(
+            ticket,
+            id.into(),
+            format!("message {id}"),
+            crate::model::AuthorIdentity {
+                username: "Viewer".into(),
+                display_avatar_url: String::new(),
+            },
+            None,
+            42,
+            vec![],
+            &[],
+        )
+        .await;
+    assert!(!published);
+}
+
+#[tokio::test]
+async fn ai_advice_annotates_held_texts_without_publishing_or_releasing_them() {
+    use crate::ai::advice::{AiAdvice, AiCategory, AiVerdict};
+    let directory = tempfile::tempdir().unwrap();
+    let core = AppCore::load(directory.path().join("config.json")).unwrap();
+    let mut events = core.relay_tx.subscribe();
+    core.remember_moderation_verdict("new", verdict(Some("new_account"), false));
+    core.remember_moderation_verdict("staff", verdict(Some("raid"), true));
+    hold_text_for(&core, "new").await;
+    hold_text_for(&core, "staff").await;
+
+    // Only the untrusted member's text is handed out, once.
+    let taken = core.take_texts_for_advice().await;
+    assert_eq!(taken.len(), 1);
+    assert_eq!(taken[0].1, "message new");
+    assert!(core.take_texts_for_advice().await.is_empty());
+    let held = core.pending_texts.read().await.clone();
+    assert_eq!(held[0].ai_advice, Some(AiAdvice::Pending));
+    assert_eq!(held[1].ai_advice, None);
+
+    // A "nothing spotted" advice changes nothing: the message still waits.
+    core.set_text_advice(
+        taken[0].0,
+        AiAdvice::Done {
+            verdict: AiVerdict::NoIssueSeen,
+            categories: vec![],
+            reason: String::new(),
+        },
+    )
+    .await;
+    assert_eq!(core.pending_texts.read().await.len(), 2);
+    assert!(events.try_recv().is_err());
+    // A "clear problem" advice does not reject it either.
+    core.set_text_advice(
+        taken[0].0,
+        AiAdvice::Done {
+            verdict: AiVerdict::ClearProblem,
+            categories: vec![AiCategory::Threat],
+            reason: "Menace.".into(),
+        },
+    )
+    .await;
+    assert_eq!(core.pending_texts.read().await.len(), 2);
+
+    // Advice for an item already decided is dropped.
+    assert!(core.reject_text(taken[0].0).await.is_some());
+    core.set_text_advice(taken[0].0, AiAdvice::Pending).await;
+    assert_eq!(core.pending_texts.read().await.len(), 1);
+}
+
+#[tokio::test]
+async fn the_advice_tick_does_nothing_while_the_feature_is_off_or_unconfigured() {
+    let directory = tempfile::tempdir().unwrap();
+    let core = std::sync::Arc::new(AppCore::load(directory.path().join("config.json")).unwrap());
+    core.remember_moderation_verdict("held", verdict(Some("new_account"), false));
+    hold_text_for(&core, "held").await;
+    let mut config = AppConfig::default();
+    config.ai.provider = Some(crate::ai::AiProvider::Anthropic);
+    core.set_config(config.clone()).await.unwrap();
+    crate::ai::advice::advise_held_texts(&core).await;
+    assert_eq!(core.pending_texts.read().await[0].ai_advice, None);
+    config.ai.provider = None;
+    config.ai.message_advice = true;
+    core.set_config(config).await.unwrap();
+    crate::ai::advice::advise_held_texts(&core).await;
+    assert_eq!(core.pending_texts.read().await[0].ai_advice, None);
+}
+
 #[tokio::test]
 async fn flagged_notifications_wait_for_review_instead_of_disappearing() {
     let directory = tempfile::tempdir().unwrap();
@@ -1177,4 +1269,134 @@ async fn flagged_notifications_wait_for_review_instead_of_disappearing() {
     let id = held[0].id;
     assert!(core.reject_text(id).await.is_some());
     assert!(core.pending_texts.read().await.is_empty());
+}
+
+#[tokio::test]
+async fn ai_advice_on_a_held_media_never_publishes_rejects_or_releases_it() {
+    use crate::ai::advice::{AiAdvice, AiVerdict};
+    let directory = tempfile::tempdir().unwrap();
+    let core = AppCore::load(directory.path().join("config.json")).unwrap();
+    let mut events = core.relay_tx.subscribe();
+    core.remember_moderation_verdict("held", verdict(Some("new_account"), false));
+    core.submit_media(media(MediaKind::Video, "held")).await;
+    let id = core.pending_media.read().await[0].id;
+
+    let (taken, bytes) = core.media_for_advice(id).await.unwrap();
+    assert_eq!(taken.message_id, "held");
+    assert!(bytes.is_none());
+    assert_eq!(
+        core.pending_media.read().await[0].ai_advice,
+        Some(AiAdvice::Pending)
+    );
+    assert!(core.media_for_advice(id + 100).await.is_none());
+
+    core.set_media_advice(
+        id,
+        AiAdvice::Done {
+            verdict: AiVerdict::NoIssueSeen,
+            categories: vec![],
+            reason: String::new(),
+        },
+    )
+    .await;
+    let pending = core.pending_media.read().await.clone();
+    assert_eq!(pending.len(), 1);
+    assert!(matches!(pending[0].ai_advice, Some(AiAdvice::Done { .. })));
+    assert!(core.history.read().await.is_empty());
+    assert!(events.try_recv().is_err());
+
+    // Advice for an item already decided is dropped.
+    assert!(core.reject_media(id).await);
+    core.set_media_advice(id, AiAdvice::Pending).await;
+    assert!(core.pending_media.read().await.is_empty());
+}
+
+#[tokio::test]
+async fn asking_about_a_video_says_it_is_not_analysed_without_sending_anything() {
+    use crate::ai::advice::{AiAdvice, NotSentCause};
+    let directory = tempfile::tempdir().unwrap();
+    let core = std::sync::Arc::new(AppCore::load(directory.path().join("config.json")).unwrap());
+    let mut config = AppConfig::default();
+    config.ai.provider = Some(crate::ai::AiProvider::OpenAi);
+    core.set_config(config).await.unwrap();
+    core.remember_moderation_verdict("clip", verdict(Some("new_account"), false));
+    core.submit_media(media(MediaKind::Video, "clip")).await;
+    let id = core.pending_media.read().await[0].id;
+    let advice = crate::ai::advice::advise_media(&core, id).await;
+    assert_eq!(
+        advice,
+        Some(AiAdvice::NotSent {
+            cause: NotSentCause::NotAnImage
+        })
+    );
+    assert_eq!(core.pending_media.read().await[0].ai_advice, advice);
+    // An unknown or already decided item gets nothing.
+    assert_eq!(crate::ai::advice::advise_media(&core, id + 1).await, None);
+}
+
+async fn post_text(core: &AppCore, id: &str, text: &str) -> bool {
+    let ticket = core
+        .register_stage_output(42, id, 0, StageLane::Notification)
+        .await;
+    core.publish_notification_card_if_allowed_with_ticket_and_roles(
+        ticket,
+        id.into(),
+        text.into(),
+        crate::model::AuthorIdentity {
+            username: "Viewer".into(),
+            display_avatar_url: String::new(),
+        },
+        None,
+        42,
+        vec![],
+        &[],
+    )
+    .await
+}
+
+#[tokio::test]
+async fn the_ai_watch_only_holds_publishable_member_messages_and_failures_publish() {
+    use crate::ai::advice::{AiAdvice, AiVerdict};
+    let directory = tempfile::tempdir().unwrap();
+    let core = AppCore::load(directory.path().join("config.json")).unwrap();
+    {
+        let mut config = core.config.write().await;
+        config.ai.provider = Some(crate::ai::AiProvider::Anthropic);
+        config.ai.watch_messages = true;
+    }
+    let clear = AiAdvice::Done {
+        verdict: AiVerdict::ClearProblem,
+        categories: Vec::new(),
+        reason: "Menace directe.".into(),
+    };
+    core.ai_watch_stub.lock().unwrap().answer = Some(clear.clone());
+    core.remember_moderation_verdict("member", verdict(None, false));
+    core.remember_moderation_verdict("staff", verdict(None, true));
+    core.remember_moderation_verdict("held", verdict(Some("new_account"), false));
+
+    assert!(!post_text(&core, "member", "je vais te trouver").await);
+    assert!(post_text(&core, "staff", "je vais te trouver").await);
+    assert!(!post_text(&core, "held", "déjà retenu").await);
+    // Staff and an already held message never reach the AI.
+    assert_eq!(core.ai_watch_stub.lock().unwrap().sent.len(), 1);
+
+    let held = core.pending_texts.read().await.clone();
+    assert_eq!(held.len(), 2);
+    assert_eq!(held[0].text, "je vais te trouver");
+    assert_eq!(held[0].reason.as_deref(), Some("ai_flagged"));
+    assert_eq!(held[0].ai_advice, Some(clear));
+    assert_eq!(held[1].reason.as_deref(), Some("new_account"));
+    assert!(
+        core.moderation_entries()
+            .0
+            .iter()
+            .any(|entry| entry.reason == "ai_flagged")
+    );
+
+    // Any failure publishes the message as Relay would without AI.
+    core.ai_watch_stub.lock().unwrap().answer = Some(AiAdvice::Failed {
+        cause: crate::ai::AiError::Unavailable,
+    });
+    core.remember_moderation_verdict("other", verdict(None, false));
+    assert!(post_text(&core, "other", "je vais te trouver").await);
 }

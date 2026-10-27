@@ -894,7 +894,7 @@ async fn analyze_image_async(
     }
 }
 
-async fn download_image_bounded(url: &str) -> Result<Vec<u8>> {
+pub(crate) async fn download_image_bounded(url: &str) -> Result<Vec<u8>> {
     let parsed = reqwest::Url::parse(url).context("invalid image URL")?;
     if !discord_cdn_url(&parsed) {
         anyhow::bail!("image URL host is not an approved Discord CDN");
@@ -2196,4 +2196,4 @@ pub enum PrivacyAction {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
