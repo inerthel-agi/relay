@@ -421,7 +421,8 @@ test("the cooldown notice has its switch next to the delay and is saved under it
 
 test("an emptied moderation number keeps its saved value instead of sending 0", () => {
   const ui = fs.readFileSync(__dirname + "/../gui/moderation-ui.mjs", "utf8");
-  const start = ui.indexOf("    const number = (id, fallback) => {\n      const text");
+  // The CI checkout uses CRLF line endings.
+  const start = ui.search(/ {4}const number = \(id, fallback\) => \{\r?\n {6}const text/);
   assert.ok(start > 0);
   const body = ui.slice(start, ui.indexOf("};", start) + 2).replace("const number =", "globalThis.number =");
   const values = { "duplicate-window": "", cooldown: " 12 ", raid: "abc" };
