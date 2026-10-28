@@ -224,11 +224,17 @@ async fn frames(
     }
 }
 
+/// Whether an image check can run. Turning the assistant off (no provider)
+/// stops every check, the free filter included.
+pub fn active(settings: &AiSettings) -> bool {
+    settings.provider.is_some() && (settings.image_guard || settings.personal_data_relay)
+}
+
 /// Checks one media of a member. Moderators and trusted members are never
 /// checked: the caller does not call this for them.
 pub async fn check(config: &AppConfig, candidate: Candidate<'_>, language: &str) -> Outcome {
     let settings = &config.ai;
-    if !settings.image_guard && !settings.personal_data_relay {
+    if !active(settings) {
         return Outcome::Skip;
     }
     let incomplete = scan_incomplete_only(candidate.report);

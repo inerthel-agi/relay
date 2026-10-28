@@ -1361,3 +1361,88 @@ async fn the_final_media_check_keeps_the_media_filter_scope() {
         vec![Output::Media("image", None)]
     );
 }
+
+/// Personal-data relay on for GIFs and videos (the default scope), no cooldown.
+fn ai_config(provider: Option<crate::ai::AiProvider>) -> AppConfig {
+    let mut config = AppConfig {
+        privacy_auto_delete_blocked_messages: false,
+        ..relay_config()
+    };
+    config.moderation.user_cooldown_seconds = 0;
+    config.ai.provider = provider;
+    config.ai.personal_data_relay = true;
+    config
+}
+
+#[tokio::test]
+async fn gif_embeds_get_the_ai_image_check_unless_the_assistant_is_off() {
+    let gif_message = |id: u64| {
+        let mut message = relay_message(id, "");
+        message.embeds = vec![
+            serde_json::from_value(serde_json::json!({
+                "type": "gifv",
+                "url": "https://relay.invalid/dance.gif",
+                "video": { "url": "https://relay.invalid/dance.mp4" }
+            }))
+            .unwrap(),
+        ];
+        message
+    };
+    // The test host cannot be downloaded, so the check cannot run: held.
+    let (_directory, core) = relay_core(ai_config(Some(crate::ai::AiProvider::OpenAi))).await;
+    let message = gif_message(1_000_000_000_000_000_200);
+    relay_outputs(&core, &message).await;
+    let verdict = core.moderation_verdict(&message.id.to_string()).unwrap();
+    assert_eq!(verdict.hold, Some("ai_image_unchecked"));
+    // Assistant off: nothing is checked, although the image options are on.
+    let (_directory, core) = relay_core(ai_config(None)).await;
+    let message = gif_message(1_000_000_000_000_000_201);
+    relay_outputs(&core, &message).await;
+    let verdict = core.moderation_verdict(&message.id.to_string()).unwrap();
+    assert_eq!(verdict.hold, None);
+}
+
+#[tokio::test]
+async fn library_gifs_are_not_sent_for_personal_data() {
+    use crate::moderation::Lane;
+    let (_directory, core) = relay_core(ai_config(Some(crate::ai::AiProvider::OpenAi))).await;
+    let config = core.config.read().await.clone();
+    // Unreadable bytes: a check that runs cannot extract frames and holds.
+    for (id, url, hold) in [
+        (
+            1_000_000_000_000_000_210,
+            "https://media.tenor.com/dance.gif",
+            None,
+        ),
+        (
+            1_000_000_000_000_000_211,
+            "https://relay.invalid/dance.gif",
+            Some("ai_image_unchecked"),
+        ),
+    ] {
+        let message = relay_message(id, "");
+        assert!(apply_moderation_gate(
+            &core,
+            &message,
+            &[],
+            false,
+            &[Lane::Media],
+            &config
+        ));
+        let mut report = privacy::PrivacyReport::safe();
+        let candidate = (MediaKind::Gif, url, url, Some(&b"not a gif"[..]));
+        assert!(
+            !ai_image_check(
+                &core,
+                &Http::new(""),
+                &message,
+                false,
+                candidate,
+                &mut report
+            )
+            .await
+        );
+        let verdict = core.moderation_verdict(&message.id.to_string()).unwrap();
+        assert_eq!(verdict.hold, hold, "{url}");
+    }
+}

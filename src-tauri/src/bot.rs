@@ -552,15 +552,21 @@ async fn ai_image_check(
     if staff || trusted {
         return false;
     }
+    let (kind, url, proxy_url, bytes) = candidate;
     let config = {
         let config = core.config.read().await;
-        if !config.ai.image_guard && !config.ai.personal_data_relay {
+        if !image_guard::active(&config.ai) {
             return false;
         }
-        config.clone()
+        let mut config = config.clone();
+        // A public library GIF cannot show the poster's personal data; it is
+        // still checked for harmful content.
+        if is_gif_library_url(url) {
+            config.ai.personal_data_relay = false;
+        }
+        config
     };
     let language = core.interface_preferences.read().await.language.clone();
-    let (kind, url, proxy_url, bytes) = candidate;
     let outcome = image_guard::check(
         &config,
         Candidate {
@@ -2998,6 +3004,7 @@ async fn submit_embedded_gifs(
     submit_deferred_embeds(
         core,
         http,
+        (message, staff),
         DeferredEmbedMessage {
             channel_id: message.channel_id.to_string(),
             message_id: message.id.to_string(),
@@ -3016,10 +3023,13 @@ async fn submit_embedded_gifs(
     .await
 }
 
-/// Returns true when the message was blocked.
+/// Returns true when the message was blocked. `source` and `staff` (the
+/// Discord message and whether its author is a moderator) are for the AI
+/// image check.
 async fn submit_deferred_embeds(
     core: &Arc<AppCore>,
     http: &Http,
+    (source, staff): (&Message, bool),
     message: DeferredEmbedMessage,
 ) -> bool {
     if message.author.bot {
@@ -3127,7 +3137,7 @@ async fn submit_deferred_embeds(
         let current_config = core.config.read().await.clone();
         let current_scoped_config =
             privacy::scoped_config_for_roles(&current_config, &message.role_ids);
-        let privacy_report =
+        let mut privacy_report =
             reclassify_privacy_report(privacy_report, &message.content, &current_scoped_config);
         if privacy_action_is_blocked(&privacy_report, &current_scoped_config) {
             delete_deferred_message_if_needed(
@@ -3138,6 +3148,23 @@ async fn submit_deferred_embeds(
                 &current_scoped_config,
             )
             .await;
+            return true;
+        }
+        if ai_image_check(
+            core,
+            http,
+            source,
+            staff,
+            (
+                MediaKind::Gif,
+                &event.url,
+                &event.proxy_url,
+                downloaded.as_deref(),
+            ),
+            &mut privacy_report,
+        )
+        .await
+        {
             return true;
         }
         core.submit_analyzed_media_with_text_and_roles(

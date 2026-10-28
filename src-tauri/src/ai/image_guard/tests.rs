@@ -188,7 +188,10 @@ async fn nothing_is_checked_when_off_and_a_missing_image_is_held() {
         Outcome::Skip
     );
     let on = AppConfig {
-        ai: settings(),
+        ai: AiSettings {
+            provider: Some(crate::ai::AiProvider::OpenAi),
+            ..settings()
+        },
         ..AppConfig::default()
     };
     assert_eq!(
@@ -279,4 +282,16 @@ fn the_strongest_result_over_the_frames_wins() {
     let mut held = None;
     assert_eq!(fold_frame(&mut held, None), None);
     assert_eq!(held, None);
+}
+
+#[test]
+fn no_image_check_runs_with_the_assistant_off() {
+    // The image options stay on when the user picks Off: nothing may be sent.
+    let mut settings = settings();
+    assert!(!active(&settings));
+    settings.provider = Some(crate::ai::AiProvider::OpenAi);
+    assert!(active(&settings));
+    settings.image_guard = false;
+    settings.personal_data_relay = false;
+    assert!(!active(&settings));
 }
