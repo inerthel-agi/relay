@@ -1,0 +1,16 @@
+<!doctype html>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; width: 640px; height: 360px; overflow: hidden; }
+  body { display: grid; place-items: center; font: 800 96px/1 "Segoe UI", system-ui, sans-serif; color: #fff; letter-spacing: .02em; }
+  body::before { content: ""; position: fixed; inset: 0; z-index: -1;
+    background: repeating-radial-gradient(circle at 50% 50%, transparent 0 46px, rgba(255,255,255,.14) 47px 48px), linear-gradient(135deg, var(--a), var(--b)); }
+</style>
+<body><span id="w"></span>
+<script>
+  const p = new URLSearchParams(location.search);
+  document.getElementById("w").textContent = p.get("w");
+  document.body.style.setProperty("--a", "#" + p.get("a"));
+  document.body.style.setProperty("--b", "#" + p.get("b"));
+</script>
+</body>
