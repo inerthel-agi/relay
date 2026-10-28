@@ -118,6 +118,13 @@ export function reasonLabel(reason, t) {
   return key ? t(key) : String(reason || "").replace(/_/g, " ");
 }
 
+/** Queue line of a held media item: the scan's risk level, unless moderation held it, then the reason. */
+export function queueReasonLabel(pendingItem, t) {
+  const reason = reasonLabel(pendingItem.holdReason || pendingItem.privacyReason || "manual_review", t);
+  const level = !pendingItem.holdReason && pendingItem.privacyClassification;
+  return level ? `${level} · ${reason}` : reason;
+}
+
 /** Image check categories, in the order Relay saves them (`ImageGuardCategory`). */
 export const AI_GUARD_CATEGORIES = ["sexual", "violence", "selfHarm", "hate", "harassment", "spam"];
 const aiGuardBoxes = () => [...document.querySelectorAll('input[name="ai-guard-category"]')];
@@ -744,9 +751,6 @@ export function initializeModerationUi({
     row.dataset.pendingId = String(pendingItem.id);
     const sensitive = ["medium", "high", "critical"].includes(String(pendingItem.privacyClassification || "").toLowerCase());
     row.classList.toggle("is-sensitive", sensitive);
-    if (pendingItem.holdReason) {
-      item.querySelector(".moderation-item__privacy").textContent = reasonLabel(pendingItem.holdReason, t);
-    }
     const reason = pendingItem.holdReason || pendingItem.privacyReason || "manual_review";
     appendExplanation(item.querySelector(".history-item__meta"), explainReason(reason, getBootstrap()?.config?.moderation, t, formatTranslation));
     const countdown = item.querySelector(".moderation-item__countdown");

@@ -13,6 +13,12 @@ This changelog is maintained in English. Interface translations are maintained i
 
 ## [Unreleased]
 
+### English
+
+#### Fixed
+
+- Media held for manual review no longer show the internal code MANUAL_REVIEW in the review queue: every held media now shows its reason in the interface language, after the risk level found by the privacy scan when there is one.
+
 ## [1.5.0] - 2026-10-27
 
 ### English
