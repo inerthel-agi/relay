@@ -1,0 +1,41 @@
+{
+  "brand": "Relay",
+  "tagline": "Discord to your stream",
+  "brief": "A Windows app that relays the messages and media of a Discord channel to OBS and desktop widgets, with moderation. The old radar icon was a near-stock symbol that faded at taskbar size and only existed in white on black.",
+  "adjectives": ["live", "safe", "direct", "friendly"],
+  "criteria": "Success: says what Relay does without a chat bubble or Twitch purple, reads at 16 px in the taskbar and the tray, works in one colour, keeps Relay green.",
+  "mockups": ["app-icon", "website", "social", "favicon-tab", "sticker", "readme"],
+  "nav": ["Download", "Docs", "Changelog"],
+  "brand_color": "#2F9467",
+  "tile_color": "#111418",
+  "greyscale": false,
+  "final": true,
+  "round": 2,
+  "designer": "Relay",
+  "concepts": [
+    {
+      "name": "The card that leaves the frame",
+      "symbol": "../svg/relay-symbol.svg",
+      "lockup": "../svg/relay-horizontal.svg",
+      "stacked": "../svg/relay-stacked.svg",
+      "avatar": "../svg/relay-app-icon.svg",
+      "symbol_on_tile": "../svg/relay-symbol-on-dark.svg",
+      "symbol_on_dark": "../svg/relay-symbol-on-dark.svg",
+      "lockup_on_dark": "../svg/relay-horizontal-on-dark.svg",
+      "stacked_on_dark": "../svg/relay-stacked-on-dark.svg",
+      "idea": "A message card from Discord breaks out of the stream frame: what Relay does, in one shape.",
+      "rationale": [
+        "Shows the product's output, a message landing on stream, instead of the category's chat bubbles and radar waves",
+        "Relay green on the card, the panel's own accent colour, so the app and the logo match",
+        "A simplified cut keeps the frame and the card readable at 16 px in the taskbar and the tray",
+        "Built on a 4-unit grid: one 24-unit band, radii 40 and 16, a 12-unit gap where the card crosses the frame"
+      ]
+    }
+  ],
+  "recommendation": "Use the symbol alone for the app, tray and favicon; the horizontal lockup in the panel header, README and website.",
+  "next_steps": [
+    "Replace the app icon (src-tauri/icons) and the panel logo",
+    "Use the horizontal lockup on the website and in the README",
+    "Run a trademark search before public launch"
+  ]
+}

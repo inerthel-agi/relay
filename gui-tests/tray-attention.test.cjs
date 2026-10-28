@@ -20,12 +20,12 @@ function setup() {
   return { elements, context };
 }
 
-test("pending moderation takes priority and opens the moderation page", () => {
+test("pending moderation takes priority and opens the Control room, where the review queue lives", () => {
   const { elements, context } = setup();
   context.renderAttentionForTest({ pendingMedia: [{}, {}], bot: { connected: false } });
   assert.equal(elements["#tray-attention"].hidden, false);
   assert.equal(elements["#tray-attention-label"].textContent, "2 waiting");
-  assert.equal(context.attentionPageForTest(), "moderation");
+  assert.equal(context.attentionPageForTest(), "live");
 });
 
 test("a disconnected bot points to the Discord page", () => {

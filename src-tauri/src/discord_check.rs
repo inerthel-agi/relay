@@ -62,12 +62,21 @@ pub fn required_permissions(feature: &str, config: &AppConfig) -> Permissions {
             Permissions::empty()
         }
     };
+    // The cooldown notice is posted in the channel the member wrote in.
+    let notice = if config.moderation.cooldown_notice && config.moderation.user_cooldown_seconds > 0
+    {
+        Permissions::SEND_MESSAGES
+    } else {
+        Permissions::empty()
+    };
     match feature {
         "relay" | "media" => {
-            read | delete_if(config.media_cleanup_enabled || privacy_delete) | escalation
+            read | delete_if(config.media_cleanup_enabled || privacy_delete) | escalation | notice
         }
         "notifications" => {
-            read | delete_if(config.former_message_cleanup_enabled || privacy_delete) | escalation
+            read | delete_if(config.former_message_cleanup_enabled || privacy_delete)
+                | escalation
+                | notice
         }
         "music" => {
             read | Permissions::SEND_MESSAGES
@@ -210,6 +219,12 @@ mod tests {
         config.media_cleanup_enabled = true;
         assert!(required_permissions("media", &config).contains(Permissions::MANAGE_MESSAGES));
         assert!(required_permissions("music", &config).contains(Permissions::EMBED_LINKS));
+        // The cooldown notice needs Send Messages only while a cooldown is set.
+        assert!(!required_permissions("relay", &config).contains(Permissions::SEND_MESSAGES));
+        config.moderation.user_cooldown_seconds = 10;
+        assert!(required_permissions("relay", &config).contains(Permissions::SEND_MESSAGES));
+        config.moderation.cooldown_notice = false;
+        assert!(!required_permissions("relay", &config).contains(Permissions::SEND_MESSAGES));
         config.honeypot_action = HoneypotAction::Ban;
         let honeypot = required_permissions("honeypot", &config);
         assert!(honeypot.contains(Permissions::BAN_MEMBERS));

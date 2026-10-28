@@ -47,6 +47,10 @@ const moveLabels = {
   ko: "오버레이 이동",
   ja: "オーバーレイを移動",
   id: "Pindahkan overlay",
+  it: "Sposta overlay",
+  pt: "Mover overlay",
+  pl: "Przesuń nakładkę",
+  tr: "Katmanı taşı",
 };
 const previewLabels = {
   en: "Live preview",
@@ -58,6 +62,10 @@ const previewLabels = {
   ko: "실시간 미리보기",
   ja: "ライブプレビュー",
   id: "Pratinjau langsung",
+  it: "Anteprima dal vivo",
+  pt: "Prévia ao vivo",
+  pl: "Podgląd na żywo",
+  tr: "Canlı önizleme",
 };
 const previewCaptionLabels = {
   en: "Discord message shown with the media",
@@ -69,6 +77,10 @@ const previewCaptionLabels = {
   ko: "미디어와 함께 표시되는 Discord 메시지",
   ja: "メディアと一緒に表示されるDiscordメッセージ",
   id: "Pesan Discord yang ditampilkan bersama media",
+  it: "Messaggio Discord mostrato con il media",
+  pt: "Mensagem do Discord exibida com a mídia",
+  pl: "Wiadomość Discord wyświetlana z mediami",
+  tr: "Medyayla birlikte gösterilen Discord mesajı",
 };
 const youtubeAddedByLabels = {
   en: "Added by",
@@ -80,6 +92,10 @@ const youtubeAddedByLabels = {
   ko: "추가한 사용자",
   ja: "追加者",
   id: "Ditambahkan oleh",
+  it: "Aggiunto da",
+  pt: "Adicionado por",
+  pl: "Dodane przez",
+  tr: "Ekleyen",
 };
 
 window.setWidgetLocked = (locked) => {
@@ -1005,16 +1021,20 @@ function mediaLayout(width, height, viewportWidth, viewportHeight, scale, footer
   const custom = geometry.anchor && geometry.anchor !== "legacy";
   const marginX = custom ? Math.max(insetPx, Number(geometry.marginX) || 0) : margin;
   const marginY = custom ? Math.max(insetPx, Number(geometry.marginY) || 0) : margin;
-  const availableWidth = Math.max(1, viewportWidth - marginX * 2);
-  const availableHeight = Math.max(1, viewportHeight - marginY * 2 - footerHeight);
+  // Maximum media size: the media fits in this share of the area (Rust `max_size`).
+  const share = Math.min(100, Math.max(10, Number(geometry.maxSize) || 100)) / 100;
+  const areaHeight = Math.max(1, viewportHeight - marginY * 2 - footerHeight);
+  const availableWidth = Math.max(1, (viewportWidth - marginX * 2) * share);
+  const availableHeight = Math.max(1, areaHeight * share);
   const ratio = Math.min(availableWidth / width, availableHeight / height);
   const displayedWidth = width * ratio;
   const displayedHeight = height * ratio;
+  // "Current layout" keeps a smaller media on the right, centred in the height.
   return {
     width: displayedWidth / scale, height: displayedHeight / scale,
-    centerY: marginY + availableHeight / 2,
+    centerY: marginY + areaHeight / 2,
     left: viewportWidth - displayedWidth - marginX,
-    bottom: marginY + (availableHeight + displayedHeight) / 2,
+    bottom: marginY + (areaHeight + displayedHeight) / 2,
     displayedWidth,
   };
 }
@@ -1350,7 +1370,8 @@ function loadPlayback(media, playbackElement, visualElement, generation) {
   activePlayback = playbackElement;
   activeVisual = visualElement;
   const isTimedGif = media.kind === "gif";
-  const mustMute = (isWidgetWindow && !config.widgetSoundEnabled) || isTimedGif;
+  // /youtube only shows the audio card: the sound comes from /audios.
+  const mustMute = (isWidgetWindow && !config.widgetSoundEnabled) || isTimedGif || relayMode === "youtube";
   playbackElement.loop = isTimedGif;
   playbackElement.muted = mustMute;
   playbackElement.volume = mustMute
@@ -1500,6 +1521,10 @@ function enqueueMedia(mediaEvent) {
   if (
     (relayMode === "visual" && mediaEvent.kind === "audio")
     || (relayMode === "audio" && mediaEvent.kind !== "audio")
+    // In the Relay Visual source, /medias shows images, GIFs and videos: /youtube
+    // showed them a second time. /youtube keeps the audio card, the only visible
+    // part of a Discord sound (/audios plays it in an invisible source).
+    || (relayMode === "youtube" && mediaEvent.kind !== "audio")
     || queue.length >= MEDIA_QUEUE_LIMIT
   ) {
     return;
@@ -1614,7 +1639,7 @@ function handleMessage(event) {
     const volume = Math.min(1, Math.max(0, config.mediaVolume / 100));
     const widgetMuted = isWidgetWindow && !config.widgetSoundEnabled;
     videoElement.muted = widgetMuted || currentMedia?.kind === "gif";
-    audioElement.muted = widgetMuted;
+    audioElement.muted = widgetMuted || relayMode === "youtube";
     videoElement.volume = videoElement.muted ? 0 : volume;
     audioElement.volume = audioElement.muted ? 0 : volume * reactionMusicFactor;
     applyYoutubeAudioSettings();

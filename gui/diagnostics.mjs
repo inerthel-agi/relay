@@ -68,6 +68,8 @@ export function buildDiagnosticReport({ version, bootstrap = {}, interfaceState 
     `  music channel set: ${yesNo(config.musicChannelId)}`,
     `  security trap set: ${yesNo(config.honeypotChannelId)}`,
     `  YouTube key saved: ${yesNo(bootstrap.credentials?.youtubeConfigured)}`,
+    `  AI provider: ${["openai", "anthropic"].includes(config.ai?.provider) ? config.ai.provider : "none"}`,
+    `  AI keys saved: OpenAI ${yesNo(bootstrap.credentials?.openaiConfigured)}, Anthropic ${yesNo(bootstrap.credentials?.anthropicConfigured)}`,
     "",
     "Local server",
     `  online: ${yesNo(bootstrap.server?.connected)}`,

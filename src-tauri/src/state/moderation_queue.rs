@@ -63,6 +63,16 @@ impl AppCore {
         }
     }
 
+    /// Holds the parts of a message not yet submitted for review, with `reason`.
+    pub fn hold_message_for_review(&self, message_id: &str, reason: &'static str) {
+        if let Ok(mut runtime) = self.moderation.lock()
+            && let Some(mut verdict) = runtime.verdict(message_id)
+        {
+            verdict.hold = Some(reason);
+            runtime.remember_verdict(message_id, verdict, now_ms());
+        }
+    }
+
     pub(super) async fn enqueue_pending(&self, entry: PendingEntry<'_>) {
         let verdict = self.moderation_verdict(&entry.media.message_id);
         let author_id = verdict.as_ref().map(|verdict| verdict.author_id.clone());
@@ -82,6 +92,7 @@ impl AppCore {
             .unwrap_or_else(|| "manual_review".into());
         let delayed = entry.release_at.is_some();
         pending.push_back(PendingMedia {
+            ai_advice: None,
             id: pending_id,
             media: entry.media,
             sticker: entry.sticker,
@@ -128,14 +139,18 @@ impl AppCore {
         timestamp: u64,
         segments: Vec<VisualSegment>,
         reason: &str,
+        ai_advice: Option<crate::ai::advice::AiAdvice>,
     ) {
         let verdict = self.moderation_verdict(&message_id);
         let author_id = verdict.as_ref().map(|verdict| verdict.author_id.clone());
+        let trusted = verdict.as_ref().is_some_and(|verdict| verdict.trusted);
         let mut pending = self.pending_texts.write().await;
         if pending.len() >= MODERATION_QUEUE_LIMIT {
             pending.pop_front();
         }
         pending.push_back(PendingText {
+            ai_advice,
+            trusted,
             id: self.next_moderation_id.fetch_add(1, Ordering::Relaxed),
             message_id,
             text,
@@ -155,6 +170,53 @@ impl AppCore {
             reason,
             author_id,
         );
+    }
+
+    /// A waiting media and its sticker bytes, marked as pending AI advice.
+    pub async fn media_for_advice(&self, id: u64) -> Option<(MediaEvent, Option<Arc<Vec<u8>>>)> {
+        let mut pending = self.pending_media.write().await;
+        let item = pending.iter_mut().find(|item| item.id == id)?;
+        item.ai_advice = Some(crate::ai::advice::AiAdvice::Pending);
+        Some((item.media.clone(), item.sticker_bytes.clone()))
+    }
+
+    /// Stores the advice on the media if it still waits; a decided item is left alone.
+    pub async fn set_media_advice(&self, id: u64, advice: crate::ai::advice::AiAdvice) {
+        if let Some(item) = self
+            .pending_media
+            .write()
+            .await
+            .iter_mut()
+            .find(|item| item.id == id)
+        {
+            item.ai_advice = Some(advice);
+        }
+    }
+
+    /// Held texts not yet sent to the AI, marked as pending. Trusted members are skipped.
+    pub async fn take_texts_for_advice(&self) -> Vec<(u64, String)> {
+        let mut pending = self.pending_texts.write().await;
+        pending
+            .iter_mut()
+            .filter(|item| item.ai_advice.is_none() && !item.trusted)
+            .map(|item| {
+                item.ai_advice = Some(crate::ai::advice::AiAdvice::Pending);
+                (item.id, item.text.clone())
+            })
+            .collect()
+    }
+
+    /// Stores the advice on the item if it is still waiting; a decided item is left alone.
+    pub async fn set_text_advice(&self, id: u64, advice: crate::ai::advice::AiAdvice) {
+        if let Some(item) = self
+            .pending_texts
+            .write()
+            .await
+            .iter_mut()
+            .find(|item| item.id == id)
+        {
+            item.ai_advice = Some(advice);
+        }
     }
 
     pub async fn approve_text(&self, id: u64) -> bool {

@@ -175,6 +175,9 @@ pub struct PendingMedia {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub channel_id: Option<String>,
     pub queued_at: u64,
+    /// Advisory AI opinion, asked on demand; it never changes what is published.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ai_advice: Option<crate::ai::advice::AiAdvice>,
 }
 
 /// A notification message held for review instead of being dropped.
@@ -197,6 +200,12 @@ pub struct PendingText {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub channel_id: Option<String>,
     pub queued_at: u64,
+    /// Advisory AI opinion for the moderator; it never changes what is published.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ai_advice: Option<crate::ai::advice::AiAdvice>,
+    /// Trusted members and server staff are not sent to the AI.
+    #[serde(skip)]
+    pub trusted: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -308,13 +317,17 @@ pub struct ServerStatus {
 }
 
 /// Panel designs; outputs mirror the active one when their style is "auto".
-pub const INTERFACE_DESIGNS: [&str; 6] = [
+pub const INTERFACE_DESIGNS: [&str; 10] = [
     "graphite",
     "paper",
     "neo-brutalism",
     "gridline",
     "lumen",
     "signal",
+    "midnight",
+    "ember",
+    "dawn",
+    "cloud",
 ];
 /// Output-only style that draws outlined text without a card.
 pub const SUBTITLE_OUTPUT_STYLE: &str = "subtitle";

@@ -16,6 +16,7 @@ pub async fn run(core: Arc<AppCore>) {
     loop {
         interval.tick().await;
         core.moderation_tick().await;
+        crate::ai::advice::advise_held_texts(&core).await;
         ticks = ticks.wrapping_add(1);
         if ticks.is_multiple_of(LIVE_CHECK_EVERY_TICKS) {
             check_live(&core).await;

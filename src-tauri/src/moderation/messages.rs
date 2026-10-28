@@ -76,6 +76,18 @@ const BLOCK_WARNING: [&str; 9] = [
     "Pesan terakhirmu tidak ditampilkan di stream karena melanggar aturan server. Jika terulang, kamu bisa dibisukan sementara.",
 ];
 
+const COOLDOWN_NOTICE: [&str; 9] = [
+    "Slow down: one message every {seconds} s at most. Messages sent faster are not shown on stream.",
+    "Doucement : un message toutes les {seconds} s au maximum. Les messages envoyés plus vite ne sont pas affichés sur le stream.",
+    "Más despacio: como máximo un mensaje cada {seconds} s. Los mensajes enviados más rápido no se muestran en el directo.",
+    "Langsamer: höchstens eine Nachricht alle {seconds} s. Schneller gesendete Nachrichten werden im Stream nicht gezeigt.",
+    "Помедленнее: не больше одного сообщения раз в {seconds} с. Сообщения, отправленные чаще, не показываются на стриме.",
+    "慢一点：每 {seconds} 秒最多一条消息。发送过快的消息不会在直播中显示。",
+    "천천히 보내 주세요. 메시지는 {seconds}초에 하나까지입니다. 더 빨리 보낸 메시지는 방송에 표시되지 않습니다.",
+    "少しペースを落としてください。メッセージは {seconds} 秒に 1 件までです。それより早く送ったメッセージは配信に表示されません。",
+    "Pelan-pelan: paling banyak satu pesan setiap {seconds} detik. Pesan yang dikirim lebih cepat tidak ditampilkan di stream.",
+];
+
 pub fn honeypot_notice(action: HoneypotAction, code: &str) -> String {
     let index = language(code);
     let consequence = match action {
@@ -88,4 +100,9 @@ pub fn honeypot_notice(action: HoneypotAction, code: &str) -> String {
 
 pub fn block_warning(code: &str) -> &'static str {
     BLOCK_WARNING[language(code)]
+}
+
+/// Reply to a member whose message came too soon after the previous one.
+pub fn cooldown_notice(code: &str, seconds: u16) -> String {
+    COOLDOWN_NOTICE[language(code)].replace("{seconds}", &seconds.to_string())
 }

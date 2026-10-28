@@ -233,16 +233,28 @@ impl StageScheduler {
     }
 
     pub async fn cancel(&self, ticket: StageTicket) {
+        self.cancel_many(&[ticket]).await;
+    }
+
+    /// Cancels several tickets in one step, so a part that is already ready
+    /// never reaches the stage while its siblings are still being removed.
+    pub async fn cancel_many(&self, tickets: &[StageTicket]) {
         {
             let mut state = self.inner.state.lock().await;
-            if let Some(entry) = state.entries.remove(&ticket) {
-                if let Some(key) = entry.key {
-                    state.ordered.remove(&key);
+            let mut original_keys = Vec::with_capacity(tickets.len());
+            for ticket in tickets {
+                if let Some(entry) = state.entries.remove(ticket) {
+                    if let Some(key) = entry.key {
+                        state.ordered.remove(&key);
+                    }
+                    original_keys.push(entry.original_key);
                 }
-                self.reinsert_ready_group_for_key(&mut state, entry.original_key);
+                if state.active.is_some_and(|active| active.ticket == *ticket) {
+                    state.active = None;
+                }
             }
-            if state.active.is_some_and(|active| active.ticket == ticket) {
-                state.active = None;
+            for key in original_keys {
+                self.reinsert_ready_group_for_key(&mut state, key);
             }
         }
         self.try_dispatch().await;
@@ -531,11 +543,15 @@ impl StageScheduler {
 
     fn demote_group(&self, state: &mut SchedulerState, original_key: StageOrderKey) -> bool {
         let group = message_group(original_key);
+        // The active part is already on stage: demoting it would leave a
+        // key-less entry that no later reinsertion can ever release.
+        let active = state.active.map(|active| active.ticket);
         let tickets = state
             .entries
             .iter()
             .filter_map(|(ticket, entry)| {
-                (message_group(entry.original_key) == group).then_some(*ticket)
+                (message_group(entry.original_key) == group && Some(*ticket) != active)
+                    .then_some(*ticket)
             })
             .collect::<Vec<_>>();
         let mut demoted = false;
@@ -564,11 +580,14 @@ impl StageScheduler {
         original_key: StageOrderKey,
     ) {
         let group = message_group(original_key);
+        // Only demoted tickets wait for each other. A part reserved after the
+        // demotion (a late GIF embed) keeps its slot and may already be active.
         let mut tickets = state
             .entries
             .iter()
             .filter_map(|(ticket, entry)| {
-                (message_group(entry.original_key) == group).then_some(*ticket)
+                (message_group(entry.original_key) == group && entry.key.is_none())
+                    .then_some(*ticket)
             })
             .collect::<Vec<_>>();
         if tickets.is_empty()

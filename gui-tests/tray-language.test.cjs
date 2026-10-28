@@ -15,7 +15,7 @@ const regionalTranslations = context.trayRegionalTranslationsForTest;
 
 test("tray translations cover every interface language", () => {
   const expectedKeys = Object.keys(translations.en).sort();
-  for (const language of ["fr", "es", "de", "ru", "zh", "ko", "ja", "id"]) {
+  for (const language of ["fr", "es", "de", "it", "pt", "pl", "tr", "ru", "zh", "ko", "ja", "id"]) {
     assert.deepEqual(Object.keys(translations[language]).sort(), expectedKeys, language);
   }
 });

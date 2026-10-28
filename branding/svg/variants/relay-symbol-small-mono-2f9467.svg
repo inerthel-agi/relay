@@ -1,0 +1,5 @@
+<svg fill="#2f9467" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="title"><title>Relay logo</title>
+  <title id="title">Relay logo</title>
+  <path id="frame" fill="#2f9467" d="M34 134 V74 A40 40 0 0 1 74 34 H198 A40 40 0 0 1 238 74 V154 A40 40 0 0 1 198 194 H178 V162 H198 A8 8 0 0 0 206 154 V74 A8 8 0 0 0 198 66 H74 A8 8 0 0 0 66 74 V134 Z"/>
+  <path id="card" fill="#2f9467" fill-rule="evenodd" d="M38 150 H142 A20 20 0 0 1 162 170 V194 A20 20 0 0 1 142 214 H38 A20 20 0 0 1 18 194 V170 A20 20 0 0 1 38 150 Z"/>
+</svg>

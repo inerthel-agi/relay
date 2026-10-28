@@ -56,6 +56,23 @@ fn creates_and_round_trips_default_config() {
         privacy_allowlist: vec!["public@example.com".into()],
         privacy_custom_patterns: vec!["private alias".into()],
         moderation: crate::moderation::ModerationSettings::default(),
+        ai: crate::ai::AiSettings {
+            provider: Some(crate::ai::AiProvider::OpenAi),
+            model_tier: crate::ai::AiModelTier::Precise,
+            max_calls_per_hour: 60,
+            max_calls_per_day: 500,
+            message_advice: true,
+            watch_messages: true,
+            image_guard: true,
+            image_guard_categories: vec![crate::ai::ImageGuardCategory::Hate],
+            image_guard_delete_message: false,
+            image_guard_animated: true,
+            personal_data_relay: true,
+            personal_data_photos: false,
+            personal_data_screenshots: true,
+            personal_data_videos: false,
+            personal_data_incomplete: false,
+        },
         command_channel_enabled: true,
         command_url_enabled: false,
         command_show_enabled: true,
@@ -179,6 +196,44 @@ fn preferences_saved_before_output_styles_follow_the_design() {
 }
 
 #[test]
+fn accepts_every_panel_language_and_design() {
+    let valid = InterfacePreferences::default();
+    for language in [
+        "en", "fr", "es", "de", "it", "pt", "pl", "tr", "ru", "zh", "ko", "ja", "id",
+    ] {
+        let preferences = InterfacePreferences {
+            language: language.into(),
+            ..valid.clone()
+        };
+        assert!(
+            validate_interface_preferences(&preferences).is_ok(),
+            "{language}"
+        );
+    }
+    // Regional variants were merged in the panel and are never sent.
+    for language in ["en-GB", "es-419", "pt-PT", ""] {
+        let preferences = InterfacePreferences {
+            language: language.into(),
+            ..valid.clone()
+        };
+        assert!(
+            validate_interface_preferences(&preferences).is_err(),
+            "{language}"
+        );
+    }
+    for design in ["midnight", "ember", "dawn", "cloud"] {
+        let preferences = InterfacePreferences {
+            design: design.into(),
+            ..valid.clone()
+        };
+        assert!(
+            validate_interface_preferences(&preferences).is_ok(),
+            "{design}"
+        );
+    }
+}
+
+#[test]
 fn rejects_unknown_designs_and_output_styles() {
     let valid = InterfacePreferences::default();
     for (design, style, background) in [
@@ -194,7 +249,7 @@ fn rejects_unknown_designs_and_output_styles() {
         };
         assert!(validate_interface_preferences(&preferences).is_err());
     }
-    for style in ["auto", "signal", "subtitle", "paper"] {
+    for style in ["auto", "signal", "subtitle", "paper", "midnight", "cloud"] {
         let preferences = InterfacePreferences {
             output_style: style.into(),
             ..valid.clone()
@@ -343,6 +398,77 @@ fn migrates_missing_gif_duration_from_the_image_duration() {
     assert_eq!(migrated.gif_duration_ms, 15_000);
     let persisted: serde_json::Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
     assert_eq!(persisted["gifDurationMs"], 15_000);
+}
+
+#[test]
+fn configs_without_ai_settings_load_with_ai_off_and_keep_user_values() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("config.json");
+    let mut legacy = serde_json::to_value(AppConfig::default()).unwrap();
+    legacy.as_object_mut().unwrap().remove("ai");
+    legacy["moderationEnabled"] = serde_json::json!(true);
+    fs::write(&path, serde_json::to_vec_pretty(&legacy).unwrap()).unwrap();
+
+    for _ in 0..3 {
+        let loaded = ConfigStore::new(path.clone()).load().unwrap();
+        assert_eq!(loaded.ai, crate::ai::AiSettings::default());
+        assert_eq!(loaded.ai.provider, None);
+        assert!(loaded.moderation_enabled);
+    }
+
+    let mut chosen = ConfigStore::new(path.clone()).load().unwrap();
+    chosen.ai.provider = Some(crate::ai::AiProvider::Anthropic);
+    chosen.ai.max_calls_per_hour = 30;
+    ConfigStore::new(path.clone()).save(&chosen).unwrap();
+    for _ in 0..2 {
+        assert_eq!(ConfigStore::new(path.clone()).load().unwrap().ai, chosen.ai);
+    }
+    let persisted: serde_json::Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+    assert_eq!(persisted["ai"]["provider"], "anthropic");
+    // The config never stores an API key.
+    let text = persisted.to_string().to_lowercase();
+    assert!(!text.contains("apikey") && !text.contains("api_key"));
+}
+
+#[test]
+fn ai_settings_saved_before_the_message_watch_load_with_it_off() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("config.json");
+    let mut earlier = serde_json::to_value(AppConfig::default()).unwrap();
+    earlier["ai"] = serde_json::json!({
+        "provider": "openai",
+        "modelTier": "fast",
+        "maxCallsPerHour": 120,
+        "maxCallsPerDay": 1000,
+        "messageAdvice": true
+    });
+    fs::write(&path, serde_json::to_vec_pretty(&earlier).unwrap()).unwrap();
+    for _ in 0..3 {
+        let loaded = ConfigStore::new(path.clone()).load().unwrap();
+        assert!(!loaded.ai.watch_messages);
+        assert!(loaded.ai.message_advice);
+        assert_eq!(loaded.ai.provider, Some(crate::ai::AiProvider::OpenAi));
+        // The image check and the personal-data relay start off, with their
+        // documented defaults ready for when the user turns them on.
+        assert!(!loaded.ai.image_guard && !loaded.ai.personal_data_relay);
+        assert_eq!(
+            loaded.ai.image_guard_categories,
+            crate::ai::ImageGuardCategory::ALL.to_vec()
+        );
+        assert!(loaded.ai.image_guard_delete_message && !loaded.ai.image_guard_animated);
+        assert!(loaded.ai.personal_data_photos && !loaded.ai.personal_data_screenshots);
+        assert!(loaded.ai.personal_data_videos && loaded.ai.personal_data_incomplete);
+    }
+}
+
+#[test]
+fn rejects_out_of_range_ai_limits() {
+    let mut config = AppConfig::default();
+    config.ai.max_calls_per_hour = 0;
+    assert!(config.validate().is_err());
+    config.ai.max_calls_per_hour = 200;
+    config.ai.max_calls_per_day = 100;
+    assert!(config.validate().is_err());
 }
 
 #[test]
@@ -955,4 +1081,23 @@ fn a_file_with_both_names_of_a_renamed_setting_still_loads() {
     let config = load_three_times(&path);
     assert_eq!(config.notification_queue_limit, 7);
     assert_saved_with_current_names(&path);
+}
+
+#[test]
+fn the_maximum_media_size_defaults_to_the_whole_source_and_is_bounded() {
+    // Saved before 1.5.0: no field, the media keeps the whole source.
+    let old: OutputGeometry =
+        serde_json::from_str(r#"{"contentScale":120,"anchor":"topRight"}"#).unwrap();
+    assert_eq!(old.max_size, 100);
+    assert_eq!(old.content_scale, 120);
+    let mut geometry = OutputGeometry {
+        max_size: 50,
+        ..OutputGeometry::default()
+    };
+    assert!(geometry.validate().is_ok());
+    assert_eq!(serde_json::to_value(geometry).unwrap()["maxSize"], 50);
+    for size in [0, 9, 101] {
+        geometry.max_size = size;
+        assert!(geometry.validate().is_err(), "{size}");
+    }
 }

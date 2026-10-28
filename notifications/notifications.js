@@ -13,17 +13,25 @@ const isPreview = parameters.get("preview") === "1";
 const outputClient = isPreview ? "preview" : target === "widget" ? "widget" : "obs";
 let interfaceLanguage = parameters.get("lang") || "en";
 const moveLabelElement = document.querySelector("#notification-move-label");
-const moveLabels = { en: "Move notification", fr: "Déplacer la notification", es: "Mover notificación", de: "Benachrichtigung verschieben" };
+const moveLabels = {
+  en: "Move notification", fr: "Déplacer la notification", es: "Mover notificación", de: "Benachrichtigung verschieben",
+  it: "Sposta notifica", pt: "Mover notificação", pl: "Przesuń powiadomienie", tr: "Bildirimi taşı",
+};
 const previewCopy = {
   en: { author: "Live preview", message: "Your notification will appear here." },
   fr: { author: "Aperçu en direct", message: "Votre notification apparaîtra ici." },
   es: { author: "Vista previa", message: "Tu notificación aparecerá aquí." },
   de: { author: "Live-Vorschau", message: "Deine Benachrichtigung erscheint hier." },
+  it: { author: "Anteprima dal vivo", message: "La tua notifica apparirà qui." },
+  pt: { author: "Prévia ao vivo", message: "Sua notificação aparecerá aqui." },
+  pl: { author: "Podgląd na żywo", message: "Tutaj pojawi się Twoje powiadomienie." },
+  tr: { author: "Canlı önizleme", message: "Bildirimin burada görünecek." },
 };
 const fallbackAvatar = "/overlay-assets/relay-radar.png";
 const anonymousNames = {
   en: "Anonymous", fr: "Anonyme", es: "Anónimo", de: "Anonym", ru: "Аноним",
   zh: "匿名", ko: "익명", ja: "匿名", id: "Anonim",
+  it: "Anonimo", pt: "Anônimo", pl: "Anonim", tr: "Anonim",
 };
 const queue = [];
 
@@ -185,7 +193,7 @@ function showCard() {
 
 function normalizeInterfaceLanguage(value) {
   const primary = String(value || "en").split(/[-_]/)[0].toLowerCase();
-  return ["en", "fr", "es", "de", "ru", "zh", "ko", "ja", "id"].includes(primary) ? primary : "en";
+  return ["en", "fr", "es", "de", "it", "pt", "pl", "tr", "ru", "zh", "ko", "ja", "id"].includes(primary) ? primary : "en";
 }
 
 function showPreview() {

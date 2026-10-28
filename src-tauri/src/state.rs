@@ -134,6 +134,13 @@ pub struct AppCore {
     pending_privacy_roles: RwLock<HashMap<u64, Vec<String>>>,
     media_delivery: RwLock<Option<mpsc::UnboundedSender<MediaDeliveryRequest>>>,
     next_moderation_id: AtomicU64,
+    /// Discord names of decision-log authors, looked up for display only and never saved.
+    pub author_names: std::sync::Mutex<HashMap<String, Option<String>>>,
+    /// A background pass is looking up decision-log author names.
+    pub author_lookup_running: AtomicBool,
+    /// Replaces the AI provider of the message watch in tests.
+    #[cfg(test)]
+    pub ai_watch_stub: std::sync::Mutex<crate::ai::watch::WatchStub>,
 }
 
 impl AppCore {
@@ -202,6 +209,10 @@ impl AppCore {
             pending_privacy_roles: RwLock::new(HashMap::new()),
             media_delivery: RwLock::new(None),
             next_moderation_id: AtomicU64::new(1),
+            author_names: Default::default(),
+            author_lookup_running: AtomicBool::new(false),
+            #[cfg(test)]
+            ai_watch_stub: std::sync::Mutex::default(),
         }))
     }
 
@@ -257,6 +268,10 @@ impl AppCore {
 
     pub async fn cancel_stage_output(&self, ticket: StageTicket) {
         self.stage_scheduler.cancel(ticket).await;
+    }
+
+    pub async fn cancel_stage_outputs(&self, tickets: &[StageTicket]) {
+        self.stage_scheduler.cancel_many(tickets).await;
     }
 
     pub async fn set_config(&self, config: AppConfig) -> Result<()> {
@@ -1120,8 +1135,42 @@ impl AppCore {
         }
         if let Some(reason) = hold_reason {
             self.cancel_stage_output(ticket).await;
-            self.hold_text(id, text, author, guild_tag, timestamp, segments, &reason)
-                .await;
+            self.hold_text(
+                id, text, author, guild_tag, timestamp, segments, &reason, None,
+            )
+            .await;
+            return false;
+        }
+        // Last step before publishing: the AI watch can only hold the message.
+        let sender = match &verdict {
+            Some(verdict) if verdict.trusted => crate::ai::watch::Sender::Trusted,
+            Some(_) => crate::ai::watch::Sender::Member,
+            None => crate::ai::watch::Sender::Unknown,
+        };
+        let language = self.interface_preferences.read().await.language.clone();
+        if let Some(advice) = crate::ai::watch::hold_advice(
+            &config,
+            &text,
+            sender,
+            self.outputs_paused(),
+            &language,
+            crate::ai::watch::DEADLINE,
+            |provider, request| self.watch_ask(&config.ai, provider, request),
+        )
+        .await
+        {
+            self.cancel_stage_output(ticket).await;
+            self.hold_text(
+                id,
+                text,
+                author,
+                guild_tag,
+                timestamp,
+                segments,
+                crate::ai::watch::HOLD_REASON,
+                Some(advice),
+            )
+            .await;
             return false;
         }
         self.publish_notification_card_with_ticket(
@@ -1129,6 +1178,33 @@ impl AppCore {
         )
         .await;
         true
+    }
+}
+
+impl AppCore {
+    /// The provider of the message watch; tests never reach the network or a key.
+    async fn watch_ask(
+        &self,
+        settings: &crate::ai::AiSettings,
+        provider: crate::ai::AiProvider,
+        request: crate::ai::AiRequest,
+    ) -> crate::ai::advice::AiAdvice {
+        #[cfg(test)]
+        {
+            let _ = (settings, provider);
+            let mut stub = self
+                .ai_watch_stub
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            stub.sent.push(request.user_text);
+            stub.answer
+                .clone()
+                .unwrap_or(crate::ai::advice::AiAdvice::Failed {
+                    cause: crate::ai::AiError::NoKey,
+                })
+        }
+        #[cfg(not(test))]
+        crate::ai::watch::ask(settings, provider, request).await
     }
 }
 

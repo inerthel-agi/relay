@@ -80,7 +80,12 @@ pub struct OutputGeometry {
     pub anchor: OutputAnchor,
     pub margin_x: u16,
     pub margin_y: u16,
+    /// Media outputs: the media fits in this share of the source, in percent.
+    pub max_size: u8,
 }
+
+/// Smallest share of the source a media may be limited to.
+pub const MIN_MEDIA_MAX_SIZE: u8 = 10;
 
 impl Default for OutputGeometry {
     fn default() -> Self {
@@ -93,6 +98,7 @@ impl Default for OutputGeometry {
             anchor: OutputAnchor::Legacy,
             margin_x: 12,
             margin_y: 16,
+            max_size: 100,
         }
     }
 }
@@ -122,6 +128,9 @@ impl OutputGeometry {
         }
         if !(min_scale..=400).contains(&self.content_scale) {
             bail!("Output content scale must be between {min_scale} and 400 percent.");
+        }
+        if !(MIN_MEDIA_MAX_SIZE..=100).contains(&self.max_size) {
+            bail!("The maximum media size must be between {MIN_MEDIA_MAX_SIZE} and 100 percent.");
         }
         Ok(())
     }
@@ -197,6 +206,8 @@ pub struct AppConfig {
     pub privacy_allowlist: Vec<String>,
     pub privacy_custom_patterns: Vec<String>,
     pub moderation: crate::moderation::ModerationSettings,
+    /// Optional AI assistance. API keys live in Windows Credential Manager.
+    pub ai: crate::ai::AiSettings,
     pub command_channel_enabled: bool,
     pub command_url_enabled: bool,
     pub command_show_enabled: bool,
@@ -287,6 +298,7 @@ impl Default for AppConfig {
             privacy_allowlist: Vec::new(),
             privacy_custom_patterns: Vec::new(),
             moderation: crate::moderation::ModerationSettings::default(),
+            ai: crate::ai::AiSettings::default(),
             command_channel_enabled: true,
             command_url_enabled: true,
             command_show_enabled: true,
@@ -462,6 +474,7 @@ impl AppConfig {
         validate_privacy_list(&self.privacy_allowlist, "privacy allowlist")?;
         validate_privacy_list(&self.privacy_custom_patterns, "private data list")?;
         self.moderation.validate()?;
+        self.ai.validate()?;
         if !matches!(
             self.bot_online_status.as_str(),
             "online" | "idle" | "dnd" | "invisible"
@@ -572,7 +585,7 @@ impl AppConfig {
 pub(crate) fn validate_interface_preferences(preferences: &InterfacePreferences) -> Result<()> {
     if !matches!(
         preferences.language.as_str(),
-        "en" | "fr" | "es" | "de" | "ru" | "zh" | "ko" | "ja" | "id"
+        "en" | "fr" | "es" | "de" | "it" | "pt" | "pl" | "tr" | "ru" | "zh" | "ko" | "ja" | "id"
     ) {
         bail!("The interface language is invalid.");
     }

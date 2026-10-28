@@ -16,6 +16,10 @@ const MAX_VIDEO_INPUT_BYTES: usize = 50 * 1024 * 1024;
 const MAX_VIDEO_OUTPUT_BYTES: usize = 60 * 1024 * 1024;
 const TRANSCODE_TIMEOUT: Duration = Duration::from_secs(120);
 static TRANSCODE_SLOT: Semaphore = Semaphore::const_new(1);
+/// Frames checked per GIF or video by the AI image check.
+pub const CHECKED_FRAMES: usize = 3;
+const FRAMES_TIMEOUT: Duration = Duration::from_secs(30);
+static FRAMES_SLOT: Semaphore = Semaphore::const_new(1);
 
 pub enum VideoCompatibility {
     Unchanged,
@@ -76,6 +80,108 @@ async fn transcode_video_bytes(input: Vec<u8>) -> VideoCompatibility {
         Ok(Ok(output)) => VideoCompatibility::Transcoded(output),
         _ => VideoCompatibility::HevcFallback,
     }
+}
+
+/// Downloads a GIF or video from Discord and returns up to three still frames
+/// (start, one third, two thirds) as PNG, at most 1280 pixels wide.
+pub async fn frames_from_url(url: &str, proxy_url: &str) -> Option<Vec<Vec<u8>>> {
+    let input = download_video(url, proxy_url).await?;
+    frames_from_bytes(input).await
+}
+
+/// Same frames from bytes already in memory (an animated sticker).
+pub async fn frames_from_bytes(input: Vec<u8>) -> Option<Vec<Vec<u8>>> {
+    if input.is_empty() || input.len() > MAX_VIDEO_INPUT_BYTES {
+        return None;
+    }
+    let _permit = FRAMES_SLOT.acquire().await.ok()?;
+    tauri::async_runtime::spawn_blocking(move || extract_frames(input))
+        .await
+        .ok()?
+        .ok()
+        .filter(|frames| !frames.is_empty())
+}
+
+fn ffmpeg_command() -> Command {
+    let ffmpeg = crate::reaction_trim::ffmpeg_executable().unwrap_or_else(|| "ffmpeg".into());
+    let mut command = Command::new(ffmpeg);
+    command
+        .args(["-nostdin", "-hide_banner"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null());
+    crate::hidden_process::hide_window(&mut command);
+    command
+}
+
+/// Waits for FFmpeg until `deadline`, then kills it.
+fn wait_until(child: &mut std::process::Child, deadline: Instant) -> Result<()> {
+    loop {
+        if child
+            .try_wait()
+            .context("failed to monitor local FFmpeg")?
+            .is_some()
+        {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            bail!("local FFmpeg timed out");
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// "Duration: 00:01:02.50" from FFmpeg's description of the input, in seconds.
+fn parse_duration(description: &str) -> Option<f64> {
+    let value = description.split("Duration: ").nth(1)?.split(',').next()?;
+    let mut parts = value.trim().split(':');
+    let hours = parts.next()?.parse::<f64>().ok()?;
+    let minutes = parts.next()?.parse::<f64>().ok()?;
+    let seconds = parts.next()?.parse::<f64>().ok()?;
+    Some(hours * 3600.0 + minutes * 60.0 + seconds).filter(|total| *total > 0.0)
+}
+
+fn extract_frames(input: Vec<u8>) -> Result<Vec<Vec<u8>>> {
+    let deadline = Instant::now() + FRAMES_TIMEOUT;
+    let temporary = TemporaryDirectory::create()?;
+    let input_path = temporary.path().join("input");
+    fs::write(&input_path, input).context("failed to stage local media")?;
+
+    // Without an output, FFmpeg only describes the input (and exits with an error).
+    let mut probe = ffmpeg_command();
+    probe.arg("-i").arg(&input_path).stderr(Stdio::piped());
+    let mut child = probe.spawn().context("failed to start local FFmpeg")?;
+    wait_until(&mut child, deadline)?;
+    let description = child.wait_with_output().map(|output| output.stderr)?;
+    let step = parse_duration(&String::from_utf8_lossy(&description))
+        .map_or(1.0, |duration| duration / CHECKED_FRAMES as f64);
+
+    let mut command = ffmpeg_command();
+    command
+        .args(["-loglevel", "error", "-y", "-i"])
+        .arg(&input_path)
+        .args(["-map", "0:v:0", "-an", "-sn", "-dn", "-vf"])
+        .arg(format!(
+            r"select='isnan(prev_selected_t)+gte(t-prev_selected_t\,{step:.3})',scale=w='min(1280\,iw)':h=-1"
+        ))
+        .args(["-fps_mode", "vfr", "-frames:v"])
+        .arg(CHECKED_FRAMES.to_string())
+        .arg(temporary.path().join("frame%d.png"))
+        .stderr(Stdio::null());
+    let mut child = command.spawn().context("failed to start local FFmpeg")?;
+    wait_until(&mut child, deadline)?;
+    if !child.wait()?.success() {
+        bail!("local FFmpeg could not read the media");
+    }
+    let mut frames = Vec::new();
+    for index in 1..=CHECKED_FRAMES {
+        match fs::read(temporary.path().join(format!("frame{index}.png"))) {
+            Ok(frame) => frames.push(frame),
+            Err(_) => break,
+        }
+    }
+    Ok(frames)
 }
 
 async fn download_probe(url: &str, proxy_url: &str) -> Option<Vec<u8>> {

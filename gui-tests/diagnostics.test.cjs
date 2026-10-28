@@ -80,3 +80,20 @@ test("the report describes the setup without secrets or identifiers", () => {
     assert.equal(report.includes(secret), false, secret);
   }
 });
+
+test("the report says which AI provider is chosen and which keys exist, never more", () => {
+  const report = buildDiagnosticReport({
+    version: "1.4.2",
+    now: new Date("2026-10-08T00:00:00Z"),
+    bootstrap: {
+      config: { port: 4590, ai: { provider: "anthropic", apiKey: "sk-ant-should-never-be-here" } },
+      credentials: { configured: true, openaiConfigured: false, anthropicConfigured: true },
+      bot: {}, server: {},
+    },
+  });
+  assert.match(report, /AI provider: anthropic/);
+  assert.match(report, /AI keys saved: OpenAI no, Anthropic yes/);
+  assert.equal(report.includes("sk-ant"), false);
+  const unknown = buildDiagnosticReport({ bootstrap: { config: { ai: { provider: "<script>" } } } });
+  assert.match(unknown, /AI provider: none/);
+});

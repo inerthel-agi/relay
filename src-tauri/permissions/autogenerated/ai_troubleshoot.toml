@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-ai-troubleshoot"
+description = "Enables the ai_troubleshoot command without any pre-configured scope."
+commands.allow = ["ai_troubleshoot"]
+
+[[permission]]
+identifier = "deny-ai-troubleshoot"
+description = "Denies the ai_troubleshoot command without any pre-configured scope."
+commands.deny = ["ai_troubleshoot"]

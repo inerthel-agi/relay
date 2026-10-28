@@ -399,3 +399,85 @@ async fn paused_scheduler_drops_ready_content_until_resumed() {
     scheduler.ready(shown, media(30_001, "301")).await;
     assert!(matches!(rx.try_recv(), Ok(RelayEvent::Media(_))));
 }
+
+#[tokio::test]
+async fn a_slow_message_keeps_every_part_when_a_gif_embed_arrives_late() {
+    let (tx, mut rx) = broadcast::channel(16);
+    let scheduler =
+        StageScheduler::with_timeouts(tx, Duration::from_millis(30), Duration::from_secs(5));
+    let n = scheduler
+        .reserve(1000, "7", 0, StageLane::Notification)
+        .await;
+    let a = scheduler.reserve(1000, "7", 200, StageLane::Media).await;
+    tokio::time::sleep(Duration::from_millis(80)).await;
+    scheduler.ready(a, media(1000, "7")).await;
+    let g = scheduler.reserve(1000, "7", 200, StageLane::Media).await;
+    scheduler.ready(g, media(1000, "7")).await;
+    scheduler
+        .ready(
+            n,
+            RelayEvent::Notification(NotificationEvent {
+                id: "7".into(),
+                text: "Hello world".into(),
+                author: AuthorIdentity {
+                    username: "u".into(),
+                    display_avatar_url: String::new(),
+                },
+                guild_tag: None,
+                timestamp: 1000,
+                segments: vec![],
+            }),
+        )
+        .await;
+    let mut seen = Vec::new();
+    for _ in 0..4 {
+        match rx.try_recv() {
+            Ok(RelayEvent::Media(_)) => {
+                seen.push("media");
+                scheduler.stage_state(true, false, false).await;
+                scheduler.stage_state(false, false, false).await;
+            }
+            Ok(RelayEvent::Notification(_)) => {
+                seen.push("notification");
+                scheduler.stage_state(false, false, true).await;
+                scheduler.stage_state(false, false, false).await;
+            }
+            _ => break,
+        }
+    }
+    // The late embed plays first; the demoted notification and audio still follow.
+    assert_eq!(seen, vec!["media", "notification", "media"]);
+}
+
+#[tokio::test]
+async fn cancelling_a_message_never_lets_a_ready_part_reach_the_stage() {
+    let (tx, mut rx) = broadcast::channel(16);
+    let scheduler = StageScheduler::new(tx);
+    let notification = scheduler
+        .reserve(1000, "7", 0, StageLane::Notification)
+        .await;
+    let first = scheduler.reserve(1000, "7", 200, StageLane::Media).await;
+    let second = scheduler.reserve(1000, "7", 201, StageLane::Media).await;
+    scheduler.ready(first, media(1000, "7")).await;
+    // The first part is ready but waits behind the notification: cancelling
+    // the whole message in one step must not release it.
+    scheduler.cancel_many(&[notification, first, second]).await;
+    assert!(rx.try_recv().is_err());
+    assert!(scheduler.queue_snapshot().await.is_empty());
+}
+
+#[tokio::test]
+async fn a_late_part_does_not_strand_the_part_already_on_stage() {
+    let (tx, mut rx) = broadcast::channel(16);
+    let scheduler =
+        StageScheduler::with_timeouts(tx, Duration::from_millis(30), Duration::from_secs(5));
+    let first = scheduler.reserve(1000, "9", 200, StageLane::Media).await;
+    let second = scheduler.reserve(1000, "9", 201, StageLane::Media).await;
+    scheduler.ready(first, media(1000, "9")).await;
+    assert!(matches!(rx.try_recv(), Ok(RelayEvent::Media(_))));
+    tokio::time::sleep(Duration::from_millis(80)).await;
+    scheduler.ready(second, media(1000, "9")).await;
+    scheduler.stage_state(true, false, false).await;
+    scheduler.stage_state(false, false, false).await;
+    assert!(matches!(rx.try_recv(), Ok(RelayEvent::Media(_))));
+}

@@ -101,7 +101,8 @@ test("voice controls are removed and one Relay channel feeds messages and media"
   assert.doesNotMatch(panelHtml, /id="tts-channel"|id="tts-cleanup-enabled"|id="tts-welcome-message"/);
   assert.equal(panelHtml.match(/name="watchedChannelId"/g).length, 1);
   assert.match(panelHtml, /id="relay-channel-choice"[^>]*hidden/);
-  assert.match(panelHtml, /data-channel-name="channel"[\s\S]*?data-go-to-target="channel"/);
+  // The Relay channel is chosen once, on the Discord page; Messages and Media no longer repeat it.
+  assert.doesNotMatch(panelHtml, /data-channel-name="channel"/);
   assert.match(panelSource, /invoke\("choose_relay_channel", \{ channelId \}\)/);
   assert.doesNotMatch(panelSource, /messageNotificationsEnabled|ttsChannelElement/);
 });

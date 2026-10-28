@@ -1,6 +1,6 @@
 // Settings search in the top bar, plus the reveal helper shared by internal links.
 
-export function initializeSettingsSearch({ $, $$, t, pageMetadata, showPage, getLocale }) {
+export function initializeSettingsSearch({ $, $$, t, pageMetadata, showPage, getLocale, beforeReveal }) {
   const settingsSearchControl = $("#settings-search-control");
   const settingsSearchElement = $("#settings-search");
   const settingsSearchClearButton = $("#settings-search-clear");
@@ -49,6 +49,8 @@ export function initializeSettingsSearch({ $, $$, t, pageMetadata, showPage, get
   // Opens every enclosing disclosure, then scrolls to and briefly highlights the target.
   function revealElement(target) {
     if (!target) return;
+    // Lets Simple mode switch to Advanced when the target is hidden there.
+    beforeReveal?.(target);
     if (target.tagName === "DETAILS") target.open = true;
     for (let parent = target.parentElement?.closest("details"); parent; parent = parent.parentElement?.closest("details")) {
       parent.open = true;

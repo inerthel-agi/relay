@@ -10,26 +10,34 @@ import { initializeAutosave, initializeStartWithWindows } from "./autosave.mjs";
 import { initializePanic } from "./panic.mjs";
 import { initializeDiscordCheck } from "./discord-check.mjs";
 import { initializeObsSetup } from "./obs-setup.mjs";
-import { initializeModerationUi } from "./moderation-ui.mjs";
+import { describeTroubleshootAnswer, initializeModerationUi } from "./moderation-ui.mjs";
 import { initializeStreamStyle, normalizeStreamBackground, normalizeStreamStyle } from "./stream-style.mjs";
+import { initializeNavigationLayout } from "./navigation-layout.mjs";
+import { initializeHelpUi } from "./help-ui.mjs";
+import { initializeAccentPicker } from "./accent-picker.mjs";
 const { invoke } = window.__TAURI__.core;
 let moduleControls;
+// Created after the settings search; showPage may run before that.
+let navigationLayout;
+// Created once the page is wired; applyPersonalization runs earlier at startup.
+let accentPickerUi;
 
 import { translations, regionalTranslations } from "./translations.mjs";
 
 const pageMetadata = {
   overview: { title: "navOverview", kicker: "navGroupStart" },
   discord: { title: "navDiscord", kicker: "navGroupStart" },
-  help: { title: "navHelp", kicker: "navGroupStart" },
+  commands: { title: "navDiscordCommands", kicker: "navGroupStart" },
+  live: { title: "navLive", kicker: "navGroupLive" },
   messages: { title: "moduleMessages", kicker: "navGroupContent" },
   media: { title: "navMedia", kicker: "navGroupContent" },
+  history: { title: "navHistory", kicker: "navGroupContent" },
   music: { title: "navMusic", kicker: "navGroupContent" },
   reactions: { title: "moduleReactions", kicker: "navGroupContent" },
-  overlay: { title: "navOverlay", kicker: "navGroupBroadcast" },
-  history: { title: "navHistory", kicker: "navGroupBroadcast" },
+  overlay: { title: "navOutputs", kicker: "navGroupBroadcast" },
   moderation: { title: "navModeration", kicker: "navGroupSafety" },
-  commands: { title: "navCommands", kicker: "navGroupSafety" },
-  personalization: { title: "navPersonalization", kicker: "navGroupApp" },
+  personalization: { title: "navSettings", kicker: "navGroupApp" },
+  help: { title: "navHelp", kicker: "navGroupApp" },
   changelog: { title: "navChangelog", kicker: "navGroupApp" },
   about: { title: "navAbout", kicker: "navGroupApp" },
 };
@@ -104,6 +112,11 @@ const notificationCharacterLimitElement = $("#notification-character-limit");
 const notificationQueueLimitElement = $("#notification-queue-limit");
 const notificationDurationElement = $("#notification-duration");
 const notificationsObsElement = $("#notifications-obs");
+// Shown on the Outputs page but saved with the Messages form (form="messages-form"):
+// form listeners only see events from their own subtree, so forward them.
+for (const type of ["input", "change"]) {
+  notificationsObsElement.addEventListener(type, () => messagesForm.dispatchEvent(new Event(type)));
+}
 const showAuthorElement = $("#show-author");
 const showMediaTextObsElement = $("#show-media-text-obs");
 const showMediaTextWidgetElement = $("#show-media-text-widget");
@@ -234,13 +247,14 @@ let currentPage = "overview";
 const navigationHistory = ["overview"];
 let navigationHistoryIndex = 0;
 const languageOptions = [
-  { locale: "en-US", language: "en", label: "English (US)", short: "EN-US", flag: "us" },
-  { locale: "en-GB", language: "en", label: "English (UK)", short: "EN-UK", flag: "gb" },
-  { locale: "en-IN", language: "en", label: "English (India)", short: "EN-IN", flag: "in" },
+  { locale: "en-US", language: "en", label: "English", short: "EN", flag: "us" },
   { locale: "fr-FR", language: "fr", label: "Français", short: "FR", flag: "fr" },
   { locale: "de-DE", language: "de", label: "Deutsch", short: "DE", flag: "de" },
   { locale: "es-ES", language: "es", label: "Español", short: "ES", flag: "es" },
-  { locale: "es-419", language: "es", label: "Español (Latinoamérica)", short: "ES-LATAM", flag: "mx" },
+  { locale: "it-IT", language: "it", label: "Italiano", short: "IT", flag: "it" },
+  { locale: "pt-BR", language: "pt", label: "Português (Brasil)", short: "PT", flag: "br" },
+  { locale: "pl-PL", language: "pl", label: "Polski", short: "PL", flag: "pl" },
+  { locale: "tr-TR", language: "tr", label: "Türkçe", short: "TR", flag: "tr" },
   { locale: "ru-RU", language: "ru", label: "Русский", short: "RU", flag: "ru" },
   { locale: "zh-CN", language: "zh", label: "简体中文", short: "ZH", flag: "cn" },
   { locale: "ko-KR", language: "ko", label: "한국어", short: "KO", flag: "kr" },
@@ -251,8 +265,9 @@ const languageOptionByLocale = new Map(languageOptions.map((option) => [option.l
 const defaultLocaleByLanguage = {
   en: "en-US", fr: "fr-FR", es: "es-ES", de: "de-DE", ru: "ru-RU",
   zh: "zh-CN", ko: "ko-KR", ja: "ja-JP", id: "id-ID",
+  it: "it-IT", pt: "pt-BR", pl: "pl-PL", tr: "tr-TR",
 };
-const supportedDesigns = ["graphite", "paper", "neo-brutalism", "gridline", "lumen", "signal"];
+const supportedDesigns = ["graphite", "paper", "neo-brutalism", "gridline", "lumen", "signal", "midnight", "ember", "dawn", "cloud"];
 // Earlier releases stored brand-named design identifiers.
 const legacyDesignNames = { openai: "graphite", anthropic: "paper" };
 const supportedSidebarLayouts = ["fixed", "compact", "dynamic"];
@@ -262,7 +277,7 @@ const supportedInterfaceFonts = [
 ];
 const storedLanguage = localStorage.getItem("relay-language") || "en";
 let locale = localStorage.getItem("relay-locale") || defaultLocaleByLanguage[storedLanguage] || "en-US";
-if (!languageOptionByLocale.has(locale)) locale = "en-US";
+if (!languageOptionByLocale.has(locale)) locale = defaultLocaleByLanguage[locale.split("-")[0]] || "en-US";
 let language = languageOptionByLocale.get(locale).language;
 let design = localStorage.getItem("relay-design") || "graphite";
 design = legacyDesignNames[design] || design;
@@ -284,7 +299,7 @@ const audioPlaybackTargets = new Map();
 let currentAudioPlayback;
 let nowPlayingArtworkRequest = 0;
 const artworkCache = new Map();
-let currentAppVersion = "1.4.1";
+let currentAppVersion = "1.5.0";
 let bundledChangelogMarkdown = "";
 let latestUpdate;
 let updateUiState = { kind: "idle" };
@@ -484,6 +499,8 @@ function applyLanguage() {
   navigationForwardButton.title = t("navigationForward");
   navigationForwardButton.setAttribute("aria-label", t("navigationForward"));
   settingsSearch.applyLanguage();
+  navigationLayout?.applyLanguage();
+  accentPickerUi?.render();
   renderUpdateStatus();
   updatePageHeading();
   renderNowPlaying();
@@ -682,8 +699,8 @@ function clamp(value, minimum, maximum) {
 }
 
 const outputGeometryTargets = {
-  mediaObs: { configKey: "mediaObsGeometry", titleKey: "mediaObsOutput", previewKey: "overlayUrl" },
-  mediaWidget: { configKey: "mediaWidgetGeometry", titleKey: "mediaWidgetOutput", previewKey: "overlayUrl", widget: "media" },
+  mediaObs: { configKey: "mediaObsGeometry", titleKey: "mediaObsOutput", previewKey: "overlayUrl", maxSize: true },
+  mediaWidget: { configKey: "mediaWidgetGeometry", titleKey: "mediaWidgetOutput", previewKey: "overlayUrl", widget: "media", maxSize: true },
   notificationObs: { configKey: "notificationObsGeometry", titleKey: "notificationObsOutput", previewKey: "notificationUrl" },
   notificationWidget: { configKey: "notificationWidgetGeometry", titleKey: "notificationWidgetOutput", previewKey: "notificationUrl", widget: "notification" },
   // The YouTube video can shrink to a small corner player (Rust YOUTUBE_VIDEO_MIN_SCALE).
@@ -693,8 +710,9 @@ const outputGeometryTargets = {
 };
 const outputGeometryTimers = new Map();
 
-// Output size (Rust `OutputGeometry::validate` uses the same bound).
+// Output size (Rust `OutputGeometry::validate` uses the same bounds).
 const MAX_CONTENT_SCALE = 400;
+const MIN_MEDIA_MAX_SIZE = 10;
 
 /** Margins only move an anchored output; "Current layout" keeps its fixed place. */
 function syncGeometryMargins(card) {
@@ -745,6 +763,7 @@ function initializeOutputGeometryControls() {
 ${geometryControl("marginX", "marginX", 0, 200)}
 ${geometryControl("marginY", "marginY", 0, 200)}
 ${geometryControl("contentScale", "contentScale", metadata.minScale ?? 50, MAX_CONTENT_SCALE)}
+          ${metadata.maxSize ? geometryControl("maxSize", "mediaMaxSize", MIN_MEDIA_MAX_SIZE, 100) : ""}
           ${metadata.noCrop ? "" : `${geometryControl("cropTop", "cropTop", 0, 40)}
           ${geometryControl("cropRight", "cropRight", 0, 40)}
           ${geometryControl("cropBottom", "cropBottom", 0, 40)}
@@ -769,9 +788,12 @@ ${geometryControl("contentScale", "contentScale", metadata.minScale ?? 50, MAX_C
         peer.value = input.value;
         queueOutputGeometrySave(target);
       });
+      // Leaving a typed field saves again, so it shows the value Relay kept.
+      if (input.type === "number") input.addEventListener("change", () => queueOutputGeometrySave(target));
     }
     for (const input of $$('[data-size-field], [data-keep-aspect-ratio]', card)) {
       input.addEventListener("input", () => queueOutputGeometrySave(target));
+      if (input.type === "number") input.addEventListener("change", () => queueOutputGeometrySave(target));
     }
     card.querySelector("[data-reset-geometry]").addEventListener("click", () => {
       setOutputGeometryDefaults(target);
@@ -787,6 +809,7 @@ function applyOutputGeometryTarget(config, target, force = false) {
   card.querySelector("[data-output-anchor]").value = geometry.anchor || "legacy";
   const values = {
     contentScale: geometry.contentScale ?? 100,
+    maxSize: geometry.maxSize ?? 100,
     marginX: geometry.marginX ?? 12,
     marginY: geometry.marginY ?? 16,
     cropTop: geometry.cropTop ?? 0,
@@ -794,17 +817,24 @@ function applyOutputGeometryTarget(config, target, force = false) {
     cropBottom: geometry.cropBottom ?? 0,
     cropLeft: geometry.cropLeft ?? 0,
   };
+  // The field being typed in keeps its text ("5" on the way to "50"); it gets
+  // the saved value once it loses focus (see the change listener).
+  const typing = (input) => input === document.activeElement && input.type === "number";
   for (const input of $$('[data-geometry-field]', card)) {
-    input.value = String(values[input.dataset.geometryField]);
+    if (!typing(input)) input.value = String(values[input.dataset.geometryField]);
   }
   syncGeometryMargins(card);
   if (target === "mediaWidget") {
-    card.querySelector('[data-size-field="width"]').value = String(Math.round(config.widgetWidth ?? 640));
-    card.querySelector('[data-size-field="height"]').value = String(Math.round(config.widgetHeight ?? 360));
+    const width = card.querySelector('[data-size-field="width"]');
+    const height = card.querySelector('[data-size-field="height"]');
+    if (!typing(width)) width.value = String(Math.round(config.widgetWidth ?? 640));
+    if (!typing(height)) height.value = String(Math.round(config.widgetHeight ?? 360));
     card.querySelector("[data-keep-aspect-ratio]").checked = config.widgetKeepAspectRatio !== false;
   } else if (target === "notificationWidget") {
-    card.querySelector('[data-size-field="width"]').value = String(Math.round(config.notificationWidgetWidth ?? 400));
-    card.querySelector('[data-size-field="height"]').value = String(Math.round(config.notificationWidgetHeight ?? 104));
+    const width = card.querySelector('[data-size-field="width"]');
+    const height = card.querySelector('[data-size-field="height"]');
+    if (!typing(width)) width.value = String(Math.round(config.notificationWidgetWidth ?? 400));
+    if (!typing(height)) height.value = String(Math.round(config.notificationWidgetHeight ?? 104));
   }
 }
 
@@ -817,11 +847,12 @@ function applyOutputGeometryConfig(config, force = false) {
 function outputGeometryPayload(target) {
   const card = outputGeometryGridElement.querySelector(`[data-geometry-target="${target}"]`);
   // Fields hidden for this output (crop of the text-only card) save as 0.
-  const value = (field, minimum, maximum) => clamp(
+  // Rust reads whole numbers: "55.5" would make the whole save fail.
+  const value = (field, minimum, maximum) => Math.round(clamp(
     card.querySelector(`[data-geometry-field="${field}"][data-geometry-kind="number"]`)?.value ?? minimum,
     minimum,
     maximum,
-  );
+  ));
   const payload = {
     target,
     geometry: {
@@ -833,11 +864,13 @@ function outputGeometryPayload(target) {
       cropRight: value("cropRight", 0, 40),
       cropBottom: value("cropBottom", 0, 40),
       cropLeft: value("cropLeft", 0, 40),
+      // Only media outputs show it; the others keep the whole source.
+      maxSize: outputGeometryTargets[target].maxSize ? value("maxSize", MIN_MEDIA_MAX_SIZE, 100) : 100,
     },
   };
   if (outputGeometryTargets[target].widget) {
-    payload.width = clamp(card.querySelector('[data-size-field="width"]').value, 160, 16384);
-    payload.height = clamp(card.querySelector('[data-size-field="height"]').value, 90, 16384);
+    payload.width = Math.round(clamp(card.querySelector('[data-size-field="width"]').value, 160, 16384));
+    payload.height = Math.round(clamp(card.querySelector('[data-size-field="height"]').value, 90, 16384));
   }
   if (target === "mediaWidget") {
     payload.keepAspectRatio = card.querySelector("[data-keep-aspect-ratio]").checked;
@@ -875,7 +908,7 @@ function setOutputGeometryDefaults(target) {
   const card = outputGeometryGridElement.querySelector(`[data-geometry-target="${target}"]`);
   card.querySelector("[data-output-anchor]").value = "legacy";
   for (const input of $$('[data-geometry-field]', card)) {
-    input.value = ({ contentScale: "100", marginX: "12", marginY: "16" })[input.dataset.geometryField] || "0";
+    input.value = ({ contentScale: "100", maxSize: "100", marginX: "12", marginY: "16" })[input.dataset.geometryField] || "0";
   }
   syncGeometryMargins(card);
   if (target === "mediaWidget") {
@@ -967,6 +1000,7 @@ function applyPersonalization(sync = true) {
   interfaceThemeElement.value = theme;
   accentInputs.forEach((input, index) => { input.value = String(accentRgb[index]); });
   accentPickerElement.value = rgbToHex(accentRgb);
+  accentPickerUi?.render();
   fontScaleElement.value = String(fontScale);
   fontScaleValueElement.textContent = `${fontScale}%`;
   applyInterfaceFont();
@@ -987,6 +1021,8 @@ function updateNavigationControls() {
 
 function showPage(page, { recordHistory = true, moveFocus = false } = {}) {
   if (!pageMetadata[page]) return;
+  // Opening an advanced page from a link or the tray shows every setting.
+  if (navigationLayout?.getMode() === "simple" && navigationLayout.advancedPages.includes(page)) navigationLayout.setMode("advanced");
   if (recordHistory && page !== currentPage) {
     navigationHistory.splice(navigationHistoryIndex + 1);
     navigationHistory.push(page);
@@ -1335,10 +1371,19 @@ function formatShortcutLabel(shortcut) {
     .join(" ");
 }
 
+// The tray shows the same shortcuts; it reads them like the language, from local storage.
+function rememberShortcutLabel(name, label) {
+  try {
+    const labels = JSON.parse(localStorage.getItem("relay-shortcut-labels") || "{}");
+    localStorage.setItem("relay-shortcut-labels", JSON.stringify({ ...labels, [name]: label }));
+  } catch { /* Storage is optional. */ }
+}
+
 function updateSkipShortcutDisplay(shortcut) {
   const label = formatShortcutLabel(shortcut);
   skipShortcutKeyElement.textContent = label;
   skipShortcutValueElement.textContent = label;
+  rememberShortcutLabel("skip", label);
 }
 
 function shortcutTokenFromEvent(event) {
@@ -1367,6 +1412,7 @@ let shortcutCaptureTarget = "skip";
 
 function updatePanicShortcutDisplay(shortcut) {
   panicShortcutValueElement.textContent = formatShortcutLabel(shortcut || "control+alt+KeyP");
+  rememberShortcutLabel("panic", panicShortcutValueElement.textContent);
   panicUi?.applyLanguage();
 }
 
@@ -1909,6 +1955,7 @@ function readConfigDraft(form, filterOnly = false) {
       privacyAllowlist: privacyListFromInput(privacyAllowlistElement.value),
       privacyCustomPatterns: privacyListFromInput(privacyCustomPatternsElement.value),
       moderation: moderationUi.readDraft(bootstrap.config.moderation),
+      ai: moderationUi.readAiDraft(bootstrap.config.ai),
     };
   }
   if (form === mediaForm) {
@@ -2474,7 +2521,13 @@ const obsSetup = initializeObsSetup({
 
 const settingsSearch = initializeSettingsSearch({
   $, $$, t, pageMetadata, showPage, getLocale: () => locale,
+  beforeReveal: (target) => {
+    if (target.closest("[data-advanced]") && navigationLayout?.getMode() === "simple") navigationLayout.setMode("advanced");
+  },
 });
+const helpUi = initializeHelpUi({ formatTranslation, loadAsks: () => invoke("ai_help_asks") });
+accentPickerUi = initializeAccentPicker({ t });
+navigationLayout = initializeNavigationLayout({ t, showPage, getCurrentPage: () => currentPage });
 
 const overviewUi = initializeOverview({
   $, $$, t, invoke, formatTranslation, setSaveState, setWidgetState,
@@ -2585,6 +2638,43 @@ $("#copy-diagnostic").addEventListener("click", async (event) => {
     setSaveState(state, "error", t("copyFailed"));
   } finally {
     button.disabled = false;
+  }
+});
+
+// The AI only sees the report Relay builds (states, counters, rule codes), shown back below the answer.
+$("#ai-help-ask").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  const list = $("#ai-help-answer");
+  const report = $("#ai-help-report");
+  const question = $("#ai-help-question").value;
+  const show = (lines) => {
+    list.replaceChildren(...lines.map((line) => {
+      const item = document.createElement("li");
+      item.textContent = line;
+      return item;
+    }));
+    list.hidden = !lines.length;
+  };
+  report.hidden = true;
+  if (!question.trim()) {
+    show([t("aiHelpEmpty")]);
+    return;
+  }
+  // One question every few minutes and a daily cap keep the AI bill predictable.
+  if (!helpUi.canAsk()) return;
+  button.disabled = true;
+  show([`${t("aiHelpLabel")} · ${t("aiAdvicePending")}`]);
+  try {
+    const answer = await invoke("ai_troubleshoot", { question });
+    show(describeTroubleshootAnswer(answer, t));
+    if (answer?.state === "done") {
+      $("#ai-help-report-text").textContent = (answer.report || []).join("\n");
+      report.hidden = false;
+    }
+  } catch (error) {
+    show([String(error)]);
+  } finally {
+    await helpUi.refresh();
   }
 });
 

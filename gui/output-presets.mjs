@@ -12,6 +12,7 @@ export function normalizePreset(value) {
       cropBottom: range("cropBottom", 0, 0, 40), cropLeft: range("cropLeft", 0, 0, 40),
       anchor: anchors.has(source.anchor) ? source.anchor : "legacy",
       marginX: range("marginX", 12, 0, 200), marginY: range("marginY", 16, 0, 200),
+      maxSize: range("maxSize", 100, 10, 100),
     },
     width: Math.round(Math.min(16384, Math.max(160, Number(value.width) || 640))),
     height: Math.round(Math.min(16384, Math.max(90, Number(value.height) || 360))),

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-ai-help-asks"
+description = "Enables the ai_help_asks command without any pre-configured scope."
+commands.allow = ["ai_help_asks"]
+
+[[permission]]
+identifier = "deny-ai-help-asks"
+description = "Denies the ai_help_asks command without any pre-configured scope."
+commands.deny = ["ai_help_asks"]

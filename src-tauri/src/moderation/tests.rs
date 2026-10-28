@@ -525,3 +525,81 @@ fn a_message_feeding_several_lanes_keeps_every_applicable_word_filter() {
         &[Lane::Notifications]
     )));
 }
+
+#[test]
+fn cooldown_notices_are_rate_limited_per_member_and_in_all() {
+    let mut runtime = ModerationRuntime::default();
+    let start = 1_000_000;
+    assert!(runtime.cooldown_notice_due(1, start));
+    // Same member within a minute: no second notice.
+    assert!(!runtime.cooldown_notice_due(1, start + 59_999));
+    assert!(runtime.cooldown_notice_due(1, start + 60_000));
+    // At most five notices a minute in all, whatever the number of members.
+    for user in 2..=5 {
+        assert!(runtime.cooldown_notice_due(user, start + 60_000), "{user}");
+    }
+    assert!(!runtime.cooldown_notice_due(6, start + 60_001));
+    assert!(runtime.cooldown_notice_due(6, start + 120_000));
+}
+
+#[test]
+fn the_cooldown_notice_says_the_delay_in_the_interface_language() {
+    assert_eq!(
+        messages::cooldown_notice("fr", 10),
+        "Doucement : un message toutes les 10 s au maximum. Les messages envoyés plus vite ne sont pas affichés sur le stream."
+    );
+    // Languages without a translation of the bot messages use English.
+    assert!(messages::cooldown_notice("pl", 3).starts_with("Slow down: one message every 3 s"));
+    assert!(!messages::cooldown_notice("ja", 5).contains("{seconds}"));
+    assert!(ModerationSettings::default().cooldown_notice);
+}
+
+#[test]
+fn the_repeated_media_window_follows_the_setting() {
+    let mut settings = ModerationSettings {
+        block_duplicates: true,
+        ..ModerationSettings::default()
+    };
+    // One minute by default.
+    assert_eq!(settings.duplicate_window_seconds, 60);
+    let now = 1_800_000_000_000;
+    let media = |at: u64| {
+        let mut media = input(Lane::Media, "", at);
+        media.media_keys = vec!["a:cat.gif:10".into()];
+        media
+    };
+    let mut runtime = ModerationRuntime::default();
+    assert_eq!(
+        runtime.evaluate(&media(now), &settings),
+        GateDecision::Pass { trusted: false }
+    );
+    assert_eq!(
+        runtime.evaluate(&media(now + 59_000), &settings),
+        GateDecision::Drop("duplicate")
+    );
+    assert_eq!(
+        runtime.evaluate(&media(now + 61_000), &settings),
+        GateDecision::Pass { trusted: false }
+    );
+    // A longer window keeps the same media out longer.
+    settings.duplicate_window_seconds = 600;
+    assert_eq!(
+        runtime.evaluate(&media(now + 300_000), &settings),
+        GateDecision::Drop("duplicate")
+    );
+    // Out of range values are refused when saved.
+    for seconds in [0, 4, 3_601] {
+        settings.duplicate_window_seconds = seconds;
+        assert!(settings.validate().is_err(), "{seconds}");
+    }
+}
+
+#[test]
+fn settings_saved_before_the_window_existed_get_one_minute() {
+    // The user asked for one minute instead of the former fixed ten minutes.
+    let old: ModerationSettings =
+        serde_json::from_str(r#"{"blockDuplicates":true,"userCooldownSeconds":10}"#).unwrap();
+    assert!(old.block_duplicates);
+    assert_eq!(old.duplicate_window_seconds, 60);
+    assert!(old.validate().is_ok());
+}

@@ -77,3 +77,35 @@ fn failed_wake_rolls_back_only_before_the_window_can_be_visible() {
     rollback_ephemeral_ownership(&marker, true, true);
     assert!(marker.load(Ordering::Relaxed));
 }
+
+#[test]
+fn the_other_widget_follows_a_drag_by_the_same_amount() {
+    let at = PhysicalPosition::new;
+    assert_eq!(
+        follow_target(Some(at(100, 50)), at(130, 40), at(900, 600)),
+        Some(at(930, 590))
+    );
+    // First position seen, or a move placed from code (already remembered): nothing follows.
+    assert_eq!(follow_target(None, at(130, 40), at(900, 600)), None);
+    assert_eq!(
+        follow_target(Some(at(130, 40)), at(130, 40), at(900, 600)),
+        None
+    );
+}
+
+#[test]
+fn only_a_drag_of_a_focused_unlocked_widget_of_the_same_size_is_followed() {
+    let size = PhysicalSize::new(640, 360);
+    assert!(is_drag(true, true, Some(size), size));
+    // Locked, not focused (a screen change) or a first move: not followed.
+    assert!(!is_drag(false, true, Some(size), size));
+    assert!(!is_drag(true, false, Some(size), size));
+    assert!(!is_drag(true, true, None, size));
+    // Resized from the left or top edge: the window moved but was not dragged.
+    assert!(!is_drag(
+        true,
+        true,
+        Some(PhysicalSize::new(700, 360)),
+        size
+    ));
+}

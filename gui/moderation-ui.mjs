@@ -6,6 +6,11 @@ const OWN_PRESETS_KEY = "relay-moderation-presets";
 const OWN_PRESET_LIMIT = 12;
 const UNDO_WINDOW_MS = 30_000;
 const REFRESH_MS = 3_000;
+/// Model behind each AI tier, per provider (shown in the panel).
+export const AI_MODELS = {
+  openai: { fast: "gpt-6-luna", precise: "gpt-6.1-sol" },
+  anthropic: { fast: "claude-haiku-5-5", precise: "claude-sonnet-5-5" },
+};
 /// Config fields a preset (built-in or personal) controls, besides `moderation`.
 const PRESET_CONFIG_KEYS = [
   "moderationEnabled", "moderationAllowImages", "moderationAllowVideos", "moderationAllowAudio",
@@ -27,7 +32,51 @@ const REASON_KEYS = {
   expired: "reasonExpired", queue_full: "reasonQueueFull", honeypot: "reasonHoneypot",
   escalation: "reasonEscalation", block_warning: "reasonWarning", reject_all: "reasonRejectAll",
   live_preset_on: "reasonLiveOn", live_preset_off: "reasonLiveOff", privacy: "reasonPrivacy",
+  ai_image: "reasonAiImage", ai_personal_data: "reasonAiPersonalData", ai_image_blocked: "reasonAiImageBlocked",
+  ai_image_unchecked: "reasonAiImageUnchecked",
+  ai_image_not_sent: "reasonAiImageNotSent",
+  // Privacy scan reasons reuse the labels of their category.
+  email: "privacyCategoryEmail", phone: "privacyCategoryPhone", person_phone_combination: "privacyCategoryPhone",
+  ip_address: "privacyCategoryIp", gps: "privacyCategoryGps", coordinates: "privacyCategoryGps",
+  location_profile: "privacyCategoryGps", postal_address: "privacyCategoryAddress",
+  partial_address: "privacyCategoryAddress", address_or_visual_context: "privacyCategoryAddress",
+  person_address_combination: "privacyCategoryAddress", iban: "privacyCategoryFinancial",
+  payment_card: "privacyCategoryFinancial", license_plate: "privacyCategoryPlate", sensitive_url: "privacyCategoryUrl",
+  custom_pattern: "privacyCategoryCustom", exif_metadata: "privacyCategoryMetadata", ocr_text: "privacyCategoryOcr",
+  document: "privacyCategoryDocument", scan_incomplete: "reasonScanIncomplete",
+  image_scan_unavailable: "reasonScanUnavailable", image_fetch_unavailable: "reasonScanUnavailable",
+  scan_config_changed: "reasonRulesChanged", image_limits: "reasonMediaLimits", mime_mismatch: "reasonMediaLimits",
+  ai_flagged: "reasonAiFlagged",
 };
+/// Why Relay took a decision: [sentence key, label key of the setting that changes it].
+const REASON_EXPLANATIONS = {
+  cooldown: ["whyCooldown", "userCooldown"], duplicate: ["whyDuplicate", "blockDuplicates"],
+  mention_spam: ["whyTextSpam", "blockTextSpam"], caps_spam: ["whyTextSpam", "blockTextSpam"],
+  emoji_spam: ["whyTextSpam", "blockTextSpam"], repeated_characters: ["whyTextSpam", "blockTextSpam"],
+  blocked_user: ["whyBlockedUser", "blockedUsers"], new_account: ["whyNewAccount", "minAccountAge"],
+  new_member: ["whyNewMember", "minMemberAge"], raid: ["whyRaid", "raidLimit"],
+  safety_delay: ["whySafetyDelay", "safetyDelay"], manual_review: ["whyManualReview", "enableModeration"],
+  expired: ["whyExpired", "pendingExpiry"], queue_full: ["whyQueueFull"],
+  honeypot: ["whyHoneypot", "honeypotChannel"], escalation: ["whyEscalation"],
+  forbidden_concept: ["whyFilterWord", "packExclusions"], forbidden_regex: ["whyFilterWord", "packExclusions"],
+  forbidden_similarity: ["whyFilterWord", "packExclusions"], similarity_score: ["whyFilterWord", "packExclusions"],
+  discord_invite: ["whyLink", "blockInvites"], link_shortener: ["whyLink", "blockShorteners"],
+  scam_domain: ["whyLink", "blockScams"],
+  gps: ["whyLocation"], coordinates: ["whyLocation"], location_profile: ["whyLocation"], exif_metadata: ["whyLocation"],
+  scan_incomplete: ["whyScanIncomplete"], image_scan_unavailable: ["whyScanUnavailable"],
+  image_fetch_unavailable: ["whyScanUnavailable"], scan_config_changed: ["whyRulesChanged"],
+  image_limits: ["whyMediaLimits"], mime_mismatch: ["whyMediaLimits"],
+  ai_flagged: ["whyAiFlagged", "aiCheckBefore"],
+  ai_image: ["whyAiImage", "aiImageGuard"], ai_image_blocked: ["whyAiImageBlocked", "aiImageGuard"],
+  ai_image_unchecked: ["whyAiImageUnchecked", "aiImageGuard"],
+  ai_image_not_sent: ["whyAiImageNotSent", "aiImageGuard"],
+  ai_personal_data: ["whyAiPersonalData", "aiPersonalRelay"],
+};
+for (const reason of [
+  "email", "phone", "person_phone_combination", "ip_address", "postal_address", "partial_address",
+  "address_or_visual_context", "person_address_combination", "iban", "payment_card", "license_plate",
+  "sensitive_url", "custom_pattern", "document", "ocr_text",
+]) REASON_EXPLANATIONS[reason] = ["whyPersonalData", "privacyAllowlist"];
 const LOG_ACTION_KEYS = {
   blocked: "logBlocked", held: "logHeld", ignored: "logIgnored", approved: "logApproved",
   rejected: "logRejected", expired: "logExpired", evicted: "logEvicted", released: "logReleased",
@@ -53,9 +102,148 @@ export function wordsFromInput(value) {
   return words;
 }
 
+/** `ai_image_blocked_<category>`: the AI image check block, with the category that matched. */
+const AI_BLOCK_CATEGORY_KEYS = {
+  sexual: "aiGuardSexual", violence: "aiGuardViolence", self_harm: "aiGuardSelfHarm",
+  hate: "aiGuardHate", harassment: "aiGuardHarassment", spam: "aiGuardSpam",
+};
+const AI_BLOCK_PREFIX = "ai_image_blocked_";
+const aiBlockCategory = (reason) => String(reason || "").startsWith(AI_BLOCK_PREFIX)
+  ? AI_BLOCK_CATEGORY_KEYS[reason.slice(AI_BLOCK_PREFIX.length)] : undefined;
+
 export function reasonLabel(reason, t) {
+  const category = aiBlockCategory(reason);
+  if (category) return `${t("reasonAiImageBlocked")} · ${t(category)}`;
   const key = REASON_KEYS[reason];
   return key ? t(key) : String(reason || "").replace(/_/g, " ");
+}
+
+/** Image check categories, in the order Relay saves them (`ImageGuardCategory`). */
+export const AI_GUARD_CATEGORIES = ["sexual", "violence", "selfHarm", "hate", "harassment", "spam"];
+const aiGuardBoxes = () => [...document.querySelectorAll('input[name="ai-guard-category"]')];
+
+const AI_ERROR_KEYS = {
+  noProvider: "aiTestNoProvider", noKey: "aiTestNoKey", hourlyLimit: "aiTestHourlyLimit",
+  dailyLimit: "aiTestDailyLimit", paused: "aiTestPaused", keyRefused: "aiTestKeyRefused",
+  spendLimit: "aiTestSpendLimit", rateLimited: "aiTestRateLimited", unavailable: "aiTestUnavailable",
+  timeout: "aiTestTimeout", refused: "aiTestRefused", invalidOutput: "aiTestInvalidOutput",
+  badRequest: "aiTestBadRequest", helpCooldown: "aiHelpPaceRefused", helpDailyLimit: "aiHelpPaceRefused",
+};
+
+/** The connection test result, from the cause code Relay returns (never provider text). */
+export function describeAiTest(result, t, formatTranslation) {
+  if (!result?.error) {
+    return formatTranslation("aiTestOk", {
+      model: result?.model || "?",
+      ms: result?.latencyMs ?? 0,
+      tokens: (result?.inputTokens ?? 0) + (result?.outputTokens ?? 0),
+    });
+  }
+  return t(AI_ERROR_KEYS[result.error] || "aiTestBadRequest");
+}
+
+const AI_VERDICT_KEYS = {
+  clearProblem: "aiVerdictClearProblem", ambiguous: "aiVerdictAmbiguous", noIssueSeen: "aiVerdictNoIssueSeen",
+};
+const AI_CATEGORY_KEYS = {
+  harassment: "aiCategoryHarassment", threat: "aiCategoryThreat", hate: "aiCategoryHate", sexual: "aiCategorySexual",
+  spam: "aiCategorySpam", evasion: "aiCategoryEvasion", selfHarm: "aiCategorySelfHarm", other: "aiCategoryOther",
+  privateConversation: "aiCategoryPrivateConversation", personalData: "aiCategoryPersonalData",
+};
+const AI_NOT_SENT_KEYS = {
+  personalData: "aiAdviceNotSentPersonalData", empty: "aiAdviceNotSentEmpty", notAnImage: "aiAdviceNotSentNotAnImage",
+  animated: "aiAdviceNotSentAnimated",
+  location: "aiAdviceNotSentLocation", tooLarge: "aiAdviceNotSentTooLarge", unverified: "aiAdviceNotSentUnverified",
+};
+
+/**
+ * One line for the moderator. The AI's reason is model output: it is shown as
+ * plain text after Relay's own words, never as a decision.
+ */
+export function describeAiAdvice(advice, t) {
+  if (!advice) return "";
+  const label = t("aiAdviceLabel");
+  if (advice.state === "done") {
+    const categories = (advice.categories || []).map((category) => AI_CATEGORY_KEYS[category]).filter(Boolean).map(t);
+    const verdict = t(AI_VERDICT_KEYS[advice.verdict] || "aiVerdictAmbiguous");
+    const reason = String(advice.reason || "").trim();
+    return `${label} · ${verdict}${categories.length ? ` (${categories.join(", ")})` : ""}${reason ? ` — ${reason}` : ""}`;
+  }
+  return ["pending", "notSent", "failed"].includes(advice.state) ? noAnswerLine(label, advice, t) : "";
+}
+
+/** "label · why" for a request without an answer: waiting, not sent or failed. */
+function noAnswerLine(label, answer, t) {
+  const key = answer?.state === "pending"
+    ? "aiAdvicePending"
+    : answer?.state === "notSent"
+      ? AI_NOT_SENT_KEYS[answer.cause] || "aiAdviceNotSentUnverified"
+      : AI_ERROR_KEYS[answer?.cause] || "aiTestBadRequest";
+  return `${label} · ${t(key)}`;
+}
+
+/**
+ * The settings assistant's proposal: the changes and the warning are Relay's
+ * own words; the AI's note follows as plain text.
+ */
+export function describeSettingsAnswer(answer, t, formatTranslation) {
+  if (answer?.state !== "done") return noAnswerLine(t("aiSettingsLabel"), answer, t);
+  const note = String(answer.note || "").trim();
+  return [
+    describePresetChanges(answer.changes || [], t, formatTranslation),
+    answer.weakensProtection ? t("aiSettingsWeakens") : "",
+    note ? `${t("aiSettingsNote")} ${note}` : "",
+  ].filter(Boolean).join(" ");
+}
+
+/**
+ * Troubleshooting answer, one line per finding. Relay sets the label: "from
+ * the report" only when the AI cited report lines that exist, a guess otherwise.
+ */
+export function describeTroubleshootAnswer(answer, t) {
+  if (answer?.state !== "done") return [noAnswerLine(t("aiHelpLabel"), answer, t)];
+  const lines = (answer.findings || [])
+    .map((finding) => [finding.fromReport, String(finding.text || "").trim()])
+    .filter(([, text]) => text)
+    .map(([fromReport, text]) => `${t(fromReport ? "aiHelpFromReport" : "aiHelpGuess")} ${text}`);
+  const next = String(answer.nextStep || "").trim();
+  if (next) lines.push(`${t("aiHelpNextStep")} ${next}`);
+  return lines.length ? lines : [t("aiHelpNothing")];
+}
+
+function showAdvice(element, advice, t) {
+  element.textContent = describeAiAdvice(advice, t);
+  element.dataset.verdict = advice?.state === "done" ? advice.verdict : advice?.state || "";
+  element.hidden = !element.textContent;
+}
+
+/**
+ * One plain sentence on why Relay took a decision, then the setting that
+ * changes it. Numbers come from the current settings, not from the moment of
+ * the decision. Unknown reasons return "".
+ */
+export function explainReason(reason, settings, t, formatTranslation) {
+  const [key, setting] = REASON_EXPLANATIONS[aiBlockCategory(reason) ? "ai_image_blocked" : reason] || [];
+  if (!key) return "";
+  const why = formatTranslation(key, {
+    cooldown: settings?.userCooldownSeconds ?? 0,
+    window: settings?.duplicateWindowSeconds ?? 60,
+    delay: settings?.safetyDelaySeconds ?? 0,
+    accountDays: settings?.minAccountAgeDays ?? 0,
+    memberDays: settings?.minMemberAgeDays ?? 0,
+    raid: settings?.raidLimitPerMinute ?? 0,
+    expiry: settings?.pendingExpiryMinutes ?? 0,
+  });
+  return setting ? `${why} ${formatTranslation("whySetting", { setting: t(setting) })}` : why;
+}
+
+/** Adds the explanation under a queue item or a log entry, when there is one. */
+function appendExplanation(container, text) {
+  if (!text) return;
+  const why = document.createElement("small");
+  why.className = "moderation-why";
+  why.textContent = text;
+  container.append(why);
 }
 
 export function logActionLabel(action, t) {
@@ -98,6 +286,27 @@ export function capturePresetFields(config) {
   const fields = { moderation: {} };
   for (const key of PRESET_CONFIG_KEYS) fields[key] = structuredClone(config[key]);
   for (const key of PRESET_MODERATION_KEYS) fields.moderation[key] = structuredClone(config.moderation?.[key]);
+  return fields;
+}
+
+/**
+ * Preset settings that differ between two configs (lists compared as sets), so
+ * an AI proposal only writes what it changed, not values captured earlier.
+ */
+export function changedPresetFields(before, after) {
+  const same = (left, right) => {
+    const normal = (value) => JSON.stringify(Array.isArray(value) ? [...value].sort() : value);
+    return normal(left) === normal(right);
+  };
+  const from = capturePresetFields(before);
+  const to = capturePresetFields(after);
+  const fields = {};
+  for (const key of PRESET_CONFIG_KEYS) if (!same(from[key], to[key])) fields[key] = to[key];
+  const moderation = {};
+  for (const key of PRESET_MODERATION_KEYS) {
+    if (!same(from.moderation[key], to.moderation[key])) moderation[key] = to.moderation[key];
+  }
+  if (Object.keys(moderation).length) fields.moderation = moderation;
   return fields;
 }
 
@@ -145,6 +354,10 @@ export function initializeModerationUi({
   const field = (id) => $(`#moderation-${id}`);
   let overview = { activePreset: null, summary: {}, entries: [], pendingTexts: [], packs: [], liveStreaming: false };
   let pendingPreset = null;
+  /// A settings assistant answer waiting in the same confirm box as presets.
+  let pendingProposal = null;
+  /// Bumped when a preset is opened or the box closed, so a late AI answer is dropped.
+  let suggestRequest = 0;
   let undoConfig = null;
   let undoTimer;
   let visiblePackWords = null;
@@ -154,12 +367,13 @@ export function initializeModerationUi({
     "filter-usernames": "filterUsernames", "filter-music-titles": "filterMusicTitles",
     "review-text": "reviewText", duplicates: "blockDuplicates", "text-spam": "blockTextSpam",
     "block-invites": "blockInvites", "block-shorteners": "blockShorteners", "block-scams": "blockScamDomains",
-    warn: "warnOnBlock", loudness: "loudnessLimiter",
+    warn: "warnOnBlock", loudness: "loudnessLimiter", "cooldown-notice": "cooldownNotice",
   };
   const numbers = {
     "min-account-age": "minAccountAgeDays", "min-member-age": "minMemberAgeDays",
     "pending-expiry": "pendingExpiryMinutes", "safety-delay": "safetyDelaySeconds",
     cooldown: "userCooldownSeconds", "raid-limit": "raidLimitPerMinute",
+    "duplicate-window": "duplicateWindowSeconds",
     "escalation-blocks": "escalationBlocks", "escalation-window": "escalationWindowMinutes",
     "escalation-timeout": "escalationTimeoutMinutes", "honeypot-timeout": "honeypotTimeoutMinutes",
     "live-port": "liveObsPort", "max-media": "maxMediaSeconds",
@@ -266,12 +480,130 @@ export function initializeModerationUi({
     renderPacks(settings);
     renderAdvanced(config?.privacyConcepts);
     renderPresetState(config);
+    renderAi(config?.ai || {});
+    // Log explanations quote current settings: redraw them when the config changes.
+    renderLog();
+    renderStateBadges();
+  }
+
+  function renderAiModel() {
+    const models = AI_MODELS[field("ai-provider").value];
+    field("ai-model-name").textContent = models
+      ? formatTranslation("aiModelName", { model: models[field("ai-tier").value] || models.fast })
+      : t("aiModelNone");
+  }
+
+  function renderAiKeys() {
+    const credentials = getBootstrap()?.credentials || {};
+    for (const provider of Object.keys(AI_MODELS)) {
+      field(`ai-key-state-${provider}`).textContent = t(credentials[`${provider}Configured`] ? "aiKeySaved" : "aiKeyMissing");
+    }
+  }
+
+  function renderAi(settings) {
+    field("ai-provider").value = settings.provider || "";
+    field("ai-tier").value = settings.modelTier || "fast";
+    field("ai-hour").value = String(settings.maxCallsPerHour ?? 120);
+    field("ai-day").value = String(settings.maxCallsPerDay ?? 1000);
+    field("ai-message-advice").checked = Boolean(settings.messageAdvice);
+    field("ai-watch").checked = Boolean(settings.watchMessages);
+    field("ai-image-guard").checked = Boolean(settings.imageGuard);
+    const categories = settings.imageGuardCategories ?? AI_GUARD_CATEGORIES;
+    for (const box of aiGuardBoxes()) box.checked = categories.includes(box.value);
+    field("ai-image-delete").checked = settings.imageGuardDeleteMessage ?? true;
+    field("ai-image-animated").checked = Boolean(settings.imageGuardAnimated);
+    field("ai-personal-relay").checked = Boolean(settings.personalDataRelay);
+    field("ai-personal-photos").checked = settings.personalDataPhotos ?? true;
+    field("ai-personal-screenshots").checked = Boolean(settings.personalDataScreenshots);
+    field("ai-personal-videos").checked = settings.personalDataVideos ?? true;
+    field("ai-personal-incomplete").checked = settings.personalDataIncomplete ?? true;
+    // The tester and the settings assistant only appear once a provider is chosen.
+    $("#moderation-test-ai").hidden = !settings.provider;
+    $("#moderation-ai-settings").hidden = !settings.provider;
+    renderAiModel();
+    renderAiKeys();
+    renderAiSteps();
+  }
+
+  /** Provider cards mirror the hidden select; key and use steps wait for a provider. */
+  function renderAiSteps() {
+    const provider = field("ai-provider").value;
+    for (const card of document.querySelectorAll("[data-ai-provider]")) {
+      card.setAttribute("aria-pressed", String(card.dataset.aiProvider === provider));
+    }
+    for (const key of document.querySelectorAll(".moderation-ai__key")) {
+      key.hidden = !provider || !key.querySelector(`#moderation-ai-key-${provider}`);
+    }
+    for (const step of document.querySelectorAll('[data-ai-step="2"], [data-ai-step="3"]')) {
+      step.toggleAttribute("data-waiting", !provider);
+    }
+    const advanced = document.querySelector(".ai-advanced");
+    if (advanced) advanced.hidden = !provider;
+    // With Anthropic, the OpenAI key stays available for the free image filter.
+    if (provider === "anthropic") field("ai-key-openai").closest(".moderation-ai__key").hidden = false;
+    field("ai-free-key-hint").hidden = provider !== "anthropic";
+    field("ai-image-guard-options").hidden = !field("ai-image-guard").checked;
+    field("ai-personal-scope").hidden = !field("ai-personal-relay").checked;
+    field("ai-personal-provider").hidden = !field("ai-personal-relay").checked || Boolean(provider);
+  }
+
+  /** On/Off badges next to the parts that one switch turns on. */
+  function renderStateBadges() {
+    for (const badge of document.querySelectorAll("[data-state-for]")) {
+      const on = Boolean(document.getElementById(badge.dataset.stateFor)?.checked);
+      badge.textContent = t(on ? "stateOn" : "stateOff");
+      badge.toggleAttribute("data-on", on);
+    }
+  }
+
+  function readAiDraft(current = {}) {
+    const number = (id, fallback) => {
+      const value = Math.round(Number(field(id).value));
+      return Number.isFinite(value) && value > 0 ? value : fallback;
+    };
+    return {
+      ...current,
+      provider: field("ai-provider").value || null,
+      modelTier: field("ai-tier").value,
+      maxCallsPerHour: number("ai-hour", current.maxCallsPerHour ?? 120),
+      maxCallsPerDay: number("ai-day", current.maxCallsPerDay ?? 1000),
+      messageAdvice: field("ai-message-advice").checked,
+      watchMessages: field("ai-watch").checked,
+      imageGuard: field("ai-image-guard").checked,
+      imageGuardCategories: aiGuardBoxes().filter((box) => box.checked).map((box) => box.value),
+      imageGuardDeleteMessage: field("ai-image-delete").checked,
+      imageGuardAnimated: field("ai-image-animated").checked,
+      personalDataRelay: field("ai-personal-relay").checked,
+      personalDataPhotos: field("ai-personal-photos").checked,
+      personalDataScreenshots: field("ai-personal-screenshots").checked,
+      personalDataVideos: field("ai-personal-videos").checked,
+      personalDataIncomplete: field("ai-personal-incomplete").checked,
+    };
+  }
+
+  /** Keys go straight to Windows Credential Manager; they are never read back. */
+  async function storeAiKey(provider, apiKey) {
+    const result = $("#moderation-ai-key-result");
+    setSaveState(result, "saving");
+    try {
+      const credentials = await invoke("store_ai_api_key", { provider, apiKey });
+      const bootstrap = getBootstrap();
+      if (bootstrap) bootstrap.credentials = credentials;
+      renderAiKeys();
+      setSaveState(result, "saved", t(apiKey ? "aiKeyStored" : "aiKeyForgotten"));
+    } catch (error) {
+      setSaveState(result, "error", String(error));
+    } finally {
+      field(`ai-key-${provider}`).value = "";
+    }
   }
 
   function readDraft(current = {}) {
     const number = (id, fallback) => {
-      const value = Number(field(id).value);
-      return Number.isFinite(value) ? Math.round(value) : fallback;
+      const text = field(id).value.trim();
+      const value = Number(text);
+      // An emptied field keeps its saved value: 0 is refused for some settings.
+      return text && Number.isFinite(value) ? Math.round(value) : fallback;
     };
     // liveRestore belongs to Relay; it is kept as-is and ignored when saving.
     const draft = { ...current };
@@ -370,13 +702,16 @@ export function initializeModerationUi({
       action.textContent = logActionLabel(entry.action, t);
       const reason = document.createElement("span");
       reason.textContent = [entry.lane ? t(`lane${entry.lane[0].toUpperCase()}${entry.lane.slice(1)}`) : "", reasonLabel(entry.reason, t)].filter(Boolean).join(" · ");
+      appendExplanation(reason, explainReason(entry.reason, getBootstrap()?.config?.moderation, t, formatTranslation));
       item.append(time, action, reason);
       if (entry.authorId) {
         const author = document.createElement("button");
         author.type = "button";
         author.className = "text-link moderation-log__author";
-        author.textContent = entry.authorId;
-        author.title = t("moderationLogFilter");
+        // The log keeps only the ID; the Discord name is looked up for display.
+        const name = overview.authorNames?.[entry.authorId];
+        author.textContent = name || entry.authorId;
+        author.title = name ? `${entry.authorId} · ${t("moderationLogFilter")}` : t("moderationLogFilter");
         author.addEventListener("click", () => {
           logFilter.value = entry.authorId;
           renderLog();
@@ -412,6 +747,8 @@ export function initializeModerationUi({
     if (pendingItem.holdReason) {
       item.querySelector(".moderation-item__privacy").textContent = reasonLabel(pendingItem.holdReason, t);
     }
+    const reason = pendingItem.holdReason || pendingItem.privacyReason || "manual_review";
+    appendExplanation(item.querySelector(".history-item__meta"), explainReason(reason, getBootstrap()?.config?.moderation, t, formatTranslation));
     const countdown = item.querySelector(".moderation-item__countdown");
     if (pendingItem.releaseAt) {
       countdown.hidden = false;
@@ -419,6 +756,35 @@ export function initializeModerationUi({
       updateCountdown(countdown);
     }
     wireMoreActions(item.querySelector(".moderation-item__more"), pendingItem.id);
+    const meta = item.querySelector(".history-item__meta");
+    if (pendingItem.aiAdvice) {
+      const advice = document.createElement("small");
+      advice.className = "moderation-ai-advice";
+      showAdvice(advice, pendingItem.aiAdvice, t);
+      meta.append(advice);
+    }
+    const askAi = item.querySelector(".moderation-item__ai");
+    meta.append(askAi); // After the explanation and the advice it would update.
+    askAi.textContent = t("aiTestAdvice");
+    askAi.hidden = !getBootstrap()?.config?.ai?.provider
+      || !["image", "gif"].includes(pendingItem.media?.kind)
+      || pendingItem.aiAdvice?.state === "pending";
+    // The periodic refresh only redraws when items come or go, so the answer is shown here.
+    const showOnItem = (advice) => {
+      const held = getBootstrap()?.pendingMedia?.find((candidate) => candidate.id === pendingItem.id);
+      if (held) held.aiAdvice = advice;
+      onQueueChanged();
+    };
+    askAi.addEventListener("click", async () => {
+      askAi.disabled = true;
+      showOnItem({ state: "pending" });
+      try {
+        showOnItem(await invoke("ai_review_media", { id: pendingItem.id }));
+      } catch (error) {
+        showOnItem(undefined);
+        setSaveState(saveState, "error", String(error));
+      }
+    });
   }
 
   function updateCountdown(element) {
@@ -457,6 +823,13 @@ export function initializeModerationUi({
       item.querySelector(".history-item__filename").textContent = pending.text;
       item.querySelector(".history-item__author").textContent = pending.author?.username || t("unknownAuthor");
       item.querySelector(".moderation-item__privacy").textContent = `${t("heldText")} · ${reasonLabel(pending.reason, t)}`;
+      appendExplanation(item.querySelector(".history-item__meta"), explainReason(pending.reason, getBootstrap()?.config?.moderation, t, formatTranslation));
+      if (pending.aiAdvice) {
+        const advice = document.createElement("small");
+        advice.className = "moderation-ai-advice";
+        showAdvice(advice, pending.aiAdvice, t);
+        item.querySelector(".history-item__meta").append(advice);
+      }
       const time = item.querySelector(".history-item__time");
       time.dateTime = new Date(pending.timestamp).toISOString();
       time.textContent = new Date(pending.timestamp).toLocaleTimeString(getLocale(), { hour: "2-digit", minute: "2-digit", second: "2-digit" });
@@ -510,9 +883,12 @@ export function initializeModerationUi({
 
   presetButtons.forEach((button) => button.addEventListener("click", async () => {
     pendingPreset = button.dataset.moderationPreset;
+    pendingProposal = null;
+    suggestRequest += 1;
     try {
       const keys = await invoke("preview_moderation_preset", { preset: pendingPreset });
       confirmText.textContent = describePresetChanges(keys, t, formatTranslation);
+      confirmBox.dataset.weakens = "false";
       confirmBox.hidden = false;
       $("#moderation-preset-apply").disabled = keys.length === 0;
     } catch (error) {
@@ -522,8 +898,20 @@ export function initializeModerationUi({
   $("#moderation-preset-cancel").addEventListener("click", () => {
     confirmBox.hidden = true;
     pendingPreset = null;
+    pendingProposal = null;
+    suggestRequest += 1;
   });
   $("#moderation-preset-apply").addEventListener("click", async () => {
+    if (pendingProposal) {
+      // Only the preset settings the AI changed, through the usual save queue.
+      const { answer, asked } = pendingProposal;
+      pendingProposal = null;
+      confirmBox.hidden = true;
+      const previous = structuredClone(getBootstrap().config);
+      await saveFrom(mergePresetFields(getBootstrap().config, changedPresetFields(asked, answer.config)));
+      offerUndo(previous, t("aiSettingsApplied"));
+      return;
+    }
     if (!pendingPreset) return;
     const previous = structuredClone(getBootstrap().config);
     try {
@@ -586,6 +974,119 @@ export function initializeModerationUi({
     }
   });
 
+  field("ai-provider").addEventListener("input", renderAiModel);
+  field("ai-provider").addEventListener("input", renderAiSteps);
+  for (const card of document.querySelectorAll("[data-ai-provider]")) {
+    card.addEventListener("click", () => {
+      const select = field("ai-provider");
+      select.value = card.dataset.aiProvider;
+      // Same events as a user choice: the model line updates and the form autosaves.
+      select.dispatchEvent(new Event("input", { bubbles: true }));
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+  }
+  $("#moderation-form").addEventListener("change", renderStateBadges);
+  field("ai-image-guard").addEventListener("change", renderAiSteps);
+  field("ai-personal-relay").addEventListener("change", renderAiSteps);
+  field("ai-tier").addEventListener("input", renderAiModel);
+  for (const provider of Object.keys(AI_MODELS)) {
+    const input = field(`ai-key-${provider}`);
+    // A typed key must not trigger the settings autosave of the form.
+    input.addEventListener("change", (event) => event.stopPropagation());
+    $(`[data-ai-key-save="${provider}"]`).addEventListener("click", () => {
+      const apiKey = input.value.trim();
+      if (!apiKey) {
+        setSaveState($("#moderation-ai-key-result"), "error", t("aiKeyEmpty"));
+        return;
+      }
+      void storeAiKey(provider, apiKey);
+    });
+    $(`[data-ai-key-forget="${provider}"]`).addEventListener("click", () => void storeAiKey(provider, ""));
+  }
+
+  $("#moderation-test-ai").addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    const result = $("#moderation-test-ai-result");
+    const text = $("#moderation-test-text").value;
+    if (!text.trim()) {
+      testResult.textContent = t("testEmpty");
+      return;
+    }
+    button.disabled = true;
+    showAdvice(result, { state: "pending" }, t);
+    try {
+      showAdvice(result, await invoke("ai_review_text", { text }), t);
+    } catch (error) {
+      result.hidden = false;
+      result.dataset.verdict = "failed";
+      result.textContent = String(error);
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  $("#moderation-ai-suggest").addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    const result = $("#moderation-ai-suggest-result");
+    const wish = $("#moderation-ai-wish").value;
+    const show = (state, text) => {
+      result.dataset.verdict = state;
+      result.textContent = text;
+      result.hidden = !text;
+    };
+    if (!wish.trim()) {
+      show("notSent", t("aiSettingsWishEmpty"));
+      return;
+    }
+    button.disabled = true;
+    confirmBox.hidden = true;
+    pendingPreset = null;
+    pendingProposal = null;
+    const request = ++suggestRequest;
+    // The proposal will only write what differs from the settings asked about.
+    const asked = structuredClone(getBootstrap().config);
+    show("pending", `${t("aiSettingsLabel")} · ${t("aiAdvicePending")}`);
+    try {
+      const answer = await invoke("ai_suggest_settings", { wish });
+      // A preset opened or the box closed meanwhile: this answer is no longer wanted.
+      if (request !== suggestRequest) {
+        show("", "");
+        return;
+      }
+      if (answer?.state === "done") {
+        show("", "");
+        pendingProposal = { answer, asked };
+        confirmText.textContent = describeSettingsAnswer(answer, t, formatTranslation);
+        confirmBox.dataset.weakens = String(Boolean(answer.weakensProtection));
+        confirmBox.hidden = false;
+        $("#moderation-preset-apply").disabled = !answer.changes?.length;
+      } else {
+        show(answer?.state || "failed", describeSettingsAnswer(answer, t, formatTranslation));
+      }
+    } catch (error) {
+      if (request === suggestRequest) show("failed", String(error));
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  $("#moderation-ai-test").addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    const result = $("#moderation-ai-test-result");
+    button.disabled = true;
+    result.dataset.state = "saving";
+    result.textContent = t("aiTestRunning");
+    try {
+      const outcome = await invoke("test_ai_connection");
+      result.dataset.state = outcome?.error ? "error" : "saved";
+      result.textContent = describeAiTest(outcome, t, formatTranslation);
+    } catch (error) {
+      setSaveState(result, "error", String(error));
+    } finally {
+      button.disabled = false;
+    }
+  });
+
   logFilter.addEventListener("input", renderLog);
   $("#moderation-log-clear").addEventListener("click", async () => {
     await invoke("clear_moderation_log");
@@ -628,6 +1129,7 @@ export function initializeModerationUi({
   return {
     fillForm,
     readDraft,
+    readAiDraft,
     applyAdvancedEdits: (concepts) => applyAdvancedEdits(concepts, advancedEdits()),
     decorateQueueItem,
     renderTexts,
@@ -636,6 +1138,9 @@ export function initializeModerationUi({
     applyLanguage: () => {
       renderOwnPresets();
       renderLog();
+      renderAiModel();
+      renderAiKeys();
+      renderStateBadges();
       const config = getBootstrap()?.config;
       if (config) {
         renderPacks(readDraft(config.moderation || {}));

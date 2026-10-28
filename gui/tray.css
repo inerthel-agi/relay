@@ -137,26 +137,6 @@ button:focus-visible {
   background: var(--tray-danger);
 }
 
-/* Connection status: two readable lines in one card. */
-.status-card {
-  display: grid;
-  border: 1px solid var(--tray-line);
-  border-radius: var(--tray-radius-small);
-  background: var(--tray-surface);
-}
-
-.status-line {
-  display: grid;
-  grid-template-columns: 8px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  padding: 9px 12px;
-}
-
-.status-line + .status-line {
-  border-top: 1px solid var(--tray-line);
-}
-
 .status-dot {
   width: 8px;
   height: 8px;
@@ -166,31 +146,6 @@ button:focus-visible {
 
 .status-dot[data-state="on"] {
   background: var(--tray-success);
-}
-
-.status-line__copy {
-  display: grid;
-  min-width: 0;
-  gap: 1px;
-}
-
-.status-line__copy strong {
-  font-size: 12px;
-  font-weight: 650;
-}
-
-.status-line__copy small {
-  overflow: hidden;
-  color: var(--tray-muted);
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.status-line__value {
-  color: var(--tray-muted);
-  font-size: 11px;
-  font-weight: 600;
 }
 
 /* Shown only when something needs action; opens the matching panel page. */
@@ -243,14 +198,6 @@ button:focus-visible {
   stroke-width: 1.7;
 }
 
-/* Main actions: panic first, then the control panel. */
-.tray-actions {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
-  gap: 8px;
-}
-
-.panic-action,
 .open-panel {
   display: flex;
   min-height: 44px;
@@ -265,47 +212,6 @@ button:focus-visible {
   transition: background 140ms ease, border-color 140ms ease, transform 140ms ease;
 }
 
-.panic-action {
-  justify-content: center;
-  border-color: color-mix(in srgb, var(--tray-danger) 60%, transparent);
-  color: var(--tray-danger);
-  background: color-mix(in srgb, var(--tray-danger) 12%, transparent);
-}
-
-.panic-action:not([data-state="paused"]):hover {
-  color: #ffffff;
-  background: var(--tray-danger);
-}
-
-.panic-action[data-state="paused"]:hover {
-  background: color-mix(in srgb, var(--tray-accent) 86%, var(--tray-ink));
-}
-
-.panic-action[data-state="paused"] {
-  border-color: var(--tray-accent);
-  color: var(--tray-accent-ink);
-  background: var(--tray-accent);
-}
-
-.panic-action svg {
-  width: 15px;
-  height: 15px;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 2;
-}
-
-.panic-action svg[hidden] {
-  display: none;
-}
-
-.panic-action[data-state="paused"] svg {
-  fill: currentColor;
-  stroke: none;
-}
-
 .open-panel {
   justify-content: space-between;
   color: var(--tray-ink);
@@ -318,7 +224,6 @@ button:focus-visible {
   background: var(--tray-surface-raised);
 }
 
-.panic-action:active,
 .open-panel:active {
   transform: scale(0.98);
 }
@@ -658,11 +563,218 @@ button:focus-visible {
   --tray-danger: #d0021b;
 }
 
+/* Layout: two status tiles, the control panel first, then the live actions. */
+{ gap: 12px; }
+
+.tray-title { display: grid; flex: 1; gap: 1px; }
+.tray-version { color: var(--tray-faint); font-size: 10px; }
+
+/* Two status tiles side by side instead of a two-line card. */
+.status-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.status-tile {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--tray-line);
+  border-radius: var(--tray-radius-small);
+  background: var(--tray-surface);
+}
+.status-tile__head { display: flex; align-items: center; gap: 7px; color: var(--tray-muted); font-size: 11px; }
+.status-tile__head strong { font-weight: 650; }
+.status-tile__value { font-size: 14px; font-weight: 700; }
+.status-tile small {
+  overflow: hidden;
+  color: var(--tray-faint);
+  font-size: 10.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The control panel is the main action. */
+.open-panel--primary {
+  border-color: transparent;
+  color: var(--tray-accent-ink);
+  background: var(--tray-accent);
+}
+.open-panel--primary:hover { border-color: transparent; background: color-mix(in srgb, var(--tray-accent) 86%, white); }
+
+/* Live actions with their shortcut. */
+.quick-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.quick-action {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--tray-line);
+  border-radius: var(--tray-radius-small);
+  background: var(--tray-surface);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+.quick-action:hover { border-color: var(--tray-line-strong); background: var(--tray-surface-raised); }
+.quick-action svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+.quick-action svg[hidden] { display: none; }
+.quick-action kbd {
+  padding: 1px 5px;
+  border: 1px solid var(--tray-line);
+  border-radius: 5px;
+  color: var(--tray-faint);
+  font: 600 9.5px ui-monospace, Consolas, monospace;
+}
+.quick-action--danger {
+  border-color: color-mix(in srgb, var(--tray-danger) 55%, transparent);
+  color: var(--tray-danger);
+  background: color-mix(in srgb, var(--tray-danger) 10%, transparent);
+}
+.quick-action--danger:hover { color: #fff; background: var(--tray-danger); border-color: var(--tray-danger); }
+.quick-action--danger:hover kbd { color: #fff; border-color: rgb(255 255 255 / .5); }
+.quick-action--danger[data-state="paused"] { border-color: var(--tray-accent); color: var(--tray-accent-ink); background: var(--tray-accent); }
+.quick-action--danger[data-state="paused"] svg { fill: currentColor; stroke: none; }
+
+.widget-row { padding-block: 8px; }
+
+/* Footer sits at the bottom with a quiet separator. */
+.tray-footer {
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid var(--tray-line);
+}
+.footer-quit { display: inline-flex; align-items: center; gap: 6px; }
+.footer-quit svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 2;
+}
+.footer-quit:hover { color: var(--tray-danger); }
+
+@media (prefers-reduced-motion: reduce) {
+  .quick-action, .open-panel { transition: none; }
+}
+
+/* Midnight and Ember keep one dark palette; Dawn and Cloud are light with a dark variant. */
+:root[data-design="midnight"] {
+  --tray-bg: #060a18;
+  --tray-surface: #0d1430;
+  --tray-surface-raised: #131c3f;
+  --tray-ink: #eaeefe;
+  --tray-muted: #a3acd0;
+  --tray-faint: #6f7aa3;
+  --tray-line: #222d55;
+  --tray-line-strong: #3b4880;
+  --tray-success: #5ee0b0;
+  --tray-danger: #ff7a8a;
+  --tray-radius: 18px;
+  --tray-radius-small: 12px;
+  color-scheme: dark;
+  font-family: "Relay Inter", "Segoe UI", sans-serif;
+}
+
+:root[data-design="ember"] {
+  --tray-bg: #090706;
+  --tray-surface: #13100e;
+  --tray-surface-raised: #1c1714;
+  --tray-ink: #f8efe8;
+  --tray-muted: #b9a89c;
+  --tray-faint: #7c6d63;
+  --tray-line: #2c2420;
+  --tray-line-strong: #4a3d35;
+  --tray-success: #7fd6a0;
+  --tray-danger: #ff6b4a;
+  color-scheme: dark;
+  font-family: "Relay Space Grotesk", "Segoe UI", sans-serif;
+}
+
+:root[data-design="dawn"] {
+  --tray-bg: #faf5ee;
+  --tray-surface: #fffdf9;
+  --tray-surface-raised: #f3eadf;
+  --tray-ink: #2a211b;
+  --tray-muted: #6f6157;
+  --tray-faint: #8f7f72;
+  --tray-line: #e8dccf;
+  --tray-line-strong: #cbb7a5;
+  --tray-success: #3f8f5f;
+  --tray-danger: #c4513b;
+  --tray-radius: 20px;
+  --tray-radius-small: 14px;
+  font-family: "Relay Figtree", "Segoe UI", sans-serif;
+}
+
+:root[data-design="dawn"][data-theme="dark"] {
+  --tray-bg: #1a1512;
+  --tray-surface: #221c18;
+  --tray-surface-raised: #2b241f;
+  --tray-ink: #f6ece3;
+  --tray-muted: #c3b2a4;
+  --tray-faint: #8f7f72;
+  --tray-line: #3a312a;
+  --tray-line-strong: #5a4c41;
+}
+
+:root[data-design="cloud"] {
+  --tray-bg: #f2f4f8;
+  --tray-surface: #ffffff;
+  --tray-surface-raised: #eef1f6;
+  --tray-ink: #161b26;
+  --tray-muted: #5c6577;
+  --tray-faint: #7d8597;
+  --tray-line: #e3e7ef;
+  --tray-line-strong: #c3c9d6;
+  --tray-success: #1f9d6b;
+  --tray-danger: #e0485c;
+  font-family: "Relay Manrope", "Segoe UI", sans-serif;
+}
+
+:root[data-design="cloud"][data-theme="dark"] {
+  --tray-bg: #0f1218;
+  --tray-surface: #171b23;
+  --tray-surface-raised: #1e232d;
+  --tray-ink: #eef1f6;
+  --tray-muted: #a3abba;
+  --tray-faint: #6c7484;
+  --tray-line: #262c38;
+  --tray-line-strong: #3a4252;
+}
+
+:root[data-design="midnight"] .tray-panel {
+  background: radial-gradient(circle at 80% 0%, color-mix(in srgb, var(--tray-accent) 22%, transparent), transparent 45%), var(--tray-bg);
+}
+
+:root[data-design="ember"] .tray-panel {
+  background: radial-gradient(circle at 100% 100%, rgb(255 98 31 / 26%), transparent 55%), var(--tray-bg);
+}
+
+:root[data-design="dawn"] .tray-panel {
+  background: radial-gradient(circle at 85% 0%, rgb(255 178 140 / 35%), transparent 50%), var(--tray-bg);
+}
+
+:root[data-design="cloud"] .status-tile,
+:root[data-design="cloud"] .widget-row {
+  border-color: transparent;
+  box-shadow: 0 1px 2px rgb(16 24 40 / 6%), 0 6px 18px rgb(16 24 40 / 6%);
+}
+
 /* Design accents on top of the shared tokens. */
 :root[data-design="neo-brutalism"] .tray-panel,
-:root[data-design="neo-brutalism"] .status-card,
+:root[data-design="neo-brutalism"] .status-tile,
 :root[data-design="neo-brutalism"] .widget-row,
-:root[data-design="neo-brutalism"] .panic-action,
+:root[data-design="neo-brutalism"] .quick-action,
 :root[data-design="neo-brutalism"] .open-panel {
   border-width: 2px;
   box-shadow: 3px 3px 0 var(--tray-line);
@@ -690,7 +802,7 @@ button:focus-visible {
   box-shadow: 0 18px 42px rgb(12 29 56 / 18%);
 }
 
-:root[data-design="lumen"] .status-card,
+:root[data-design="lumen"] .status-tile,
 :root[data-design="lumen"] .widget-row {
   border-color: color-mix(in srgb, var(--tray-line) 78%, var(--tray-accent));
   box-shadow: 0 10px 24px rgb(12 29 56 / 11%);

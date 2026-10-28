@@ -16,7 +16,7 @@ const regionalTranslations = context.regionalTranslationsForTest;
 
 test("every supported language provides every interface translation key", () => {
   const expectedKeys = Object.keys(translations.en).sort();
-  for (const language of ["fr", "es", "de", "ru", "zh", "ko", "ja", "id"]) {
+  for (const language of ["fr", "es", "de", "it", "pt", "pl", "tr", "ru", "zh", "ko", "ja", "id"]) {
     assert.deepEqual(Object.keys(translations[language]).sort(), expectedKeys, language);
   }
 });
@@ -64,8 +64,8 @@ test("the Discord invitation action opens the authorization URL", () => {
 test("reported Spanish and German pages no longer use English fallback copy", () => {
   for (const language of ["es", "de"]) {
     for (const key of [
-      "overviewTitle", "credentialsTitle", "relayChannel", "moderationTitle",
-      "moderationSettings", "historyKicker", "historyTitle", "historyCopy",
+      "overviewTitle", "credentialsTitle", "relayChannel", "moderationLevelTitle",
+      "moderationFineTune", "historyKicker", "historyTitle", "historyCopy",
     ]) {
       assert.notEqual(translations[language][key], translations.en[key], `${language}.${key}`);
     }
@@ -74,8 +74,8 @@ test("reported Spanish and German pages no longer use English fallback copy", ()
 
 test("Russian localizes the primary Relay controls", () => {
   for (const key of [
-    "navOverview", "overviewTitle", "credentialsTitle", "mediaTitle", "moderationTitle",
-    "commandsTitle", "privacyProtection", "searchPlaceholder", "fontFamily",
+    "navOverview", "overviewTitle", "credentialsTitle", "mediaTitle", "moderationLevelTitle",
+    "commandsTitle", "modPartPrivacy", "searchPlaceholder", "fontFamily",
   ]) {
     assert.notEqual(translations.ru[key], translations.en[key], `ru.${key}`);
   }
@@ -91,8 +91,8 @@ test("Chinese, Korean, Japanese and Indonesian localize the primary Relay contro
     id: { navOverview: "Ringkasan", privacyProfileBalanced: "Seimbang" },
   };
   const keys = [
-    "navOverview", "overviewTitle", "mediaTitle", "moderationTitle",
-    "commandsTitle", "privacyProtection", "searchPlaceholder", "fontFamily",
+    "navOverview", "overviewTitle", "mediaTitle", "moderationLevelTitle",
+    "commandsTitle", "modPartPrivacy", "searchPlaceholder", "fontFamily",
   ];
 
   for (const [language, values] of Object.entries(expected)) {
@@ -106,7 +106,8 @@ test("Chinese, Korean, Japanese and Indonesian localize the primary Relay contro
 
 test("translation values contain no UTF-8 mojibake", () => {
   for (const language of Object.keys(translations)) {
-    assert.doesNotMatch(Object.values(translations[language]).join("\n"), /Ã.|â€|Â./, language);
+    // Real Portuguese words start with "Â" (Âmbar, Âncora); mojibake pairs it with a Latin-1 byte.
+    assert.doesNotMatch(Object.values(translations[language]).join("\n"), /Ã[\u0080-¿]|â€|Â[\u0080-¿]/, language);
   }
 });
 
@@ -139,12 +140,12 @@ test("moderation settings use native disclosures without changing control IDs", 
 
 test("moderation translations are explicit and localized in every language", () => {
   const expected = {
-    fr: ["Filtrage automatique", "Modération manuelle", "Activer l’analyse locale de confidentialité", "Équilibré", "Une valeur par ligne", "Piège à compte compromis"],
-    es: ["Filtrado automático", "Moderación manual", "Activar el análisis local de privacidad", "Equilibrado", "Un valor por línea", "Trampa para cuentas comprometidas"],
-    de: ["Automatische Filterung", "Manuelle Moderation", "Lokalen Datenschutzscan aktivieren", "Ausgewogen", "Ein Wert pro Zeile", "Falle für kompromittierte Konten"],
+    fr: ["Mots bloqués", "Valider avant d’afficher", "Activer l’analyse locale de confidentialité", "Équilibré", "Une valeur par ligne", "Piège à compte compromis"],
+    es: ["Palabras bloqueadas", "Aprobar antes de mostrar", "Activar el análisis local de privacidad", "Equilibrado", "Un valor por línea", "Trampa para cuentas comprometidas"],
+    de: ["Gesperrte Wörter", "Vor dem Anzeigen freigeben", "Lokalen Datenschutzscan aktivieren", "Ausgewogen", "Ein Wert pro Zeile", "Falle für kompromittierte Konten"],
   };
   const keys = [
-    "automaticFilterWords", "manualModeration", "privacyScanEnabled",
+    "modPartWords", "modPartManual", "privacyScanEnabled",
     "privacyProfileBalanced", "privacyCustomPatternsPlaceholder", "honeypotChannel",
   ];
 
@@ -153,7 +154,7 @@ test("moderation translations are explicit and localized in every language", () 
   }
 
   assert.equal(translations.fr.allowAudio, "Audio");
-  assert.match(translations.fr.privacyProtectionHelp, /détectées/);
+  assert.match(translations.fr.modPartPrivacyHelp, /données privées/);
   assert.match(translations.es.privacyCategories, /Categorías/);
   assert.match(translations.de.privacyCategoryMetadata, /Metadaten/);
 });

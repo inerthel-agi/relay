@@ -28,10 +28,16 @@ pub const MAX_PACK_EXCLUSIONS: usize = 200;
 const DISCORD_EPOCH_MS: u64 = 1_420_070_400_000;
 const DAY_MS: u64 = 86_400_000;
 const RUNTIME_ENTRY_LIMIT: usize = 2_000;
-const DUPLICATE_WINDOW_MS: u64 = 10 * 60 * 1_000;
+/// Longest repeated-media window the panel accepts; recent media are kept that long.
+const MAX_DUPLICATE_WINDOW_SECONDS: u16 = 3_600;
+const MIN_DUPLICATE_WINDOW_SECONDS: u16 = 5;
 const RAID_WINDOW_MS: u64 = 60 * 1_000;
 const VERDICT_TTL_MS: u64 = 10 * 60 * 1_000;
 const WARNING_INTERVAL_MS: u64 = 10 * 60 * 1_000;
+/// One cooldown notice per member per minute, and a few per minute in all, so
+/// a spammer or a raid cannot make the bot flood the channel.
+const COOLDOWN_NOTICE_INTERVAL_MS: u64 = 60 * 1_000;
+const COOLDOWN_NOTICES_PER_MINUTE: usize = 5;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -79,8 +85,13 @@ pub struct ModerationSettings {
     pub filter_usernames: bool,
     pub filter_music_titles: bool,
     pub user_cooldown_seconds: u16,
+    /// Tell a member, in a reply that deletes itself, that a message sent too
+    /// soon after the previous one was not shown.
+    pub cooldown_notice: bool,
     pub raid_limit_per_minute: u16,
     pub block_duplicates: bool,
+    /// How long the same media stays ignored after it was shown.
+    pub duplicate_window_seconds: u16,
     pub block_text_spam: bool,
     pub min_account_age_days: u16,
     pub min_member_age_days: u16,
@@ -119,8 +130,10 @@ impl Default for ModerationSettings {
             filter_usernames: true,
             filter_music_titles: true,
             user_cooldown_seconds: 0,
+            cooldown_notice: true,
             raid_limit_per_minute: 0,
             block_duplicates: false,
+            duplicate_window_seconds: 60,
             block_text_spam: false,
             min_account_age_days: 0,
             min_member_age_days: 0,
@@ -170,6 +183,13 @@ impl ModerationSettings {
         }
         if self.user_cooldown_seconds > 3_600 {
             bail!("The delay between two messages must be between 0 and 3600 seconds.");
+        }
+        if !(MIN_DUPLICATE_WINDOW_SECONDS..=MAX_DUPLICATE_WINDOW_SECONDS)
+            .contains(&self.duplicate_window_seconds)
+        {
+            bail!(
+                "The repeated media window must be between {MIN_DUPLICATE_WINDOW_SECONDS} and {MAX_DUPLICATE_WINDOW_SECONDS} seconds."
+            );
         }
         if self.raid_limit_per_minute > 120 {
             bail!("The raid limit must be between 0 and 120 media per minute.");
@@ -494,6 +514,8 @@ pub struct ModerationRuntime {
     recent_media: VecDeque<(String, u64)>,
     blocks: HashMap<u64, VecDeque<u64>>,
     warned: HashMap<u64, u64>,
+    cooldown_noticed: HashMap<u64, u64>,
+    cooldown_notices: VecDeque<u64>,
     verdicts: HashMap<String, MessageVerdict>,
     /// OBS stream state seen by the last live-mode check.
     pub live_streaming: bool,
@@ -589,9 +611,10 @@ impl ModerationRuntime {
             return Some(reason);
         }
         if settings.block_duplicates && lane == Lane::Media && !input.media_keys.is_empty() {
+            let window_ms = u64::from(settings.duplicate_window_seconds) * 1_000;
             let duplicate = input.media_keys.iter().all(|key| {
                 self.recent_media.iter().any(|(recent, at)| {
-                    recent == key && input.now_ms.saturating_sub(*at) < DUPLICATE_WINDOW_MS
+                    recent == key && input.now_ms.saturating_sub(*at) < window_ms
                 })
             });
             if duplicate {
@@ -695,15 +718,39 @@ impl ModerationRuntime {
         }
     }
 
+    /// Whether a member ignored by the cooldown may be told now; counts it if so.
+    pub fn cooldown_notice_due(&mut self, user_id: u64, now_ms: u64) -> bool {
+        self.prune_cooldown_notices(now_ms);
+        if self.cooldown_noticed.contains_key(&user_id)
+            || self.cooldown_notices.len() >= COOLDOWN_NOTICES_PER_MINUTE
+        {
+            return false;
+        }
+        self.cooldown_noticed.insert(user_id, now_ms);
+        self.cooldown_notices.push_back(now_ms);
+        true
+    }
+
+    fn prune_cooldown_notices(&mut self, now_ms: u64) {
+        self.cooldown_noticed
+            .retain(|_, at| now_ms.saturating_sub(*at) < COOLDOWN_NOTICE_INTERVAL_MS);
+        while self
+            .cooldown_notices
+            .front()
+            .is_some_and(|at| now_ms.saturating_sub(*at) >= COOLDOWN_NOTICE_INTERVAL_MS)
+        {
+            self.cooldown_notices.pop_front();
+        }
+    }
+
     fn prune(&mut self, now_ms: u64) {
+        self.prune_cooldown_notices(now_ms);
         let keep_ms = 3_600_000;
         self.last_accepted
             .retain(|_, at| now_ms.saturating_sub(*at) < keep_ms);
-        while self
-            .recent_media
-            .front()
-            .is_some_and(|(_, at)| now_ms.saturating_sub(*at) >= DUPLICATE_WINDOW_MS)
-            || self.recent_media.len() > RUNTIME_ENTRY_LIMIT
+        while self.recent_media.front().is_some_and(|(_, at)| {
+            now_ms.saturating_sub(*at) >= u64::from(MAX_DUPLICATE_WINDOW_SECONDS) * 1_000
+        }) || self.recent_media.len() > RUNTIME_ENTRY_LIMIT
         {
             self.recent_media.pop_front();
         }

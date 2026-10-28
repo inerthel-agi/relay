@@ -223,6 +223,89 @@
   --out-line: #ffffff;
 }
 
+/* Midnight: deep blue card with a soft accent wash. Outputs never use blurred shadows (OBS halo). */
+:root[data-output-style="midnight"] {
+  --out-surface: #0d1430;
+  --out-surface-image: radial-gradient(circle at 85% 0%, color-mix(in srgb, var(--accent) 28%, transparent), transparent 60%);
+  --out-ink: #eaeefe;
+  --out-muted: #a3acd0;
+  --out-line: #2a3666;
+  --out-radius: 20px;
+  --out-radius-inner: 14px;
+  --out-radius-pill: 14px;
+  --out-font: "Relay Output Inter", "Segoe UI", sans-serif;
+  --out-enter-from: scale(0.97);
+  --out-enter-duration: 240ms;
+}
+
+:root[data-output-style="midnight"][data-output-background="light"] {
+  --out-surface: #eef1ff;
+  --out-surface-image: radial-gradient(circle at 85% 0%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 60%);
+  --out-ink: #10173a;
+  --out-muted: #4b5582;
+  --out-line: #c9d0f2;
+}
+
+/* Ember: black card with a warm orange glow and a gradient name tag. */
+:root[data-output-style="ember"] {
+  --out-surface: #13100e;
+  --out-surface-image: radial-gradient(circle at 100% 100%, rgb(255 98 31 / 30%), transparent 60%);
+  --out-ink: #f8efe8;
+  --out-muted: #b9a89c;
+  --out-line: #3a2e28;
+  --out-radius: 14px;
+  --out-font: "Relay Output Space Grotesk", "Segoe UI", sans-serif;
+  --out-name-bg: linear-gradient(135deg, #ffb066, #ff6a2b);
+  --out-name-ink: #160a04;
+  --out-name-pad: 1px 6px;
+}
+
+:root[data-output-style="ember"][data-output-background="light"] {
+  --out-surface: #fff6ef;
+  --out-surface-image: radial-gradient(circle at 100% 100%, rgb(255 98 31 / 18%), transparent 60%);
+  --out-ink: #2b1a10;
+  --out-muted: #7a5b47;
+  --out-line: #f0d6c3;
+}
+
+/* Dawn: warm card with a peach wash, rounder corners. */
+:root[data-output-style="dawn"] {
+  --out-surface: #221c18;
+  --out-surface-image: radial-gradient(circle at 85% 0%, rgb(255 140 90 / 20%), transparent 60%);
+  --out-ink: #f6ece3;
+  --out-muted: #c3b2a4;
+  --out-line: #3a312a;
+  --out-radius: 22px;
+  --out-radius-inner: 16px;
+  --out-radius-pill: 999px;
+  --out-font: "Relay Output DM Sans", "Segoe UI", sans-serif;
+}
+
+:root[data-output-style="dawn"][data-output-background="light"] {
+  --out-surface: #fffdf9;
+  --out-surface-image: radial-gradient(circle at 85% 0%, rgb(255 178 140 / 40%), transparent 60%);
+  --out-ink: #2a211b;
+  --out-muted: #6f6157;
+  --out-line: #e8dccf;
+}
+
+/* Cloud: plain card, soft line, Manrope. */
+:root[data-output-style="cloud"] {
+  --out-surface: #171b23;
+  --out-ink: #eef1f6;
+  --out-muted: #a3abba;
+  --out-line: #2c3340;
+  --out-radius: 16px;
+  --out-font: "Relay Output Manrope", "Segoe UI", sans-serif;
+}
+
+:root[data-output-style="cloud"][data-output-background="light"] {
+  --out-surface: #ffffff;
+  --out-ink: #161b26;
+  --out-muted: #5c6577;
+  --out-line: #dfe4ec;
+}
+
 /* Subtitle: no card, outlined text over the game. */
 :root[data-output-style="subtitle"] {
   --out-surface: transparent;

@@ -28,8 +28,10 @@ function fixture() {
       const input = element(id);
       input.type = tag.match(/type="([^"]+)"/)?.[1] || "text";
       input.value = tag.match(/value="([^"]*)"/)?.[1] || "";
-      input.form = form;
-      form?.controls.push(input);
+      // Like the browser, a form="…" attribute attaches a control placed elsewhere in the page.
+      const owner = tag.match(/\bform="([^"]+)"/)?.[1];
+      input.form = owner ? forms.get(owner) : form;
+      input.form?.controls.push(input);
     }
   }
   const context = {
@@ -45,7 +47,7 @@ function fixture() {
     populateChannels: (input, channels, selected) => { input.value = selected || ""; },
     applyNotificationSoundConfig() {}, updateBotActivityAvailability() {},
     customCommandsUi: undefined,
-    applyOutputGeometryConfig() {}, updateSkipShortcutDisplay() {}, updatePanicShortcutDisplay() {}, moderationUi: { applyAdvancedEdits: (concepts) => concepts, readDraft: (settings) => settings, fillForm() {}, pendingTextCount: () => 0, decorateQueueItem() {}, renderTexts() {} }, obsSetup: undefined,
+    applyOutputGeometryConfig() {}, updateSkipShortcutDisplay() {}, updatePanicShortcutDisplay() {}, moderationUi: { applyAdvancedEdits: (concepts) => concepts, readDraft: (settings) => settings, readAiDraft: (settings) => settings, fillForm() {}, pendingTextCount: () => 0, decorateQueueItem() {}, renderTexts() {} }, obsSetup: undefined,
   };
   for (const match of source.matchAll(/const (\w+) = \$\("#([^"]+)"\);/g)) {
     context[match[1]] = forms.get(match[2]) || element(match[2]);
@@ -292,7 +294,7 @@ test("credential status refreshes do not erase unsubmitted input", () => {
   const context = vm.createContext({
     tokenElement: token, youtubeApiKeyElement: key, clientIdElement: client,
     credentialStateElement: {}, setSaveState() {}, updateYoutubeKeyStatus() {}, t: (value) => value,
-    moderationUi: { applyAdvancedEdits: (concepts) => concepts, readDraft: (settings) => settings, fillForm() {}, pendingTextCount: () => 0, decorateQueueItem() {}, renderTexts() {} }, obsSetup: undefined, $: () => ({}),
+    moderationUi: { applyAdvancedEdits: (concepts) => concepts, readDraft: (settings) => settings, readAiDraft: (settings) => settings, fillForm() {}, pendingTextCount: () => 0, decorateQueueItem() {}, renderTexts() {} }, obsSetup: undefined, $: () => ({}),
   });
   vm.runInContext(source.slice(source.indexOf("function setCredentials"), source.indexOf("function updateYoutubeKeyStatus")), context);
   context.setCredentials({ configured: true, source: "Windows", clientId: "saved-client" });

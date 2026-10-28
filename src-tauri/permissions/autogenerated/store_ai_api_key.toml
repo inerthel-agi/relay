@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-store-ai-api-key"
+description = "Enables the store_ai_api_key command without any pre-configured scope."
+commands.allow = ["store_ai_api_key"]
+
+[[permission]]
+identifier = "deny-store-ai-api-key"
+description = "Denies the store_ai_api_key command without any pre-configured scope."
+commands.deny = ["store_ai_api_key"]

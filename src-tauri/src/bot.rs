@@ -532,6 +532,85 @@ async fn block_and_delete_message_if_needed(
     true
 }
 
+/// AI image check of one media of a member, after the local scan. Returns
+/// true when it blocked the whole message. A hold applies to the parts of the
+/// message not yet submitted; a relay that cleared an unfinished local scan
+/// settles `report`.
+async fn ai_image_check(
+    core: &Arc<AppCore>,
+    http: &Http,
+    message: &Message,
+    staff: bool,
+    candidate: (MediaKind, &str, &str, Option<&[u8]>),
+    report: &mut privacy::PrivacyReport,
+) -> bool {
+    use crate::ai::image_guard::{self, Candidate, Outcome};
+    let message_id = message.id.to_string();
+    let trusted = core
+        .moderation_verdict(&message_id)
+        .is_some_and(|verdict| verdict.trusted);
+    if staff || trusted {
+        return false;
+    }
+    let (kind, url, proxy_url, bytes) = candidate;
+    let config = {
+        let config = core.config.read().await;
+        if !image_guard::active(&config.ai) {
+            return false;
+        }
+        let mut config = config.clone();
+        // A public library GIF cannot show the poster's personal data; it is
+        // still checked for harmful content.
+        if is_gif_library_url(url) {
+            config.ai.personal_data_relay = false;
+        }
+        config
+    };
+    let language = core.interface_preferences.read().await.language.clone();
+    let outcome = image_guard::check(
+        &config,
+        Candidate {
+            kind,
+            url,
+            proxy_url,
+            bytes,
+            report,
+        },
+        &language,
+    )
+    .await;
+    match outcome {
+        Outcome::Skip | Outcome::Clear => false,
+        Outcome::Release => {
+            *report = privacy::PrivacyReport {
+                config_signature: report.config_signature,
+                ..privacy::PrivacyReport::safe()
+            };
+            false
+        }
+        Outcome::Hold(reason) => {
+            core.hold_message_for_review(&message_id, reason);
+            false
+        }
+        Outcome::Block(reason) => {
+            if config.ai.image_guard_delete_message
+                && message
+                    .channel_id
+                    .delete_message(http, message.id)
+                    .await
+                    .is_err()
+            {
+                core.bot_status.write().await.error = Some(
+                    "AI image deletion failed. Verify Manage Messages in this channel.".into(),
+                );
+            }
+            let report = privacy::PrivacyReport::suspicious(reason);
+            follow_up_block(core, http, message, &report, &config).await;
+            true
+        }
+    }
+}
+
 /// Logs a block, then warns or times out the author when those options are on.
 async fn follow_up_block(
     core: &Arc<AppCore>,
@@ -860,8 +939,11 @@ async fn relay_channel_message(
         let (privacy_report, bytes) =
             inspect_sticker(&url, format, Some(&sticker_text), &scoped_config).await;
         let current_config = core.config.read().await.clone();
-        let current_scoped_config = privacy::scoped_config_for_roles(&current_config, role_ids);
-        let privacy_report =
+        let current_scoped_config = crate::moderation::scope_config(
+            privacy::scoped_config_for_roles(&current_config, role_ids),
+            crate::moderation::Lane::Media,
+        );
+        let mut privacy_report =
             reclassify_privacy_report(privacy_report, &sticker_text, &current_scoped_config);
         if block_and_delete_message_if_needed(
             core,
@@ -871,6 +953,15 @@ async fn relay_channel_message(
             &current_scoped_config,
         )
         .await
+            || ai_image_check(
+                core,
+                http,
+                message,
+                staff,
+                (MediaKind::Image, &url, &url, bytes.as_deref()),
+                &mut privacy_report,
+            )
+            .await
         {
             cancel_stage_tickets(core, &stage_tickets).await;
             return;
@@ -958,8 +1049,11 @@ async fn relay_channel_message(
             );
         }
         let current_config = core.config.read().await.clone();
-        let current_scoped_config = privacy::scoped_config_for_roles(&current_config, role_ids);
-        let privacy_report =
+        let current_scoped_config = crate::moderation::scope_config(
+            privacy::scoped_config_for_roles(&current_config, role_ids),
+            crate::moderation::Lane::Media,
+        );
+        let mut privacy_report =
             reclassify_privacy_report(privacy_report, &attachment_text, &current_scoped_config);
         if block_and_delete_message_if_needed(
             core,
@@ -969,6 +1063,15 @@ async fn relay_channel_message(
             &current_scoped_config,
         )
         .await
+            || ai_image_check(
+                core,
+                http,
+                message,
+                staff,
+                (kind, &event.url, &event.proxy_url, None),
+                &mut privacy_report,
+            )
+            .await
         {
             cancel_stage_tickets(core, &stage_tickets).await;
             return;
@@ -1219,7 +1322,7 @@ fn staff_member(owner: bool, permissions: Permissions) -> bool {
 /// Runs the spam, trust and account checks of every lane the message feeds.
 /// Returns false when the message is ignored.
 fn apply_moderation_gate(
-    core: &AppCore,
+    core: &Arc<AppCore>,
     message: &Message,
     role_ids: &[String],
     staff: bool,
@@ -1296,6 +1399,9 @@ fn apply_moderation_gate(
                 reason,
                 Some(message.author.id.to_string()),
             );
+            if reason == "cooldown" {
+                spawn_cooldown_notice(core, message, config);
+            }
             return false;
         }
         // Music has no review queue: holds only apply to media and notifications.
@@ -1314,6 +1420,53 @@ fn apply_moderation_gate(
         },
     );
     true
+}
+
+/// How long the cooldown notice stays in the channel.
+const COOLDOWN_NOTICE_LIFETIME: Duration = Duration::from_secs(10);
+/// Older messages are re-checks (an edit after the verdict expired), not new sends.
+const COOLDOWN_NOTICE_FRESH_MS: u64 = 30_000;
+
+/// Tells a member that a message sent too soon was not shown. Discord has no
+/// ephemeral reply to a plain message, so the notice deletes itself.
+fn spawn_cooldown_notice(core: &Arc<AppCore>, message: &Message, config: &AppConfig) {
+    let settings = &config.moderation;
+    let author = message.author.id;
+    // Only a message the member just typed: not a system message (boost, pin,
+    // thread), and not an old message checked again because it was edited.
+    let typed = matches!(
+        message.kind,
+        MessageType::Regular | MessageType::InlineReply
+    ) && now_ms().saturating_sub(message_timestamp(message)) < COOLDOWN_NOTICE_FRESH_MS;
+    if !settings.cooldown_notice
+        || !typed
+        || !core
+            .moderation
+            .lock()
+            .is_ok_and(|mut runtime| runtime.cooldown_notice_due(author.get(), now_ms()))
+    {
+        return;
+    }
+    let core = core.clone();
+    let channel_id = message.channel_id;
+    let seconds = settings.user_cooldown_seconds;
+    tauri::async_runtime::spawn(async move {
+        let Some(http) = core.discord_http().await else {
+            return;
+        };
+        let language = core.interface_preferences.read().await.language.clone();
+        let notice = CreateMessage::new()
+            .content(format!(
+                "<@{author}> {}",
+                crate::moderation::messages::cooldown_notice(&language, seconds)
+            ))
+            .allowed_mentions(CreateAllowedMentions::new().users([author]));
+        let Ok(sent) = channel_id.send_message(&*http, notice).await else {
+            return;
+        };
+        tokio::time::sleep(COOLDOWN_NOTICE_LIFETIME).await;
+        let _ = channel_id.delete_message(&*http, sent.id).await;
+    });
 }
 
 fn guild_tag_from_user(user: &User) -> Option<GuildTagIdentity> {
@@ -1336,9 +1489,7 @@ fn message_timestamp(message: &Message) -> u64 {
 }
 
 async fn cancel_stage_tickets(core: &AppCore, tickets: &[StageTicket]) {
-    for ticket in tickets {
-        core.cancel_stage_output(*ticket).await;
-    }
+    core.cancel_stage_outputs(tickets).await;
 }
 
 fn sticker_format(format: StickerFormatType) -> (&'static str, &'static str) {
@@ -2853,6 +3004,7 @@ async fn submit_embedded_gifs(
     submit_deferred_embeds(
         core,
         http,
+        (message, staff),
         DeferredEmbedMessage {
             channel_id: message.channel_id.to_string(),
             message_id: message.id.to_string(),
@@ -2871,10 +3023,13 @@ async fn submit_embedded_gifs(
     .await
 }
 
-/// Returns true when the message was blocked.
+/// Returns true when the message was blocked. `source` and `staff` (the
+/// Discord message and whether its author is a moderator) are for the AI
+/// image check.
 async fn submit_deferred_embeds(
     core: &Arc<AppCore>,
     http: &Http,
+    (source, staff): (&Message, bool),
     message: DeferredEmbedMessage,
 ) -> bool {
     if message.author.bot {
@@ -2982,7 +3137,7 @@ async fn submit_deferred_embeds(
         let current_config = core.config.read().await.clone();
         let current_scoped_config =
             privacy::scoped_config_for_roles(&current_config, &message.role_ids);
-        let privacy_report =
+        let mut privacy_report =
             reclassify_privacy_report(privacy_report, &message.content, &current_scoped_config);
         if privacy_action_is_blocked(&privacy_report, &current_scoped_config) {
             delete_deferred_message_if_needed(
@@ -2993,6 +3148,23 @@ async fn submit_deferred_embeds(
                 &current_scoped_config,
             )
             .await;
+            return true;
+        }
+        if ai_image_check(
+            core,
+            http,
+            source,
+            staff,
+            (
+                MediaKind::Gif,
+                &event.url,
+                &event.proxy_url,
+                downloaded.as_deref(),
+            ),
+            &mut privacy_report,
+        )
+        .await
+        {
             return true;
         }
         core.submit_analyzed_media_with_text_and_roles(
