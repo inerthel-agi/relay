@@ -332,7 +332,7 @@ footer a:hover { color: var(--fg); }
       </div>
       <ul class="checks">
         <li><b>Local only.</b> The output server listens on <code>127.0.0.1</code>, never on your network.</li>
-        <li><b>AI only if you ask.</b> Off by default. When you turn it on, content goes only to the provider you chose, with your key and your limits. Personal data found by the local scan is never sent.</li>
+        <li><b>AI only if you ask.</b> Off by default. When you turn it on, content goes to the provider you chose, with your key and your limits. One exception: images checked for sexual, violent or self-harm content go to OpenAI's free moderation filter with your OpenAI key, even if you chose Anthropic. Personal data found by the local scan is never sent.</li>
         <li><b>Secrets protected.</b> Your bot token and AI keys are stored in Windows Credential Manager, not in a file.</li>
         <li><b>Signed updates.</b> Each release is verified with a pinned signature before it installs.</li>
         <li><b>Open source.</b> Read every line on GitHub, under the MIT license.</li>
