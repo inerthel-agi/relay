@@ -10,7 +10,7 @@ import { initializeAutosave, initializeStartWithWindows } from "./autosave.mjs";
 import { initializePanic } from "./panic.mjs";
 import { initializeDiscordCheck } from "./discord-check.mjs";
 import { initializeObsSetup } from "./obs-setup.mjs";
-import { describeTroubleshootAnswer, initializeModerationUi } from "./moderation-ui.mjs";
+import { describeTroubleshootAnswer, initializeModerationUi, queueReasonLabel } from "./moderation-ui.mjs";
 import { initializeStreamStyle, normalizeStreamBackground, normalizeStreamStyle } from "./stream-style.mjs";
 import { initializeNavigationLayout } from "./navigation-layout.mjs";
 import { initializeHelpUi } from "./help-ui.mjs";
@@ -1737,18 +1737,7 @@ function renderModeration() {
     item.querySelector(".history-item__type").textContent = kind.toUpperCase();
     item.querySelector(".history-item__filename").textContent = mediaEvent.filename || kind;
     item.querySelector(".history-item__author").textContent = mediaEvent.author?.username || t("unknownAuthor");
-    const classification = pendingItem.privacyClassification
-      || t("privacyPendingManual");
-    const categories = Array.isArray(pendingItem.privacyCategories)
-      ? pendingItem.privacyCategories.map((category) => String(category)
-        .replace(/([A-Z])/g, " $1")
-        .trim()
-        .toUpperCase())
-      : [];
-    const detected = categories.length > 0
-      ? categories.join(" + ")
-      : (pendingItem.privacyReason || "manual_review").toUpperCase();
-    item.querySelector(".moderation-item__privacy").textContent = `${String(classification).toUpperCase()} · ${detected}`;
+    item.querySelector(".moderation-item__privacy").textContent = queueReasonLabel(pendingItem, t);
     const time = item.querySelector(".history-item__time");
     time.dateTime = new Date(mediaEvent.timestamp).toISOString();
     time.textContent = new Date(mediaEvent.timestamp).toLocaleTimeString(locale, {

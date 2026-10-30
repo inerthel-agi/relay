@@ -5,7 +5,7 @@ const vm = require("node:vm");
 
 const {
   applyAdvancedEdits, capturePresetFields, changedPresetFields, describePresetChanges, describeTestResult, explainReason, filterLogEntries,
-  AI_MODELS, describeAiAdvice, describeAiTest, describeSettingsAnswer, describeTroubleshootAnswer, logActionLabel, mergePresetFields, parseDiscordIds, readOwnPresets, reasonLabel, wordsFromInput,
+  AI_MODELS, describeAiAdvice, describeAiTest, describeSettingsAnswer, describeTroubleshootAnswer, logActionLabel, mergePresetFields, parseDiscordIds, queueReasonLabel, readOwnPresets, reasonLabel, wordsFromInput,
 } = require("../gui/moderation-ui.mjs");
 const { translations } = require("../gui/translations.mjs");
 
@@ -397,6 +397,27 @@ test("images held or blocked by the AI say why and name the switch", () => {
   }
   // The help pace refusal reads in plain words.
   assert.equal(describeTroubleshootAnswer({ state: "failed", cause: "helpCooldown" }, t).join(" ").includes("aiHelpPaceRefused"), true);
+});
+
+test("held media show a translated reason, with the scan's risk level when there is one", () => {
+  assert.equal(queueReasonLabel({}, t), "reasonManual");
+  assert.equal(queueReasonLabel({ privacyClassification: "low", privacyReason: "manual_review" }, t), "low · reasonManual");
+  assert.equal(queueReasonLabel({ privacyClassification: "medium", privacyCategories: ["postalAddress", "phone"], privacyReason: "postal_address" }, t), "medium · privacyCategoryAddress");
+  assert.equal(queueReasonLabel({ privacyClassification: "medium", privacyReason: "ocr_text", holdReason: "new_account" }, t), "reasonNewAccount");
+  // The queue row uses it: a manual-review item once showed the raw code MANUAL_REVIEW.
+  const panelSource = require("./test-source.cjs").panelSource();
+  const nodes = {};
+  const item = { querySelector: (selector) => (nodes[selector] ??= { addEventListener() {} }) };
+  const context = vm.createContext({
+    bootstrap: { config: {}, pendingMedia: [{ id: 1, media: { kind: "image", timestamp: 0 } }] },
+    moderationUi: undefined, moderationListElement: { replaceChildren() {}, append() {} },
+    moderationCountElement: {}, moderationEmptyElement: {}, clearPendingMediaButton: {},
+    moderationItemTemplate: { content: { cloneNode: () => item } },
+    setMediaThumbnail() {}, t, locale: "en", queueReasonLabel,
+  });
+  const render = panelSource.slice(panelSource.indexOf("function renderModeration"), panelSource.indexOf("function populateChannels"));
+  vm.runInContext(`${render}\nrenderModeration();`, context);
+  assert.equal(nodes[".moderation-item__privacy"].textContent, "reasonManual");
 });
 
 test("the decision log shows the Discord name Relay found and keeps the ID for the filter", () => {
