@@ -13,12 +13,6 @@ This changelog is maintained in English. Interface translations are maintained i
 
 ## [Unreleased]
 
-### English
-
-#### Fixed
-
-- Media held for manual review no longer show the internal code MANUAL_REVIEW in the review queue: every held media now shows its reason in the interface language, after the risk level found by the privacy scan when there is one.
-
 ## [1.5.0] - 2026-10-27
 
 ### English
@@ -60,7 +54,7 @@ This changelog is maintained in English. Interface translations are maintained i
 - **One entry per language.** English (UK) and English (India) are merged into English, and Español (Latinoamérica) into Español; a saved regional choice keeps its language.
 - **Tray layout.** Discord and OBS are shown side by side, Open control panel is the main action, and the version is shown under Relay.
 - Section numbers (01, 02…) and moderation letters (A, B…) are removed.
-- Privacy and scan reasons in the queue and the decision log now use translated names (for example "postal addresses" or "incomplete check") instead of internal codes.
+- Privacy, scan and manual review reasons in the queue and the decision log now use translated names (for example "manual review", "postal addresses" or "incomplete check") instead of internal codes.
 
 #### Fixed
 
