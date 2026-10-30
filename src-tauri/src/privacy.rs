@@ -21,7 +21,10 @@ pub const MAX_IMAGE_FRAMES: u32 = 256;
 pub const MAX_ANIMATED_PIXELS: u64 = 500_000_000;
 pub const OCR_TEXT_LIMIT: usize = 8_192;
 pub const PRIVACY_TEXT_LIMIT: usize = 4_096;
-const IMAGE_SCAN_TIMEOUT: Duration = Duration::from_secs(12);
+// The app holds a media whose scan passes 12 s. Tests run the real Windows OCR
+// on shared CI runners, where one scan took about 30 s under load: they get a
+// wide bound that still fails a hung scan.
+const IMAGE_SCAN_TIMEOUT: Duration = Duration::from_secs(if cfg!(test) { 300 } else { 12 });
 const IMAGE_SCAN_CONCURRENCY: usize = 2;
 pub const MAX_CONFIGURED_REGEXES: usize = 100;
 pub const MAX_PRIVACY_LIST_ENTRIES: usize = 100;
