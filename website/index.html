@@ -8,8 +8,17 @@
 <meta name="theme-color" content="#000000">
 <meta property="og:title" content="Relay · Discord to OBS">
 <meta property="og:description" content="Your Discord channel, live on stream. Media, messages, music and reactions, moderated on your PC.">
-<meta property="og:image" content="/relay.jpg">
-<link rel="icon" type="image/jpeg" href="/relay.jpg">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://relay-stream.vercel.app/">
+<meta property="og:image" content="https://relay-stream.vercel.app/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Relay logo: a message card breaking out of a stream frame">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="/favicon.ico" sizes="48x48">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
@@ -20,7 +29,8 @@
   --muted: #8a8a8a;
   --line: #1c1c1c;
   --card: #070707;
-  --accent: #fff;
+  --accent: #58b989; /* Relay green, from branding/GUIDELINES.md */
+  --ink: #111418;
 }
 * { box-sizing: border-box; margin: 0; }
 html { scroll-behavior: smooth; }
@@ -36,22 +46,23 @@ code, .mono { font-family: "JetBrains Mono", ui-monospace, monospace; font-size:
 .wrap { max-width: 1080px; margin: 0 auto; padding: 0 16px; }
 
 nav { display: flex; align-items: center; justify-content: space-between; padding: 20px 0; }
-nav .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; text-decoration: none; }
-nav .brand img { width: 28px; height: 28px; border-radius: 6px; }
+nav .brand { display: flex; text-decoration: none; }
+nav .brand img { display: block; width: 124px; height: auto; }
 nav .links { display: flex; gap: 24px; font-size: 14px; color: var(--muted); }
 nav .links a { text-decoration: none; }
 nav .links a:hover { color: var(--fg); }
 
 .hero { text-align: center; padding: 72px 0 96px; }
-.radar { position: relative; width: 200px; height: 200px; margin: 0 auto 40px; }
-.radar img { width: 100%; height: 100%; position: relative; z-index: 1; }
-.radar::before, .radar::after {
-  content: ""; position: absolute; inset: 18%; border-radius: 50%;
-  border: 1px solid rgba(255,255,255,.35);
-  animation: ping 3s ease-out infinite;
-}
-.radar::after { animation-delay: 1.5s; }
-@keyframes ping { from { transform: scale(1); opacity: .8; } to { transform: scale(2.2); opacity: 0; } }
+/* Hero mark: the message card slides out of the stream frame once, then the logo stays as drawn. */
+.mark { display: block; width: 168px; height: 168px; margin: 0 auto 40px; overflow: visible; }
+.mark .frame { animation: frame-in .6s ease-out both; }
+.mark .card { transform-origin: 90px 182px; animation: card-out .9s cubic-bezier(.2,.8,.2,1) .35s both; }
+@keyframes frame-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes card-out { from { opacity: 0; transform: translate(62px, -58px) scale(.6); } 40% { opacity: 1; } to { opacity: 1; transform: none; } }
+.new { display: inline-flex; align-items: center; gap: 8px; margin-bottom: 24px; padding: 6px 14px; border: 1px solid var(--line); border-radius: 999px;
+  font-size: 13px; color: var(--muted); text-decoration: none; transition: border-color .2s, color .2s; }
+.new b { color: var(--accent); font-weight: 600; white-space: nowrap; }
+.new:hover { color: var(--fg); border-color: #444; }
 h1 { font-size: clamp(40px, 7vw, 76px); line-height: 1.05; letter-spacing: -.03em; }
 h1 span { color: var(--muted); }
 .lede { max-width: 620px; margin: 24px auto 0; color: var(--muted); font-size: 18px; }
@@ -61,8 +72,8 @@ h1 span { color: var(--muted); }
   padding: 14px 24px; border-radius: 999px; font-weight: 600; text-decoration: none;
   border: 1px solid var(--line); transition: border-color .2s, background .2s;
 }
-.btn.primary { background: var(--accent); color: #000; border-color: var(--accent); }
-.btn.primary:hover { background: #d9d9d9; }
+.btn.primary { background: var(--accent); color: var(--ink); border-color: var(--accent); }
+.btn.primary:hover { background: #74c9a0; border-color: #74c9a0; }
 .btn:not(.primary):hover { border-color: #555; }
 .note { margin-top: 16px; font-size: 13px; color: var(--muted); }
 
@@ -118,11 +129,13 @@ footer a:hover { color: var(--fg); }
 @keyframes m2 { 0%, 50% { opacity: 0; transform: translateY(8px); } 53%, 92% { opacity: 1; transform: none; } 97%, 100% { opacity: 0; } }
 
 .relay-node { position: relative; display: grid; justify-items: center; gap: 10px; text-align: center; }
-.relay-node img { width: 64px; height: 64px; border-radius: 50%; animation: pulse 12s infinite; }
-@keyframes pulse { 0%, 12%, 30%, 54%, 72%, 100% { box-shadow: 0 0 0 0 rgba(255,255,255,0); } 16%, 58% { box-shadow: 0 0 0 10px rgba(255,255,255,.25); } 22%, 64% { box-shadow: 0 0 0 22px rgba(255,255,255,0); } }
-.st { position: absolute; top: 76px; font-size: 12px; white-space: nowrap; opacity: 0; }
+/* App icon tile; its border turns green while a post is on stream. */
+.tile { display: grid; place-items: center; width: 72px; height: 72px; border-radius: 18px; background: var(--ink); border: 1px solid #2a2f36; animation: tile 12s infinite; }
+.tile img { width: 52px; height: 52px; }
+@keyframes tile { 0%, 28%, 47%, 66%, 85%, 100% { border-color: #2a2f36; } 30%, 45%, 68%, 83% { border-color: var(--accent); } }
+.st { position: absolute; top: 84px; font-size: 12px; white-space: nowrap; opacity: 0; }
 .st-check { color: var(--muted); animation: check 12s infinite; }
-.st-ok { color: #5ec48f; animation: ok 12s infinite; }
+.st-ok { color: var(--accent); animation: ok 12s infinite; }
 @keyframes check { 0%, 12% { opacity: 0; } 14%, 26% { opacity: 1; } 28%, 54% { opacity: 0; } 56%, 64% { opacity: 1; } 66%, 100% { opacity: 0; } }
 @keyframes ok { 0%, 27% { opacity: 0; } 29%, 46% { opacity: 1; } 48%, 65% { opacity: 0; } 67%, 84% { opacity: 1; } 86%, 100% { opacity: 0; } }
 
@@ -144,7 +157,7 @@ footer a:hover { color: var(--fg); }
 .tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
 .tabs button { font: inherit; font-size: 14px; color: var(--muted); background: none; border: 1px solid var(--line); border-radius: 999px; padding: 8px 16px; cursor: pointer; }
 .tabs button:hover { color: var(--fg); border-color: #444; }
-.tabs button[aria-selected="true"] { color: #000; background: var(--fg); border-color: var(--fg); }
+.tabs button[aria-selected="true"] { color: var(--ink); background: var(--accent); border-color: var(--accent); }
 .shot { background: var(--card); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; margin: 0 0 12px; }
 .shot img { display: block; width: 100%; height: auto; }
 .shot figcaption { padding: 14px 18px; font-size: 14px; color: var(--muted); border-top: 1px solid var(--line); }
@@ -162,11 +175,6 @@ footer a:hover { color: var(--fg); }
   color: #b9f2d3; background: rgba(8,24,16,.95); border: 1px solid #1f6b47; opacity: 0; transform: translateY(8px); transition: opacity .3s, transform .3s; }
 .toast.show { opacity: 1; transform: none; }
 .tabs button { transition: color .2s, background .2s, border-color .2s; }
-
-/* Radar sweep over the logo circle */
-.radar .sweep { position: absolute; inset: 19%; z-index: 2; border-radius: 50%; mix-blend-mode: screen; pointer-events: none;
-  background: conic-gradient(from 0deg, transparent 0 290deg, rgba(255,255,255,.35) 360deg); animation: spin 4s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
 
 /* Reveal on scroll (class added by script only, so no-JS shows everything) */
 .rv { opacity: 0; transform: translateY(22px); transition: opacity .7s ease, transform .7s ease; }
@@ -186,14 +194,14 @@ footer a:hover { color: var(--fg); }
   .grid { grid-template-columns: 1fr; }
   nav .links a:not(:last-child) { display: none; }
   .hero { padding: 40px 0 64px; }
-  .radar { width: 150px; height: 150px; }
+  .mark { width: 128px; height: 128px; }
+  .new span { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .radar::before, .radar::after { animation: none; opacity: 0; }
+  .mark .frame, .mark .card { animation: none; }
   .msg, .o-media, .o-note, .st-ok { animation: none; opacity: 1; }
-  .radar .sweep { animation: none; opacity: 0; }
   .rv { opacity: 1; transform: none; transition: none; }
-  .relay-node img, .st-check { animation: none; }
+  .tile, .st-check { animation: none; }
   html { scroll-behavior: auto; }
 }
 </style>
@@ -201,7 +209,7 @@ footer a:hover { color: var(--fg); }
 <body>
 <header class="wrap">
   <nav>
-    <a class="brand" href="#"><img src="/relay.jpg" alt="">Relay</a>
+    <a class="brand" href="#"><img src="/logo.svg" width="124" height="46" alt="Relay"></a>
     <div class="links">
       <a href="#how">Demo</a>
       <a href="#screens">Panel</a>
@@ -214,7 +222,11 @@ footer a:hover { color: var(--fg); }
 
 <main>
   <div class="wrap hero">
-    <div class="radar"><img src="/relay.jpg" alt="Relay logo"><span class="sweep"></span></div>
+    <svg class="mark" viewBox="0 0 256 256" role="img" aria-label="Relay logo">
+      <path class="frame" fill="#fff" d="M34 138 V74 A40 40 0 0 1 74 34 H198 A40 40 0 0 1 238 74 V154 A40 40 0 0 1 198 194 H174 V170 H198 A16 16 0 0 0 214 154 V74 A16 16 0 0 0 198 58 H74 A16 16 0 0 0 58 74 V138 Z"/>
+      <path class="card" fill="#58B989" fill-rule="evenodd" d="M38 150 H142 A20 20 0 0 1 162 170 V194 A20 20 0 0 1 142 214 H38 A20 20 0 0 1 18 194 V170 A20 20 0 0 1 38 150 Z M50 168 A14 14 0 1 1 50 196 A14 14 0 1 1 50 168 Z M88 176 H134 A6 6 0 0 1 140 182 V182 A6 6 0 0 1 134 188 H88 A6 6 0 0 1 82 182 V182 A6 6 0 0 1 88 176 Z"/>
+    </svg>
+    <a class="new" href="https://github.com/inerthel-agi/relay/blob/main/CHANGELOG.md"><b>New in 1.5</b><span>Control room, AI image check, new look</span>→</a>
     <h1>Your Discord channel,<br><span>live on stream.</span></h1>
     <p class="lede">Relay is a free Windows app that sends the images, GIFs, videos, sounds and messages from one Discord channel to OBS and to desktop widgets. You stay in control of what goes on screen.</p>
     <div class="cta">
@@ -237,7 +249,7 @@ footer a:hover { color: var(--fg); }
           </div>
         </div>
         <div class="relay-node">
-          <img src="/relay.jpg" alt="">
+          <span class="tile"><img src="/symbol.svg" alt=""></span>
           <span class="st st-check">Checking…</span>
           <span class="st st-ok">On stream ✓</span>
         </div>
@@ -267,27 +279,29 @@ footer a:hover { color: var(--fg); }
       <h2>Everything in one place.</h2>
       <div class="tabs" role="tablist">
         <button role="tab" aria-selected="true" data-page="overview">Overview</button>
+        <button role="tab" aria-selected="false" data-page="live">Control room</button>
         <button role="tab" aria-selected="false" data-page="moderation">Moderation</button>
-        <button role="tab" aria-selected="false" data-page="overlay">OBS &amp; widgets</button>
-        <button role="tab" aria-selected="false" data-page="history">History</button>
+        <button role="tab" aria-selected="false" data-page="ai">AI assistant</button>
+        <button role="tab" aria-selected="false" data-page="overlay">Outputs</button>
         <button role="tab" aria-selected="false" data-page="discord">Discord</button>
-        <button role="tab" aria-selected="false" data-page="personalization">Personalization</button>
+        <button role="tab" aria-selected="false" data-page="personalization">Settings</button>
       </div>
       <figure class="shot">
         <div class="pane__bar"><span class="dots"><i></i><i></i><i></i></span>Relay</div>
         <div class="screen" id="screen">
-          <img class="on" data-page="overview" src="/screens/overview.jpg" width="1440" height="900" alt="Relay control panel: Overview page">
-          <img data-page="moderation" src="/screens/moderation.jpg" width="1440" height="900" alt="Relay control panel: Moderation page">
-          <img data-page="overlay" src="/screens/overlay.jpg" width="1440" height="900" alt="Relay control panel: OBS and widgets page">
-          <img data-page="history" src="/screens/history.jpg" width="1440" height="900" alt="Relay control panel: History page">
-          <img data-page="discord" src="/screens/discord.jpg" width="1440" height="900" alt="Relay control panel: Discord page">
-          <img data-page="personalization" src="/screens/personalization.jpg" width="1440" height="900" alt="Relay control panel: Personalization page">
+          <img class="on" data-page="overview" src="/screens/overview.jpg" width="1440" height="900" alt="Relay control panel: Overview page with the setup checklist">
+          <img data-page="live" src="/screens/live.jpg" width="1440" height="900" alt="Relay control panel: Control room with media and a message waiting for approval" loading="lazy">
+          <img data-page="moderation" src="/screens/moderation.jpg" width="1440" height="900" alt="Relay control panel: Moderation page with four protection levels" loading="lazy">
+          <img data-page="ai" src="/screens/ai.jpg" width="1440" height="900" alt="Relay control panel: AI assistant settings" loading="lazy">
+          <img data-page="overlay" src="/screens/overlay.jpg" width="1440" height="900" alt="Relay control panel: Outputs page" loading="lazy">
+          <img data-page="discord" src="/screens/discord.jpg" width="1440" height="900" alt="Relay control panel: Discord channels" loading="lazy">
+          <img data-page="personalization" src="/screens/personalization.jpg" width="1440" height="900" alt="Relay control panel: Settings page with the designs" loading="lazy">
           <span class="cursor" id="cursor" aria-hidden="true"></span>
           <span class="toast" id="toast" aria-hidden="true">&#10003; Approved &middot; on stream</span>
         </div>
         <figcaption id="shot-cap">Setup checklist: Relay tells you what is left to do.</figcaption>
       </figure>
-      <p class="demo-note">Screenshots of Relay 1.4.1 with sample data. The cursor movement is an animation; click a tab to browse yourself.</p>
+      <p class="demo-note">Screenshots of Relay 1.5.0 with sample data, in the Graphite design. The cursor movement is an animation; click a tab to browse yourself.</p>
     </div>
   </section>
 
@@ -298,13 +312,13 @@ footer a:hover { color: var(--fg); }
       <div class="grid">
         <div class="card"><h3>Media to OBS</h3><p>Images, GIFs from Tenor, Giphy and KLIPY, videos, audio and stickers play in order through one visual and one audio source.</p></div>
         <div class="card"><h3>Message notifications</h3><p>Text posts become visual cards with the author's name and avatar, in OBS or in a desktop widget.</p></div>
-        <div class="card"><h3>Manual moderation</h3><p>Hold media for review and approve or reject each one from the panel. Nothing reaches the stream without your click.</p></div>
+        <div class="card"><h3>Control room</h3><p>Approve or reject held media and messages from one page while you stream. Skip with <code>Ctrl+Alt+S</code>; Panic clears every output in one click.</p></div>
         <div class="card"><h3>Anti-doxxing scanner</h3><p>A local scanner reads text in images and checks metadata to catch personal information before it is shown.</p></div>
+        <div class="card"><h3>Optional AI check</h3><p>With your own OpenAI or Anthropic key, block harmful images before they appear and get advice on held messages. Off by default; the AI can make mistakes.</p></div>
         <div class="card"><h3>YouTube music</h3><p>Viewers request songs from a dedicated channel. You reorder or remove them from the queue.</p></div>
         <div class="card"><h3>Sounds &amp; reactions</h3><p>Trigger short sounds with an image or GIF, with cooldowns and allowed roles you choose.</p></div>
         <div class="card"><h3>Desktop widgets</h3><p>Transparent, always-on-top windows for media and notifications. Drag, lock, click through.</p></div>
-        <div class="card"><h3>Panic button</h3><p>One click clears every output and pauses new playback. <code>Ctrl+Alt+S</code> skips from anywhere.</p></div>
-        <div class="card"><h3>Your look, your language</h3><p>True-black theme, any accent color, adjustable font size, and an interface in 10 languages.</p></div>
+        <div class="card"><h3>Your look, your language</h3><p>Ten designs, any accent color, Simple or Advanced mode, and an interface in 13 languages.</p></div>
       </div>
     </div>
   </section>
@@ -313,12 +327,13 @@ footer a:hover { color: var(--fg); }
     <div class="wrap split">
       <div>
         <p class="eyebrow">Privacy by design</p>
-        <h2>It runs on your PC. It stays on your PC.</h2>
-        <p style="color:var(--muted)">No account, no cloud service, no tracking. The bot only needs to read the channels you pick.</p>
+        <h2>It runs on your PC. You decide what leaves it.</h2>
+        <p style="color:var(--muted)">No Relay account, no Relay cloud, no tracking. The bot only needs to read the channels you pick.</p>
       </div>
       <ul class="checks">
         <li><b>Local only.</b> The output server listens on <code>127.0.0.1</code>, never on your network.</li>
-        <li><b>Secrets protected.</b> Your bot token is stored in Windows Credential Manager, not in a file.</li>
+        <li><b>AI only if you ask.</b> Off by default. When you turn it on, content goes to the provider you chose, with your key and your limits. One exception: images checked for sexual, violent or self-harm content go to OpenAI's free moderation filter with your OpenAI key, even if you chose Anthropic. Personal data found by the local scan is never sent.</li>
+        <li><b>Secrets protected.</b> Your bot token and AI keys are stored in Windows Credential Manager, not in a file.</li>
         <li><b>Signed updates.</b> Each release is verified with a pinned signature before it installs.</li>
         <li><b>Open source.</b> Read every line on GitHub, under the MIT license.</li>
       </ul>
@@ -369,20 +384,21 @@ const tabs = [...document.querySelectorAll(".tabs button")];
 const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const captions = {
   overview: "Setup checklist: Relay tells you what is left to do.",
-  moderation: "Approve or reject each media before it reaches the stream.",
+  live: "Control room: approve or reject what waits, with the AI's opinion when you turn it on.",
+  moderation: "Pick a protection level, then fine-tune each part.",
+  ai: "Optional AI assistant: your provider, your own key, your limits. Off by default.",
   overlay: "See which OBS sources and widgets are connected, and send local tests.",
-  history: "Replay, download or save any recent media.",
-  discord: "Connect the bot and pick its channels. The token stays in Windows Credential Manager.",
-  personalization: "Language, theme, design, accent color and text size.",
+  discord: "Pick the channel for each feature. The token stays in Windows Credential Manager.",
+  personalization: "Ten designs, any accent color, text size and 13 languages.",
 };
 // Cursor targets are % of the 1440x900 screenshot.
 const steps = [
   { page: "overview", x: 60, y: 55 },
-  { page: "moderation", x: 5.9, y: 69.3, click: true },
-  { page: "moderation", x: 91, y: 86.3, click: true, toast: true },
-  { page: "overlay", x: 6.7, y: 55.9, click: true },
-  { page: "history", x: 5, y: 60.8, click: true },
-  { page: "personalization", x: 6.8, y: 82.8, click: true },
+  { page: "live", x: 6.3, y: 36.8, click: true },
+  { page: "live", x: 89.3, y: 56.9, click: true, toast: true },
+  { page: "moderation", x: 5.9, y: 72.6, click: true },
+  { page: "overlay", x: 5.1, y: 63.9, click: true },
+  { page: "personalization", x: 5.2, y: 81.2, click: true },
 ];
 let run = 0, idle;
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));

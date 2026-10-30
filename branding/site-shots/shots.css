@@ -1,0 +1,2 @@
+/* Screenshots only: no page fade or transition caught half-way. */
+*, *::before, *::after { transition: none !important; animation: none !important; }
