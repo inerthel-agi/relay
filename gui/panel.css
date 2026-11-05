@@ -2482,6 +2482,31 @@ input[type="range"] {
   border-top: 1px solid var(--line);
 }
 
+.voice-scan-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.voice-scan-status:has(#voice-scan-state:empty):has(#download-voice-model[hidden]) {
+  display: none;
+}
+
+.notification-sound-choice {
+  margin-top: 14px;
+}
+
+.notification-sound-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.notification-sound-files:has(> :not([hidden])) {
+  margin-top: 10px;
+}
+
 .notification-output-copy {
   margin: 0 0 20px;
 }
@@ -6847,3 +6872,283 @@ button.choice-chip.preset-card span.preset-card__body {
 .design-choice--cloud .design-choice__preview i:first-child { inset: 10px auto 10px 10px; width: 22%; border-radius: 8px; background: #fff; box-shadow: 0 2px 8px rgb(16 24 40 / 10%); }
 .design-choice--cloud .design-choice__preview i:nth-child(2) { top: 10px; right: 10px; width: 58%; height: 26px; border-radius: 8px; background: #fff; box-shadow: 0 2px 8px rgb(16 24 40 / 10%); }
 .design-choice--cloud .design-choice__preview i:last-child { right: 10px; bottom: 10px; width: 58%; height: 14px; border-radius: 8px; background: color-mix(in srgb, var(--accent) 70%, white); }
+
+/* Titanium, Aether, Orbital and Oled. Light is the base; dark overrides under [data-theme="dark"]. */
+/* ---------- Titanium: bento panels with a specular top edge ---------- */
+:root[data-design="titanium"] {
+  --canvas: #f3f4f7;
+  --surface: #ffffff;
+  --surface-subtle: #eceff4;
+  --ink: #0f131a;
+  --muted: #5b6475;
+  --faint: #8992a3;
+  --line: #dcdfe8;
+  --line-strong: #bfc5d4;
+  --inverse: #0f131a;
+  --inverse-ink: #ffffff;
+  --titlebar-bg: #f3f4f7;
+  --titlebar-border: #dcdfe8;
+  --radius-lg: 12px;
+  font-family: "Relay Inter", "Segoe UI", sans-serif;
+}
+:root[data-design="titanium"][data-theme="dark"] {
+  --canvas: #07080a;
+  --surface: #101319;
+  --surface-subtle: #181c26;
+  --ink: #f3f5f8;
+  --muted: #8b95a7;
+  --faint: #596273;
+  --line: #1f2430;
+  --line-strong: #2f3747;
+  --inverse: #f3f5f8;
+  --inverse-ink: #07080a;
+  --titlebar-bg: #07080a;
+  --titlebar-border: #1f2430;
+}
+:root[data-design="titanium"] body {
+  background:
+    radial-gradient(55% 38% at 62% 0%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 70%),
+    var(--canvas);
+}
+:root[data-design="titanium"] .workspace { background: transparent; }
+:root[data-design="titanium"] .panel-section,
+:root[data-design="titanium"] .history-list,
+:root[data-design="titanium"] .help-accordions,
+:root[data-design="titanium"] .about-card,
+:root[data-design="titanium"] .privacy-card {
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 70%), 0 1px 2px rgb(15 19 26 / 6%), 0 6px 18px rgb(15 19 26 / 6%);
+}
+:root[data-design="titanium"][data-theme="dark"] .panel-section,
+:root[data-design="titanium"][data-theme="dark"] .history-list,
+:root[data-design="titanium"][data-theme="dark"] .help-accordions,
+:root[data-design="titanium"][data-theme="dark"] .about-card,
+:root[data-design="titanium"][data-theme="dark"] .privacy-card {
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 7%), 0 8px 24px rgb(0 0 0 / 32%);
+}
+:root[data-design="titanium"] .navigation__item,
+:root[data-design="titanium"] .button,
+:root[data-design="titanium"] input,
+:root[data-design="titanium"] select,
+:root[data-design="titanium"] textarea { border-radius: 10px; }
+:root[data-design="titanium"] h1,
+:root[data-design="titanium"] h2 { font-weight: 700; letter-spacing: -0.03em; }
+
+/* ---------- Aether: spatial acrylic, floating sidebar ---------- */
+:root[data-design="aether"] {
+  --canvas: #eef2f8;
+  --surface: #ffffff;
+  --surface-subtle: #e6ecf5;
+  --ink: #0f172a;
+  --muted: #5b6b88;
+  --faint: #8794ae;
+  --line: #d4deed;
+  --line-strong: #b4c2dc;
+  --inverse: #0f172a;
+  --inverse-ink: #ffffff;
+  --titlebar-bg: #eef2f8;
+  --titlebar-border: #d4deed;
+  --radius-lg: 18px;
+  font-family: "Relay Inter", "Segoe UI", sans-serif;
+}
+:root[data-design="aether"][data-theme="dark"] {
+  --canvas: #060913;
+  --surface: #11182d;
+  --surface-subtle: #18223d;
+  --ink: #f0f4ff;
+  --muted: #98a8cc;
+  --faint: #667599;
+  --line: #233054;
+  --line-strong: #3a4a78;
+  --inverse: #f0f4ff;
+  --inverse-ink: #060913;
+  --titlebar-bg: #060913;
+  --titlebar-border: #233054;
+}
+:root[data-design="aether"] body {
+  background:
+    radial-gradient(60% 45% at 80% 0%, color-mix(in srgb, var(--accent) 20%, transparent), transparent 70%),
+    radial-gradient(45% 40% at 5% 100%, rgb(88 110 255 / 14%), transparent 70%),
+    var(--canvas);
+}
+:root[data-design="aether"] .workspace { background: transparent; }
+:root[data-design="aether"] .sidebar {
+  margin: 8px 0 8px 8px;
+  border: 1px solid rgb(148 168 220 / 16%);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+  backdrop-filter: blur(20px);
+}
+:root[data-design="aether"] .topbar {
+  background: color-mix(in srgb, var(--surface) 60%, transparent);
+  backdrop-filter: blur(20px);
+}
+:root[data-design="aether"] .panel-section,
+:root[data-design="aether"] .history-list,
+:root[data-design="aether"] .help-accordions,
+:root[data-design="aether"] .about-card,
+:root[data-design="aether"] .privacy-card {
+  border-color: rgb(148 168 220 / 18%);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 10%);
+  backdrop-filter: blur(20px);
+}
+:root[data-design="aether"] .navigation__item { border-radius: 12px; }
+:root[data-design="aether"] .button,
+:root[data-design="aether"] input,
+:root[data-design="aether"] select,
+:root[data-design="aether"] textarea { border-radius: 12px; }
+:root[data-design="aether"] h1,
+:root[data-design="aether"] h2 { letter-spacing: -0.03em; }
+
+/* ---------- Orbital: clean sci-fi HUD ---------- */
+:root[data-design="orbital"] {
+  --canvas: #edf3f8;
+  --surface: #f9fcff;
+  --surface-subtle: #e1ecf5;
+  --ink: #0a1929;
+  --muted: #4b6a88;
+  --faint: #7a93ad;
+  --line: #bfd2e3;
+  --line-strong: #8fb0cc;
+  --inverse: #0a1929;
+  --inverse-ink: #f9fcff;
+  --titlebar-bg: #edf3f8;
+  --titlebar-border: #bfd2e3;
+  --radius-lg: 4px;
+  --radius-md: 4px;
+  font-family: "Relay Space Grotesk", "Segoe UI", sans-serif;
+}
+:root[data-design="orbital"][data-theme="dark"] {
+  --canvas: #05080d;
+  --surface: #0b121d;
+  --surface-subtle: #121e30;
+  --ink: #e6f2ff;
+  --muted: #7fa0bf;
+  --faint: #4d6b88;
+  --line: #1c314a;
+  --line-strong: #2b4c70;
+  --inverse: #e6f2ff;
+  --inverse-ink: #05080d;
+  --titlebar-bg: #05080d;
+  --titlebar-border: #1c314a;
+}
+:root[data-design="orbital"] .workspace {
+  background:
+    linear-gradient(color-mix(in srgb, var(--line) 45%, transparent) 1px, transparent 1px) 0 0 / 32px 32px,
+    linear-gradient(90deg, color-mix(in srgb, var(--line) 45%, transparent) 1px, transparent 1px) 0 0 / 32px 32px;
+}
+:root[data-design="orbital"] .panel-section,
+:root[data-design="orbital"] .history-list,
+:root[data-design="orbital"] .help-accordions,
+:root[data-design="orbital"] .about-card,
+:root[data-design="orbital"] .privacy-card {
+  border-radius: 4px;
+  box-shadow: none;
+}
+:root[data-design="orbital"] .navigation__item,
+:root[data-design="orbital"] .button,
+:root[data-design="orbital"] input,
+:root[data-design="orbital"] select,
+:root[data-design="orbital"] textarea { border-radius: 4px; }
+:root[data-design="orbital"] .navigation__item.is-active { box-shadow: inset 2px 0 0 var(--accent); }
+:root[data-design="orbital"] .navigation__item.is-active::before { display: none; }
+:root[data-design="orbital"] h1,
+:root[data-design="orbital"] h2,
+:root[data-design="orbital"] h3,
+:root[data-design="orbital"] .brand__copy strong,
+:root[data-design="orbital"] .kicker,
+:root[data-design="orbital"] .section-number,
+:root[data-design="orbital"] .navigation__group,
+:root[data-design="orbital"] .status-badge,
+:root[data-design="orbital"] .badge {
+  font-family: "Relay JetBrains Mono", Consolas, monospace;
+  letter-spacing: -0.02em;
+}
+
+/* ---------- Oled: absolute black, 1px laser edge ---------- */
+:root[data-design="oled"] {
+  --canvas: #f6f6f7;
+  --surface: #ffffff;
+  --surface-subtle: #ededf0;
+  --ink: #090a0c;
+  --muted: #5c606a;
+  --faint: #8a8e98;
+  --line: #e2e3e8;
+  --line-strong: #c5c7d0;
+  --inverse: #090a0c;
+  --inverse-ink: #ffffff;
+  --titlebar-bg: #f6f6f7;
+  --titlebar-border: #e2e3e8;
+  font-family: "Relay Inter", "Segoe UI", sans-serif;
+}
+:root[data-design="oled"][data-theme="dark"] {
+  --canvas: #000000;
+  --surface: #090a0c;
+  --surface-subtle: #12141a;
+  --ink: #fafafa;
+  --muted: #8e929c;
+  --faint: #525660;
+  --line: #1d2026;
+  --line-strong: #313640;
+  --inverse: #fafafa;
+  --inverse-ink: #000000;
+  --titlebar-bg: #000000;
+  --titlebar-border: #1d2026;
+}
+:root[data-design="oled"] .workspace { background: transparent; }
+:root[data-design="oled"] .panel-section,
+:root[data-design="oled"] .history-list,
+:root[data-design="oled"] .help-accordions,
+:root[data-design="oled"] .about-card,
+:root[data-design="oled"] .privacy-card {
+  border-radius: 14px;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--accent) 32%, transparent);
+}
+:root[data-design="oled"] .button,
+:root[data-design="oled"] .navigation__item { border-radius: 999px; }
+:root[data-design="oled"] input,
+:root[data-design="oled"] select,
+:root[data-design="oled"] textarea { border-radius: 10px; }
+:root[data-design="oled"] .navigation__item.is-active::before { display: none; }
+:root[data-design="oled"] h1,
+:root[data-design="oled"] h2 { letter-spacing: -0.03em; }
+
+/* Design picker thumbnails for the four designs above. */
+.design-choice--titanium .design-choice__preview {
+  border-color: #1f2430;
+  border-radius: 12px;
+  background: radial-gradient(circle at 62% 0%, rgb(120 140 255 / 30%), transparent 55%), #07080a;
+}
+.design-choice--titanium .design-choice__preview i:first-child { inset: 10px auto 10px 10px; width: 24%; border-radius: 8px; background: #101319; box-shadow: inset 0 1px 0 rgb(255 255 255 / 12%); }
+.design-choice--titanium .design-choice__preview i:nth-child(2) { top: 10px; right: 10px; width: 56%; height: 24px; border-radius: 8px; background: #181c26; box-shadow: inset 0 1px 0 rgb(255 255 255 / 12%); }
+.design-choice--titanium .design-choice__preview i:last-child { right: 10px; bottom: 10px; width: 56%; height: 14px; border-radius: 8px; background: #101319; box-shadow: inset 0 1px 0 rgb(255 255 255 / 12%); }
+
+.design-choice--aether .design-choice__preview {
+  border-color: rgb(148 168 220 / 30%);
+  border-radius: 18px;
+  background: radial-gradient(circle at 80% 10%, rgb(110 130 255 / 55%), transparent 50%), #060913;
+}
+.design-choice--aether .design-choice__preview i:first-child { inset: 8px auto 8px 8px; width: 24%; border: 1px solid rgb(148 168 220 / 30%); border-radius: 12px; background: rgb(255 255 255 / 10%); }
+.design-choice--aether .design-choice__preview i:nth-child(2) { top: 14px; right: 12px; width: 52%; height: 8px; border-radius: 999px; background: #dfe6ff; }
+.design-choice--aether .design-choice__preview i:last-child { right: 12px; bottom: 12px; width: 52%; height: 18px; border: 1px solid rgb(148 168 220 / 30%); border-radius: 12px; background: rgb(255 255 255 / 10%); }
+
+.design-choice--orbital .design-choice__preview {
+  border-color: #2b4c70;
+  border-radius: 4px;
+  background: linear-gradient(#1c314a 1px, transparent 1px) 0 0 / 12px 12px, linear-gradient(90deg, #1c314a 1px, transparent 1px) 0 0 / 12px 12px, #05080d;
+}
+.design-choice--orbital .design-choice__preview i:first-child { inset: 8px auto 8px 8px; width: 24%; border: 1px solid #2b4c70; border-radius: 2px; background: #0b121d; box-shadow: inset 2px 0 0 var(--accent); }
+.design-choice--orbital .design-choice__preview i:nth-child(2) { top: 12px; right: 10px; width: 52%; height: 5px; border-radius: 1px; background: #e6f2ff; }
+.design-choice--orbital .design-choice__preview i:last-child { right: 10px; bottom: 10px; width: 30%; height: 12px; border-radius: 2px; background: var(--accent); }
+
+.design-choice--oled .design-choice__preview {
+  border-color: #1d2026;
+  border-radius: 12px;
+  background: #000;
+}
+.design-choice--oled .design-choice__preview i:first-child { inset: 10px auto 10px 10px; width: 22%; border: 1px solid #1d2026; border-radius: 999px; background: #090a0c; }
+.design-choice--oled .design-choice__preview i:nth-child(2) { top: 10px; right: 10px; width: 58%; height: 26px; border-radius: 10px; background: #090a0c; box-shadow: inset 0 1px 0 color-mix(in srgb, var(--accent) 60%, transparent); }
+.design-choice--oled .design-choice__preview i:last-child { right: 10px; bottom: 12px; width: 30%; height: 12px; border-radius: 999px; background: var(--accent); }

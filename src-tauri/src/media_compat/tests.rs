@@ -44,6 +44,43 @@ fn reads_the_duration_ffmpeg_prints() {
     assert_eq!(parse_duration("no description"), None);
 }
 
+#[test]
+fn removes_partial_transcript_when_transcription_exits_early() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join(TRANSCRIPT_FILE);
+    let result: Result<()> = with_transcript_file(path.clone(), |path| {
+        fs::write(path, "partial private transcript")?;
+        bail!("simulated transcription timeout")
+    });
+
+    assert!(result.is_err());
+    assert!(!path.exists());
+}
+
+#[tokio::test]
+async fn a_dropped_transcription_keeps_its_slot_until_the_work_ends() {
+    static SLOT: Semaphore = Semaphore::const_new(1);
+    let (started_tx, started) = std::sync::mpsc::channel();
+    let (finish, finish_rx) = std::sync::mpsc::channel::<()>();
+    let waiting = tokio::spawn(in_slot(&SLOT, move || {
+        started_tx.send(()).unwrap();
+        finish_rx.recv().unwrap();
+    }));
+    tokio::task::spawn_blocking(move || started.recv().unwrap())
+        .await
+        .unwrap();
+    // The bot restarts: the task waiting for the transcription is dropped.
+    waiting.abort();
+    let _ = waiting.await;
+    // FFmpeg is still running: a second transcription must wait.
+    assert!(SLOT.try_acquire().is_err());
+    finish.send(()).unwrap();
+    let permit = tokio::time::timeout(Duration::from_secs(5), SLOT.acquire())
+        .await
+        .expect("the slot is released once the work ends");
+    drop(permit);
+}
+
 /// Runs only where FFmpeg is installed; nothing leaves the PC.
 #[tokio::test]
 async fn takes_three_frames_spread_over_a_video() {
@@ -72,4 +109,52 @@ async fn takes_three_frames_spread_over_a_video() {
     }
     assert_ne!(frames[0], frames[2]);
     assert!(frames_from_bytes(b"not a video".to_vec()).await.is_none());
+}
+
+/// A partial sample cannot stand in for the three frames Relay promises to check.
+#[tokio::test]
+async fn refuses_video_when_ffmpeg_returns_fewer_than_three_sample_frames() {
+    if crate::reaction_trim::ffmpeg_executable().is_none() {
+        return;
+    }
+    let directory = tempfile::tempdir().unwrap();
+    let video = directory.path().join("sparse.webm");
+    let mut command = ffmpeg_command();
+    command
+        .args([
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc=duration=2:size=320x240:rate=2",
+        ])
+        .arg(&video)
+        .stderr(Stdio::null());
+    assert!(command.status().unwrap().success());
+
+    assert!(frames_from_bytes(fs::read(&video).unwrap()).await.is_none());
+}
+
+/// A still GIF or a two-frame animation is checked whole, not held.
+#[tokio::test]
+async fn checks_every_frame_of_a_gif_with_fewer_than_three() {
+    if crate::reaction_trim::ffmpeg_executable().is_none() {
+        return;
+    }
+    let directory = tempfile::tempdir().unwrap();
+    for (name, source, expected) in [
+        ("still.gif", "color=c=red:size=64x64:duration=1:rate=1", 1),
+        ("blink.gif", "testsrc=size=64x64:duration=1:rate=2", 2),
+    ] {
+        let gif = directory.path().join(name);
+        let mut command = ffmpeg_command();
+        command
+            .args(["-loglevel", "error", "-f", "lavfi", "-i", source])
+            .arg(&gif)
+            .stderr(Stdio::null());
+        assert!(command.status().unwrap().success());
+        let frames = frames_from_bytes(fs::read(&gif).unwrap()).await;
+        assert_eq!(frames.map(|frames| frames.len()), Some(expected), "{name}");
+    }
 }

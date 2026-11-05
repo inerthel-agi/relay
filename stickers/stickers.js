@@ -23,7 +23,6 @@ let pendingPort;
 let isUnloading = false;
 let mediaBusy = false;
 let musicActive = false;
-let notificationBusy = false;
 let reportedMediaStageBusy = false;
 let mediaStageClaimPending = false;
 let lastStageClockPayload = {};
@@ -34,8 +33,7 @@ function queueLimit() {
 
 function stageBlocked() {
   return (mediaBusy && !mediaStageClaimPending && !currentSticker)
-    || musicActive
-    || notificationBusy;
+    || musicActive;
 }
 
 function stickerSource(sticker) {
@@ -116,7 +114,6 @@ function resolveMediaStageClaim() {
   if (!mediaStageClaimPending) return;
   if (
     (lastStageClockPayload.granted === false && lastStageClockPayload.lane === "media")
-    || notificationBusy
     || musicActive
   ) {
     mediaStageClaimPending = false;
@@ -160,7 +157,6 @@ function applyStageClock(payload = {}) {
   if (Object.prototype.hasOwnProperty.call(payload, "musicBusy")) {
     musicActive = Boolean(payload.musicBusy);
   }
-  notificationBusy = Boolean(payload.notificationBusy);
   resolveMediaStageClaim();
   if (!stageBlocked() && !currentSticker && !mediaStageClaimPending) playNext();
 }
@@ -229,7 +225,6 @@ function connect() {
     interruptStickerPlayback();
     mediaBusy = false;
     musicActive = false;
-    notificationBusy = false;
     mediaStageClaimPending = false;
     reportedMediaStageBusy = false;
     if (pendingPort) {

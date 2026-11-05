@@ -13,15 +13,18 @@ fn creates_and_round_trips_default_config() {
         music_reject_duplicate_pending: true,
         reactions: crate::reactions::ReactionSettings::default(),
         watched_channel_id: "123456789012345678".into(),
+        extra_relay_channel_ids: vec!["723456789012345678".into()],
         former_message_channel_id: "223456789012345678".into(),
         media_cleanup_enabled: true,
         media_welcome_message_id: "623456789012345678".into(),
         former_message_cleanup_enabled: true,
         former_message_welcome_message_id: String::new(),
         music_channel_id: "323456789012345678".into(),
+        extra_music_channel_ids: vec!["823456789012345678".into()],
         music_cleanup_enabled: true,
         music_welcome_message_id: "523456789012345678".into(),
         honeypot_channel_id: "423456789012345678".into(),
+        extra_honeypot_channel_ids: vec!["923456789012345678".into()],
         honeypot_action: HoneypotAction::Ban,
         port: 5_000,
         display_duration_ms: 4_000,
@@ -53,6 +56,7 @@ fn creates_and_round_trips_default_config() {
         privacy_block_threshold: PrivacyClassification::Critical,
         privacy_review_intermediate: true,
         privacy_auto_delete_blocked_messages: false,
+        voice_scan_enabled: true,
         privacy_allowlist: vec!["public@example.com".into()],
         privacy_custom_patterns: vec!["private alias".into()],
         moderation: crate::moderation::ModerationSettings::default(),
@@ -150,6 +154,7 @@ fn creates_and_round_trips_default_config() {
         notification_sound_enabled: true,
         notification_sound_obs_enabled: true,
         notification_sound_path: Some("C:/sounds/ping.mp3".into()),
+        notification_sound_choice: Some(NotificationSound::Chat),
     };
     store.save(&updated).unwrap();
     assert_eq!(store.load().unwrap(), updated);
@@ -221,7 +226,9 @@ fn accepts_every_panel_language_and_design() {
             "{language}"
         );
     }
-    for design in ["midnight", "ember", "dawn", "cloud"] {
+    for design in [
+        "midnight", "ember", "dawn", "cloud", "titanium", "aether", "orbital", "oled",
+    ] {
         let preferences = InterfacePreferences {
             design: design.into(),
             ..valid.clone()
@@ -936,6 +943,134 @@ fn only_the_relay_channel_feeds_the_unified_flow() {
     assert_eq!(AppConfig::default().channel_feeds(""), None);
 }
 
+const EXTRA_CHANNEL: &str = "623456789012345678";
+
+#[test]
+fn extra_relay_channels_feed_like_the_relay_channel_and_persist() {
+    let config = AppConfig {
+        watched_channel_id: MEDIA_CHANNEL.into(),
+        extra_relay_channel_ids: vec![EXTRA_CHANNEL.into()],
+        music_channel_id: MESSAGE_CHANNEL.into(),
+        ..AppConfig::default()
+    };
+    config.validate().unwrap();
+    assert_eq!(
+        config.channel_feeds(EXTRA_CHANNEL),
+        Some(ChannelFeeds {
+            notifications: true,
+            media: true
+        })
+    );
+    assert!(config.relays_media(EXTRA_CHANNEL));
+    assert!(config.relays_media(MEDIA_CHANNEL));
+    assert!(!config.relays_media(MESSAGE_CHANNEL));
+    assert!(!config.relays_media("523456789012345678"));
+
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("config.json");
+    ConfigStore::new(path.clone()).save(&config).unwrap();
+    assert_eq!(load_three_times(&path), config);
+    // A configuration saved before this setting existed has no extra channel.
+    fs::write(
+        &path,
+        serde_json::json!({ "watchedChannelId": MEDIA_CHANNEL }).to_string(),
+    )
+    .unwrap();
+    assert!(load_three_times(&path).extra_relay_channel_ids.is_empty());
+}
+
+const TRAP_CHANNEL: &str = "823456789012345678";
+const EXTRA_TRAP_CHANNEL: &str = "923456789012345678";
+
+type ChannelList = fn(&mut AppConfig) -> &mut Vec<String>;
+type MainChannel = fn(&mut AppConfig) -> &mut String;
+
+#[test]
+fn extra_relay_music_and_trap_channels_are_validated() {
+    let valid = AppConfig {
+        watched_channel_id: MEDIA_CHANNEL.into(),
+        music_channel_id: MESSAGE_CHANNEL.into(),
+        honeypot_channel_id: TRAP_CHANNEL.into(),
+        ..AppConfig::default()
+    };
+    let kinds: [(ChannelList, MainChannel); 3] = [
+        (
+            |config| &mut config.extra_relay_channel_ids,
+            |config| &mut config.watched_channel_id,
+        ),
+        (
+            |config| &mut config.extra_music_channel_ids,
+            |config| &mut config.music_channel_id,
+        ),
+        (
+            |config| &mut config.extra_honeypot_channel_ids,
+            |config| &mut config.honeypot_channel_id,
+        ),
+    ];
+    for (extras, main) in kinds {
+        let with_extras = |ids: &[&str]| {
+            let mut config = valid.clone();
+            *extras(&mut config) = ids.iter().map(|id| (*id).to_owned()).collect();
+            config
+        };
+        with_extras(&[EXTRA_CHANNEL]).validate().unwrap();
+        // The main channel of the feature and its server stay the reference.
+        let mut without_main = with_extras(&[EXTRA_CHANNEL]);
+        main(&mut without_main).clear();
+        assert!(without_main.validate().is_err());
+        for ids in [
+            &["not-a-channel"][..],
+            &[""],
+            &[EXTRA_CHANNEL, EXTRA_CHANNEL],
+            &[MEDIA_CHANNEL],
+            &[MESSAGE_CHANNEL],
+            &[TRAP_CHANNEL],
+        ] {
+            assert!(with_extras(ids).validate().is_err(), "{ids:?}");
+        }
+        let too_many: Vec<String> = (0..=MAX_EXTRA_CHANNELS)
+            .map(|index| format!("72345678901234567{index}"))
+            .collect();
+        let too_many: Vec<&str> = too_many.iter().map(String::as_str).collect();
+        assert!(with_extras(&too_many).validate().is_err());
+        with_extras(&too_many[..MAX_EXTRA_CHANNELS])
+            .validate()
+            .unwrap();
+    }
+    // One channel cannot serve two features.
+    let mut shared = valid.clone();
+    shared.extra_relay_channel_ids = vec![EXTRA_CHANNEL.into()];
+    shared.extra_honeypot_channel_ids = vec![EXTRA_CHANNEL.into()];
+    assert!(shared.validate().is_err());
+}
+
+#[test]
+fn extra_music_and_trap_channels_are_recognized_and_persist() {
+    let config = AppConfig {
+        music_channel_id: MESSAGE_CHANNEL.into(),
+        extra_music_channel_ids: vec![EXTRA_CHANNEL.into()],
+        honeypot_channel_id: TRAP_CHANNEL.into(),
+        extra_honeypot_channel_ids: vec![EXTRA_TRAP_CHANNEL.into()],
+        ..AppConfig::default()
+    };
+    config.validate().unwrap();
+    assert!(config.is_music_channel(MESSAGE_CHANNEL));
+    assert!(config.is_music_channel(EXTRA_CHANNEL));
+    assert!(!config.is_music_channel(EXTRA_TRAP_CHANNEL));
+    assert!(config.is_honeypot_channel(TRAP_CHANNEL));
+    assert!(config.is_honeypot_channel(EXTRA_TRAP_CHANNEL));
+    assert!(!config.is_honeypot_channel(EXTRA_CHANNEL));
+    assert!(!AppConfig::default().is_music_channel(""));
+    assert!(!AppConfig::default().is_honeypot_channel(""));
+    // An extra music channel feeds neither notifications nor media.
+    assert_eq!(config.channel_feeds(EXTRA_CHANNEL), None);
+
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("config.json");
+    ConfigStore::new(path.clone()).save(&config).unwrap();
+    assert_eq!(load_three_times(&path), config);
+}
+
 #[test]
 fn legacy_directory_migration_never_brings_back_a_former_message_channel() {
     let root = tempfile::tempdir().unwrap();
@@ -1100,4 +1235,30 @@ fn the_maximum_media_size_defaults_to_the_whole_source_and_is_bounded() {
         geometry.max_size = size;
         assert!(geometry.validate().is_err(), "{size}");
     }
+}
+
+#[test]
+fn a_file_chosen_before_sound_choices_stays_the_notification_sound() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("config.json");
+    fs::write(&path, r#"{"notificationSoundPath":"C:/sounds/ping.mp3"}"#).unwrap();
+    let config = load_three_times(&path);
+    assert_eq!(config.notification_sound(), NotificationSound::Custom);
+    assert_eq!(config.notification_sound_choice, None);
+    assert_eq!(
+        config.notification_sound_path.as_deref(),
+        Some("C:/sounds/ping.mp3")
+    );
+    // Without a file, Relay's soft sound plays; an explicit choice wins.
+    assert_eq!(
+        AppConfig::default().notification_sound(),
+        NotificationSound::Soft
+    );
+    let chat = AppConfig {
+        notification_sound_choice: Some(NotificationSound::Chat),
+        ..config
+    };
+    assert_eq!(chat.notification_sound(), NotificationSound::Chat);
+    ConfigStore::new(path.clone()).save(&chat).unwrap();
+    assert_eq!(load_three_times(&path), chat);
 }

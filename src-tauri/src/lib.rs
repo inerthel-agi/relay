@@ -29,6 +29,7 @@ mod server;
 mod stage_scheduler;
 mod state;
 mod updater;
+mod voice_scan;
 mod widget;
 mod youtube;
 mod youtube_download;
@@ -56,14 +57,14 @@ use crate::{
         clear_notification_sound, clear_overlay, clear_pending_media, control_audio,
         download_history_media, forget_obs_password, get_bootstrap, get_media_artwork,
         get_runtime_status, obs_install_sources, obs_list_scenes, panic_stop,
-        pick_notification_sound, preview_output_sample, refresh_channels, regenerate_secret,
-        reject_pending_media, remove_queued_media, replay_media, resume_outputs,
-        save_command_settings, save_credentials, save_custom_commands, set_interface_preferences,
-        set_media_caption_visibility, set_notification_sound_enabled,
-        set_notification_sound_obs_enabled, set_notification_widget_locked,
-        set_notification_widget_visible, set_output_geometry, set_panic_shortcut,
-        set_skip_shortcut, set_widget_locked, skip_media, store_ai_api_key, store_youtube_api_key,
-        test_ai_connection, test_output, toggle_widget,
+        pick_notification_sound, preview_notification_sound, preview_output_sample,
+        refresh_channels, regenerate_secret, reject_pending_media, remove_queued_media,
+        replay_media, resume_outputs, save_command_settings, save_credentials,
+        save_custom_commands, set_interface_preferences, set_media_caption_visibility,
+        set_notification_sound, set_notification_sound_enabled, set_notification_sound_obs_enabled,
+        set_notification_widget_locked, set_notification_widget_visible, set_output_geometry,
+        set_panic_shortcut, set_skip_shortcut, set_widget_locked, skip_media, store_ai_api_key,
+        store_youtube_api_key, test_ai_connection, test_output, toggle_widget,
     },
     config::{
         APP_IDENTIFIER, DEFAULT_SKIP_SHORTCUT, PREVIOUS_APP_IDENTIFIER, WEBVIEW_STORAGE_PATH,
@@ -159,6 +160,10 @@ pub fn run() {
                 if server_started {
                     let _ = restore_widget(&app_handle, core.clone()).await;
                     let _ = restore_notification_widget(&app_handle, core.clone()).await;
+                    notification_widget::keep_clear_of_media_widget(
+                        app_handle.clone(),
+                        core.clone(),
+                    );
                     if let Err(error) = commands::reactions::restore_audio(&app_handle, &core).await
                     {
                         core.server_status.write().await.error = Some(error);
@@ -210,6 +215,8 @@ pub fn run() {
             commands::reactions::preview_reaction_sound,
             preview_music_cleanup,
             confirm_music_cleanup,
+            voice_scan::voice_scan_status,
+            voice_scan::download_voice_model,
             get_bootstrap,
             get_runtime_status,
             remove_queued_media,
@@ -269,6 +276,8 @@ pub fn run() {
             set_notification_sound_obs_enabled,
             pick_notification_sound,
             clear_notification_sound,
+            set_notification_sound,
+            preview_notification_sound,
             tray_open_control_panel,
             tray_toggle_media_widget_lock,
             tray_toggle_notification_widget,

@@ -138,40 +138,10 @@ pub(super) async fn notification_sound(
     if !request_secret_matches(query.secret.as_deref(), &headers, &state.relay_secret) {
         return StatusCode::UNAUTHORIZED.into_response();
     }
-    let Some(path) = state
-        .core
-        .config
-        .read()
-        .await
-        .notification_sound_path
-        .clone()
-    else {
-        return StatusCode::NOT_FOUND.into_response();
-    };
-    let bytes = tokio::task::spawn_blocking(move || -> anyhow::Result<(Vec<u8>, String)> {
-        let metadata = std::fs::metadata(&path)?;
-        if metadata.len() > crate::commands::NOTIFICATION_SOUND_MAX_BYTES {
-            anyhow::bail!("notification sound exceeds the size limit");
-        }
-        let bytes = std::fs::read(&path)?;
-        let extension = std::path::Path::new(&path)
-            .extension()
-            .and_then(|extension| extension.to_str())
-            .unwrap_or_default()
-            .to_ascii_lowercase();
-        let content_type = match extension.as_str() {
-            "mp3" => "audio/mpeg",
-            "flac" => "audio/flac",
-            "wav" => "audio/wav",
-            "ogg" | "oga" | "opus" => "audio/ogg",
-            "m4a" => "audio/mp4",
-            "aac" => "audio/aac",
-            "webm" | "weba" => "audio/webm",
-            _ => "application/octet-stream",
-        };
-        Ok((bytes, content_type.to_owned()))
-    })
-    .await;
+    let config = state.core.config.read().await.clone();
+    let bytes =
+        tokio::task::spawn_blocking(move || crate::commands::notification_sound_bytes(&config))
+            .await;
     let Ok(Ok((bytes, content_type))) = bytes else {
         return StatusCode::NOT_FOUND.into_response();
     };

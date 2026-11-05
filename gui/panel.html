@@ -162,7 +162,7 @@
               aria-expanded="false"
               aria-controls="update-menu"
             >
-              <span><span class="version__platform">Windows · </span>v<span data-app-version>1.5.0</span></span>
+              <span><span class="version__platform">Windows · </span>v<span data-app-version>1.5.2</span></span>
               <span id="update-available-dot" class="update-available-dot" hidden></span>
               <svg class="update-check__icon" viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M20 6v5h-5M4 18v-5h5M6.1 9a7 7 0 0 1 11.3-2.1L20 11M4 13l2.6 4.1A7 7 0 0 0 17.9 15"/>
@@ -570,6 +570,10 @@
                     </select>
                     <small data-i18n="relayChannelHelp">Text becomes a notification. Images, GIFs, videos, audio and stickers go to their outputs.</small>
                   </label>
+                  <div class="field field--wide" data-advanced>
+                    <div id="extra-relay-channels"></div>
+                    <small data-i18n="extraRelayChannelsHelp">Optional. Channels in other servers where you added this same bot. They feed the same outputs with the same filters. Cleanup, lock, AutoMod and /relay commands stay on the Relay channel's server.</small>
+                  </div>
                   <label class="setting-row setting-row--switch field--wide">
                     <span>
                       <strong data-i18n="mediaCleanup24h">Delete Relay channel messages after 24 hours</strong>
@@ -594,6 +598,10 @@
                       <option value="" data-i18n="musicDisabled">Music disabled</option>
                     </select>
                   </label>
+                  <div class="field field--wide" data-advanced>
+                    <div id="extra-music-channels"></div>
+                    <small data-i18n="extraMusicChannelsHelp">Optional. Music channels in other servers where you added this same bot. Their requests join the same queue with the same rules, and automatic cleanup applies there too. The welcome message and the channel cleanup button stay on the music channel.</small>
+                  </div>
                   <label class="field field--wide">
                     <span data-i18n="musicWelcome">Protected welcome message (optional)</span>
                     <input id="music-welcome-message" type="text" autocomplete="off" spellcheck="false" data-i18n-placeholder="musicWelcomePlaceholder" placeholder="Discord message link or ID">
@@ -619,6 +627,10 @@
                     </select>
                     <small data-i18n="honeypotChannelHelp">Choose a protected Discord channel. Any non-bot account that posts there is treated as potentially compromised.</small>
                   </label>
+                  <div class="field field--full" data-advanced>
+                    <div id="extra-honeypot-channels"></div>
+                    <small data-i18n="extraHoneypotChannelsHelp">Optional. Trap channels in other servers where you added this same bot. An account that posts there gets the trap action in that server.</small>
+                  </div>
                   <label class="field field--full">
                     <span data-i18n="honeypotAction">Trap action</span>
                     <select id="honeypot-action" name="honeypotAction">
@@ -1219,8 +1231,19 @@
                       <span class="switch__track" aria-hidden="true"></span>
                     </span>
                   </label>
-                  <button id="pick-notification-sound" class="button button--quiet" type="button" data-i18n="chooseNotificationSound">Choose audio file</button>
-                  <button id="clear-notification-sound" class="button button--quiet" type="button" data-i18n="resetNotificationSound">Remove sound</button>
+                  <button id="preview-notification-sound" class="button button--quiet" type="button" data-i18n="listenNotificationSound">Listen</button>
+                </div>
+                <label class="field notification-sound-choice">
+                  <span data-i18n="notificationSoundChoice">Sound</span>
+                  <select id="notification-sound-choice">
+                    <option value="soft" data-i18n="notificationSoundSoft">Soft chime</option>
+                    <option value="chat" data-i18n="notificationSoundChat">Chat ping</option>
+                    <option value="custom" data-i18n="notificationSoundCustom">My audio file</option>
+                  </select>
+                </label>
+                <div class="notification-sound-files">
+                  <button id="pick-notification-sound" class="button button--quiet" type="button" data-i18n="chooseNotificationSound" hidden>Choose audio file</button>
+                  <button id="clear-notification-sound" class="button button--quiet" type="button" data-i18n="resetNotificationSound" hidden>Remove sound</button>
                 </div>
                 <p class="fine-print notification-output-copy">
                   <span data-i18n="notificationSoundHelp">Played by the Windows widget for each message. Any audio file up to 10 seconds.</span>
@@ -1259,6 +1282,10 @@
                       <label class="choice-chip"><input type="radio" name="stream-style" value="ember"><span>Ember</span></label>
                       <label class="choice-chip"><input type="radio" name="stream-style" value="dawn"><span>Dawn</span></label>
                       <label class="choice-chip"><input type="radio" name="stream-style" value="cloud"><span>Cloud</span></label>
+                      <label class="choice-chip"><input type="radio" name="stream-style" value="titanium"><span>Titanium</span></label>
+                      <label class="choice-chip"><input type="radio" name="stream-style" value="aether"><span>Aether</span></label>
+                      <label class="choice-chip"><input type="radio" name="stream-style" value="orbital"><span>Orbital</span></label>
+                      <label class="choice-chip"><input type="radio" name="stream-style" value="oled"><span>Oled</span></label>
                       <label class="choice-chip"><input type="radio" name="stream-style" value="subtitle"><span data-i18n="streamStyleSubtitle">Subtitle</span></label>
                     </div>
                   </fieldset>
@@ -1612,6 +1639,20 @@
                         <span class="switch__track" aria-hidden="true"></span>
                       </span>
                     </label>
+                    <label class="setting-row setting-row--switch">
+                      <span>
+                        <strong data-i18n="voiceScanEnabled">Listen to voices and sounds before they play</strong>
+                        <small data-i18n="voiceScanEnabledHelp">Transcribes Discord voice messages, audio files and the sound of videos on this PC, then checks the text for personal data and filter words. The graphics card is not used. With “Check messages before they appear” on, the AI you chose also reads the text of a member's sound, never the voice. A sound that cannot be checked waits for your review.</small>
+                      </span>
+                      <span class="switch">
+                        <input id="voice-scan-enabled" type="checkbox">
+                        <span class="switch__track" aria-hidden="true"></span>
+                      </span>
+                    </label>
+                    <div class="voice-scan-status">
+                      <small id="voice-scan-state" class="fine-print" role="status"></small>
+                      <button id="download-voice-model" class="button button--quiet" type="button" data-i18n="downloadVoiceModel" hidden>Download the voice model (60 MB)</button>
+                    </div>
                     <label class="setting-row">
                       <span>
                         <strong data-i18n="privacyProtectionLevel">Protection level</strong>
@@ -2656,6 +2697,38 @@
                       <small data-i18n="cloudDesignCopy">Airy light dashboard, soft cards and shadows.</small>
                     </span>
                   </label>
+                  <label class="design-choice design-choice--titanium">
+                    <input type="radio" name="interface-design" value="titanium">
+                    <span class="design-choice__preview" aria-hidden="true"><i></i><i></i><i></i></span>
+                    <span class="design-choice__copy">
+                      <strong>Titanium</strong>
+                      <small data-i18n="titaniumDesignCopy">Bento panels with a specular edge, Linear-style.</small>
+                    </span>
+                  </label>
+                  <label class="design-choice design-choice--aether">
+                    <input type="radio" name="interface-design" value="aether">
+                    <span class="design-choice__preview" aria-hidden="true"><i></i><i></i><i></i></span>
+                    <span class="design-choice__copy">
+                      <strong>Aether</strong>
+                      <small data-i18n="aetherDesignCopy">Spatial acrylic glass and a floating sidebar.</small>
+                    </span>
+                  </label>
+                  <label class="design-choice design-choice--orbital">
+                    <input type="radio" name="interface-design" value="orbital">
+                    <span class="design-choice__preview" aria-hidden="true"><i></i><i></i><i></i></span>
+                    <span class="design-choice__copy">
+                      <strong>Orbital</strong>
+                      <small data-i18n="orbitalDesignCopy">Clean sci-fi HUD, monospace titles and a technical grid.</small>
+                    </span>
+                  </label>
+                  <label class="design-choice design-choice--oled">
+                    <input type="radio" name="interface-design" value="oled">
+                    <span class="design-choice__preview" aria-hidden="true"><i></i><i></i><i></i></span>
+                    <span class="design-choice__copy">
+                      <strong>Oled</strong>
+                      <small data-i18n="oledDesignCopy">Absolute black with a 1px laser edge and pill buttons.</small>
+                    </span>
+                  </label>
                   </div>
                 </div>
               </details>
@@ -2773,7 +2846,7 @@
                 <div>
                   <span class="kicker">Relay</span>
                   <strong>Relay</strong>
-                  <small>Windows · v<span data-app-version>1.5.0</span></small>
+                  <small>Windows · v<span data-app-version>1.5.2</span></small>
                 </div>
               </div>
               <div class="about-card__statement">

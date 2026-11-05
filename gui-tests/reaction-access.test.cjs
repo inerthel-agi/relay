@@ -11,14 +11,21 @@ class Element extends EventTarget {
   focus() {}
 }
 const all = root => [root, ...root.children.flatMap(all)];
-function setup(t, choices, selectedIds) {
+function setup(t, choices, selectedIds, options = {}) {
   const previous = global.document;
   global.document = { createElement: tag => new Element(tag) };
   t.after(() => global.document = previous);
   const root = new Element("div"); const changes = [];
-  renderAccessMenu(root, { choices, selectedIds, kind: "channel", t: key => key, onChange: ids => changes.push(ids) });
+  renderAccessMenu(root, { choices, selectedIds, kind: "channel", t: key => key, onChange: ids => changes.push(ids), ...options });
   return { root, changes };
 }
+test("a menu can carry its own heading and row limit", t => {
+  const { root } = setup(t, [], ["1", "2"], { heading: "extraRelayChannels", max: 2 });
+  assert.equal(root.children[0].textContent, "extraRelayChannels");
+  const add = all(root).find(element => element.tag === "button" && element.textContent === "modAddChannel");
+  add.dispatchEvent(new Event("click"));
+  assert.equal(all(root).filter(element => element.tag === "select").length, 2);
+});
 test("saved IDs are shown as named choices without changing the configuration", t => {
   const { root, changes } = setup(t, [{ id: "123", name: "test-reactions", guildId: "g1", guildName: "Community" }], ["123"]);
   assert.equal(all(root).find(element => element.tag === "select").value, "123");

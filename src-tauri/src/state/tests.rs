@@ -1045,6 +1045,58 @@ async fn explicit_stage_tickets_keep_delayed_text_ahead_of_newer_ready_media() {
     );
 }
 
+#[tokio::test]
+async fn a_held_text_withdraws_the_ready_media_of_its_message() {
+    let directory = tempfile::tempdir().unwrap();
+    let core = AppCore::load(directory.path().join("config.json")).unwrap();
+    core.set_config(AppConfig {
+        privacy_scan_enabled: true,
+        privacy_review_intermediate: true,
+        ..AppConfig::default()
+    })
+    .await
+    .unwrap();
+    let mut events = core.relay_tx.subscribe();
+    let text_ticket = core
+        .register_stage_output(42, "500", 0, StageLane::Notification)
+        .await;
+    let image_ticket = core
+        .register_stage_output(42, "500", 200, StageLane::Media)
+        .await;
+    // The image passed its own checks first and waits behind its text.
+    core.complete_media(image_ticket, media(MediaKind::Image, "500"))
+        .await;
+    assert!(events.try_recv().is_err());
+
+    // The text holds for review (a phone number): the image must not show alone.
+    assert!(
+        !core
+            .publish_notification_card_if_allowed_with_ticket_and_roles(
+                text_ticket,
+                "500".into(),
+                "Call 06 12 34 56 78".into(),
+                crate::model::AuthorIdentity {
+                    username: "Member".into(),
+                    display_avatar_url: String::new(),
+                },
+                None,
+                42,
+                Vec::new(),
+                &[],
+            )
+            .await
+    );
+    assert_eq!(core.pending_texts.read().await.len(), 1);
+    tokio::task::yield_now().await;
+    while let Ok(event) = events.try_recv() {
+        assert!(
+            !matches!(event, RelayEvent::Media(_)),
+            "the held message's image reached the outputs"
+        );
+    }
+    assert!(core.stage_scheduler.queue_snapshot().await.is_empty());
+}
+
 fn verdict(hold: Option<&'static str>, trusted: bool) -> crate::moderation::MessageVerdict {
     crate::moderation::MessageVerdict {
         hold,

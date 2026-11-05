@@ -2,11 +2,14 @@
 
 const featureLabels = {
   relay: "checkFeatureRelay",
+  extraRelay: "checkFeatureExtraRelay",
   // Two former channels are checked separately until the user chooses one.
   media: "checkFeatureMedia",
   notifications: "checkFeatureNotifications",
   music: "checkFeatureMusic",
+  extraMusic: "checkFeatureExtraMusic",
   honeypot: "checkFeatureHoneypot",
+  extraHoneypot: "checkFeatureExtraHoneypot",
 };
 
 // Discord permission names from Rust, shown with the wording of Discord's settings.

@@ -16,10 +16,10 @@ Download the installer or portable executable from [Releases](https://github.com
 Run the downloaded installer:
 
 ```powershell
-.\Relay_1.5.0_x64-setup.exe
+.\Relay_1.5.2_x64-setup.exe
 ```
 
-Or run `Relay_1.5.0_x64-portable.exe` directly.
+Or run `Relay_1.5.2_x64-portable.exe` directly.
 
 To build from source with the prerequisites installed:
 
@@ -49,16 +49,20 @@ Edit settings in Relay. Configuration is stored in the application configuration
 | Setting | Type | Default | Effect |
 |---|---|---|---|
 | Local port | Integer | `4590` | HTTP and WebSocket server port; loopback only |
+| Extra Relay, music and trap channels | Channel lists | Empty | Up to 10 more channels per feature, usually in other servers of the same bot, handled like the main channel of that feature (Advanced mode) |
 | Image / GIF / sticker / message duration | Seconds | `8` | Display time for each output type |
 | Media volume | Percentage | `50` | Audio and video playback volume |
 | Manual moderation | Boolean | Off | Holds selected media for approval |
+| Voice check | Boolean | Off | Transcribes voice messages, audio files and video sound on this PC, then checks the text for personal data and filter words before they play |
 | Reactions | Boolean | Off | Enables configured sounds and visuals |
 
 ## Limitations
 
 - Windows only. OBS must run on the same computer.
-- One Relay channel is watched per instance. History is limited to 50 entries and is lost on exit.
+- One bot runs per instance. Extra channels must be in servers where that bot was added. Cleanup, welcome messages, lock, AutoMod and `/relay` commands only apply to the main channels and the Relay channel's server.
+- History is limited to 50 entries and is lost on exit.
 - OCR is limited to available French and English Windows language packs. Animated images require review when OCR has not inspected every frame; videos are not fully frame-scanned.
+- The voice check needs FFmpeg 8 built with Whisper (for example `winget install Gyan.FFmpeg`; the essentials build lacks it) and a 60 MB model. It runs on the processor only. Sounds that take more than about two minutes to transcribe are held for review.
 - Local output access does not isolate other programs running on the same computer.
 - YouTube export may download external helpers. These use provider checksums; Relay installers use a separate pinned update signature.
 

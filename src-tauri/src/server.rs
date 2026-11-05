@@ -146,7 +146,8 @@ struct MediaClockCounts {
     audio_busy: usize,
 }
 
-/// Cross-output stage lock so media / YouTube and notifications never overlap.
+/// Cross-output stage lock so media and YouTube never overlap. Text cards
+/// have their own place and show alongside them.
 #[derive(Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct StageClockState {
@@ -1086,12 +1087,8 @@ fn apply_stage_clock_report(
         if *reported_lane == Some(lane) {
             return true;
         }
-        // Exclusive stage: media, YouTube, and notifications must never overlap.
-        let blocked = match lane {
-            StageLane::Media => counts.notification_busy > 0 || counts.music_busy,
-            StageLane::Notification => counts.media_busy > 0 || counts.music_busy,
-        };
-        if blocked {
+        // Media and YouTube never overlap; text cards have their own place.
+        if lane == StageLane::Media && counts.music_busy {
             return false;
         }
         if let Some(previous) = reported_lane.take() {

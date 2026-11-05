@@ -866,3 +866,118 @@ button:focus-visible {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Titanium, Aether, Orbital and Oled: dark base, light variant. */
+:root[data-design="titanium"] {
+  --tray-bg: #07080a;
+  --tray-surface: #101319;
+  --tray-surface-raised: #181c26;
+  --tray-ink: #f3f5f8;
+  --tray-muted: #8b95a7;
+  --tray-faint: #7a8498;
+  --tray-line: #1f2430;
+  --tray-line-strong: #2f3747;
+  --tray-radius: 14px;
+  --tray-radius-small: 10px;
+  font-family: "Relay Inter", "Segoe UI", sans-serif;
+}
+:root[data-design="titanium"][data-theme="light"] {
+  --tray-bg: #f3f4f7;
+  --tray-surface: #ffffff;
+  --tray-surface-raised: #eceff4;
+  --tray-ink: #0f131a;
+  --tray-muted: #5b6475;
+  --tray-faint: #6f7889;
+  --tray-line: #dcdfe8;
+  --tray-line-strong: #bfc5d4;
+}
+:root[data-design="titanium"] .tray-panel {
+  background: radial-gradient(55% 38% at 62% 0%, color-mix(in srgb, var(--tray-accent) 14%, transparent), transparent 70%), var(--tray-bg);
+}
+:root[data-design="titanium"] .status-tile,
+:root[data-design="titanium"] .widget-row { box-shadow: inset 0 1px 0 rgb(255 255 255 / 7%); }
+
+:root[data-design="aether"] {
+  --tray-bg: #060913;
+  --tray-surface: #11182d;
+  --tray-surface-raised: #18223d;
+  --tray-ink: #f0f4ff;
+  --tray-muted: #98a8cc;
+  --tray-faint: #7d8db3;
+  --tray-line: #233054;
+  --tray-line-strong: #3a4a78;
+  --tray-radius: 18px;
+  --tray-radius-small: 12px;
+  font-family: "Relay Inter", "Segoe UI", sans-serif;
+}
+:root[data-design="aether"][data-theme="light"] {
+  --tray-bg: #eef2f8;
+  --tray-surface: #ffffff;
+  --tray-surface-raised: #e6ecf5;
+  --tray-ink: #0f172a;
+  --tray-muted: #5b6b88;
+  --tray-faint: #6f7e9a;
+  --tray-line: #d4deed;
+  --tray-line-strong: #b4c2dc;
+}
+:root[data-design="aether"] .tray-panel {
+  background: radial-gradient(circle at 80% 0%, color-mix(in srgb, var(--tray-accent) 20%, transparent), transparent 55%), var(--tray-bg);
+}
+:root[data-design="aether"] .status-tile,
+:root[data-design="aether"] .widget-row { box-shadow: inset 0 1px 0 rgb(255 255 255 / 10%); }
+
+:root[data-design="orbital"] {
+  --tray-bg: #05080d;
+  --tray-surface: #0b121d;
+  --tray-surface-raised: #121e30;
+  --tray-ink: #e6f2ff;
+  --tray-muted: #7fa0bf;
+  --tray-faint: #6a89a8;
+  --tray-line: #1c314a;
+  --tray-line-strong: #2b4c70;
+  --tray-radius: 6px;
+  --tray-radius-small: 4px;
+  font-family: "Relay Space Grotesk", "Segoe UI", sans-serif;
+}
+:root[data-design="orbital"][data-theme="light"] {
+  --tray-bg: #edf3f8;
+  --tray-surface: #f9fcff;
+  --tray-surface-raised: #e1ecf5;
+  --tray-ink: #0a1929;
+  --tray-muted: #4b6a88;
+  --tray-faint: #5f7c98;
+  --tray-line: #bfd2e3;
+  --tray-line-strong: #8fb0cc;
+}
+:root[data-design="orbital"] .tray-panel {
+  background:
+    linear-gradient(color-mix(in srgb, var(--tray-line) 45%, transparent) 1px, transparent 1px) 0 0 / 28px 28px,
+    linear-gradient(90deg, color-mix(in srgb, var(--tray-line) 45%, transparent) 1px, transparent 1px) 0 0 / 28px 28px,
+    var(--tray-bg);
+}
+
+:root[data-design="oled"] {
+  --tray-bg: #000000;
+  --tray-surface: #090a0c;
+  --tray-surface-raised: #12141a;
+  --tray-ink: #fafafa;
+  --tray-muted: #8e929c;
+  --tray-faint: #7a7e88;
+  --tray-line: #1d2026;
+  --tray-line-strong: #313640;
+  --tray-radius: 16px;
+  --tray-radius-small: 999px;
+  font-family: "Relay Inter", "Segoe UI", sans-serif;
+}
+:root[data-design="oled"][data-theme="light"] {
+  --tray-bg: #f6f6f7;
+  --tray-surface: #ffffff;
+  --tray-surface-raised: #ededf0;
+  --tray-ink: #090a0c;
+  --tray-muted: #5c606a;
+  --tray-faint: #6e727c;
+  --tray-line: #e2e3e8;
+  --tray-line-strong: #c5c7d0;
+}
+:root[data-design="oled"] .status-tile,
+:root[data-design="oled"] .widget-row { box-shadow: inset 0 1px 0 color-mix(in srgb, var(--tray-accent) 32%, transparent); }

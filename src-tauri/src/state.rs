@@ -22,7 +22,7 @@ use anyhow::{Context, Result, bail};
 use axum::body::Bytes;
 use serenity::{cache::Cache, gateway::ShardManager, http::Http};
 use tokio::{
-    sync::{Mutex, RwLock, broadcast, mpsc, oneshot},
+    sync::{Mutex, RwLock, Semaphore, broadcast, mpsc, oneshot},
     task::JoinHandle,
 };
 
@@ -95,6 +95,7 @@ pub struct MediaDeliveryRequest {
 pub struct AppCore {
     pub media_library: Arc<crate::media_library::MediaLibrary>,
     pub data_directory: PathBuf,
+    pub media_ingest_slots: Semaphore,
     pub reactions: Mutex<crate::reactions::ReactionRuntime>,
     pub reaction_trim: Mutex<crate::reaction_trim::ReactionTrimState>,
     message_pin: Mutex<message_pin::MessagePinRuntime>,
@@ -126,6 +127,9 @@ pub struct AppCore {
     pub widget_resize_generation: AtomicU64,
     pub notification_widget_move_generation: AtomicU64,
     pub notification_widget_resize_generation: AtomicU64,
+    /// True while Relay keeps the notification window off the media window:
+    /// that place is never saved as the user's.
+    pub notification_widget_dodged: AtomicBool,
     /// Runtime-only marker for a media widget auto-woken by music playback.
     pub widget_ephemeral_wake: AtomicBool,
     pub interface_preferences: RwLock<InterfacePreferences>,
@@ -169,6 +173,7 @@ impl AppCore {
                 data_directory.join("library"),
             )),
             data_directory,
+            media_ingest_slots: Semaphore::const_new(2),
             reactions: Mutex::new(crate::reactions::ReactionRuntime::default()),
             reaction_trim: Mutex::new(crate::reaction_trim::ReactionTrimState::default()),
             message_pin: Mutex::new(message_pin::MessagePinRuntime::default()),
@@ -202,6 +207,7 @@ impl AppCore {
             widget_resize_generation: AtomicU64::new(0),
             notification_widget_move_generation: AtomicU64::new(0),
             notification_widget_resize_generation: AtomicU64::new(0),
+            notification_widget_dodged: AtomicBool::new(false),
             widget_ephemeral_wake: AtomicBool::new(false),
             interface_preferences: RwLock::new(interface_preferences),
             processed_embed_ids: RwLock::new(VecDeque::with_capacity(PROCESSED_EMBED_LIMIT)),
@@ -268,6 +274,10 @@ impl AppCore {
 
     pub async fn cancel_stage_output(&self, ticket: StageTicket) {
         self.stage_scheduler.cancel(ticket).await;
+    }
+
+    pub async fn cancel_stage_message(&self, ticket: StageTicket) {
+        self.stage_scheduler.cancel_message(ticket).await;
     }
 
     pub async fn cancel_stage_outputs(&self, tickets: &[StageTicket]) {
@@ -1127,14 +1137,16 @@ impl AppCore {
                         reason,
                         verdict.map(|verdict| verdict.author_id),
                     );
-                    self.cancel_stage_output(ticket).await;
+                    self.cancel_stage_message(ticket).await;
                     return false;
                 }
                 hold_reason = Some(reason.to_owned());
             }
         }
+        // A held or dropped text withdraws the rest of its message too: its
+        // media were waiting behind the text and must not show without it.
         if let Some(reason) = hold_reason {
-            self.cancel_stage_output(ticket).await;
+            self.cancel_stage_message(ticket).await;
             self.hold_text(
                 id, text, author, guild_tag, timestamp, segments, &reason, None,
             )
@@ -1159,7 +1171,7 @@ impl AppCore {
         )
         .await
         {
-            self.cancel_stage_output(ticket).await;
+            self.cancel_stage_message(ticket).await;
             self.hold_text(
                 id,
                 text,
@@ -1182,6 +1194,33 @@ impl AppCore {
 }
 
 impl AppCore {
+    /// Second reading of a voice transcript by the AI (`voice_scan`): true to
+    /// hold the sound for review. A failure leaves the local decision alone.
+    pub async fn ai_holds_transcript(
+        &self,
+        message_id: &str,
+        transcript: &str,
+        config: &AppConfig,
+    ) -> bool {
+        let sender = match self.moderation_verdict(message_id) {
+            Some(verdict) if verdict.trusted => crate::ai::watch::Sender::Trusted,
+            Some(_) => crate::ai::watch::Sender::Member,
+            None => crate::ai::watch::Sender::Unknown,
+        };
+        let language = self.interface_preferences.read().await.language.clone();
+        crate::ai::watch::transcript_hold_advice(
+            config,
+            transcript,
+            sender,
+            self.outputs_paused(),
+            &language,
+            crate::ai::watch::DEADLINE,
+            |provider, request| self.watch_ask(&config.ai, provider, request),
+        )
+        .await
+        .is_some()
+    }
+
     /// The provider of the message watch; tests never reach the network or a key.
     async fn watch_ask(
         &self,

@@ -1,9 +1,41 @@
 use super::{
-    MonitorBounds, configured_size, next_position_for_size_change, preserve_or_rescue_position,
-    right_anchored_position, saved_position, write_position,
+    MonitorBounds, configured_size, dodge_position, next_position_for_size_change,
+    preserve_or_rescue_position, right_anchored_position, saved_position, write_position,
 };
 use crate::config::AppConfig;
-use tauri::PhysicalPosition;
+use tauri::{PhysicalPosition, PhysicalSize};
+
+#[test]
+fn the_notification_window_moves_off_the_media_window_only_when_they_meet() {
+    let size = PhysicalSize::new(400, 104);
+    let media = (PhysicalPosition::new(1480, 28), PhysicalSize::new(420, 236));
+    let screen = Some((0, 1040));
+    // Same corner: just below the media window.
+    assert_eq!(
+        dodge_position(PhysicalPosition::new(1492, 28), size, media, screen),
+        PhysicalPosition::new(1492, 272)
+    );
+    // Apart: the window stays where the user put it.
+    assert_eq!(
+        dodge_position(PhysicalPosition::new(100, 28), size, media, screen),
+        PhysicalPosition::new(100, 28)
+    );
+    // No room below a media window at the bottom: just above it.
+    let low = (
+        PhysicalPosition::new(1480, 800),
+        PhysicalSize::new(420, 236),
+    );
+    assert_eq!(
+        dodge_position(PhysicalPosition::new(1492, 900), size, low, screen),
+        PhysicalPosition::new(1492, 688)
+    );
+    // A media window as tall as the screen leaves no room: it stays.
+    let tall = (PhysicalPosition::new(1480, 0), PhysicalSize::new(420, 1040));
+    assert_eq!(
+        dodge_position(PhysicalPosition::new(1492, 28), size, tall, screen),
+        PhysicalPosition::new(1492, 28)
+    );
+}
 
 fn primary_1080p() -> MonitorBounds {
     MonitorBounds {

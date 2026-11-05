@@ -6,7 +6,7 @@ use std::{future::Future, time::Duration};
 
 use super::{
     AiProvider, AiRequest,
-    advice::{AiAdvice, AiVerdict, prepare_text, request},
+    advice::{AiAdvice, AiCategory, AiVerdict, prepare_text, request, transcript_request},
 };
 use crate::config::AppConfig;
 
@@ -57,22 +57,109 @@ where
     F: FnOnce(AiProvider, AiRequest) -> Fut,
     Fut: Future<Output = AiAdvice>,
 {
-    if !config.ai.watch_messages || sender != Sender::Member || paused || plain(text) {
-        return None;
-    }
-    let provider = config.ai.provider?;
-    let text = prepare_text(text, config).ok()?;
-    let advice = tokio::time::timeout(deadline, ask(provider, request(&text, language)))
+    let watched = Watched {
+        config,
+        text,
+        sender,
+        paused,
+        deadline,
+    };
+    watched
+        .advice(
+            |text| request(text, language),
+            ask,
+            |advice| {
+                matches!(
+                    advice,
+                    AiAdvice::Done {
+                        verdict: AiVerdict::ClearProblem,
+                        ..
+                    }
+                )
+            },
+        )
         .await
-        .ok()?;
-    matches!(
-        advice,
-        AiAdvice::Done {
-            verdict: AiVerdict::ClearProblem,
-            ..
+}
+
+/// Second reading of a voice transcript, with the same switch, limits and
+/// senders as messages. Only the text leaves the PC, never the sound; a doubt
+/// about personal data holds it too. `None` to let the sound play.
+pub async fn transcript_hold_advice<F, Fut>(
+    config: &AppConfig,
+    transcript: &str,
+    sender: Sender,
+    paused: bool,
+    language: &str,
+    deadline: Duration,
+    ask: F,
+) -> Option<AiAdvice>
+where
+    F: FnOnce(AiProvider, AiRequest) -> Fut,
+    Fut: Future<Output = AiAdvice>,
+{
+    let watched = Watched {
+        config,
+        text: transcript,
+        sender,
+        paused,
+        deadline,
+    };
+    watched
+        .advice(
+            |text| transcript_request(text, language),
+            ask,
+            |advice| {
+                matches!(
+                    advice,
+                    AiAdvice::Done {
+                        verdict: AiVerdict::ClearProblem,
+                        ..
+                    }
+                ) || matches!(
+                    advice,
+                    AiAdvice::Done { verdict: AiVerdict::Ambiguous, categories, .. }
+                        if categories.contains(&AiCategory::PersonalData)
+                )
+            },
+        )
+        .await
+}
+
+/// One text the watch may send: nothing goes out for staff, trusted members,
+/// a paused stream, a single plain word, or a text that may hold personal data.
+struct Watched<'a> {
+    config: &'a AppConfig,
+    text: &'a str,
+    sender: Sender,
+    paused: bool,
+    deadline: Duration,
+}
+
+impl Watched<'_> {
+    async fn advice<F, Fut>(
+        self,
+        build: impl FnOnce(&str) -> AiRequest,
+        ask: F,
+        holds: impl FnOnce(&AiAdvice) -> bool,
+    ) -> Option<AiAdvice>
+    where
+        F: FnOnce(AiProvider, AiRequest) -> Fut,
+        Fut: Future<Output = AiAdvice>,
+    {
+        if !self.config.ai.watch_messages
+            || self.sender != Sender::Member
+            || self.paused
+            || plain(self.text)
+        {
+            return None;
         }
-    )
-    .then_some(advice)
+        let provider = self.config.ai.provider?;
+        let text = prepare_text(self.text, self.config).ok()?;
+        let advice = tokio::time::timeout(self.deadline, ask(provider, build(&text)))
+            .await
+            .ok()?;
+        holds(&advice).then_some(advice)
+    }
 }
 
 /// The real provider call, with the caps and circuit breaker of every AI request.

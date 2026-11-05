@@ -17,6 +17,9 @@ Use a disposable Discord server and synthetic local media. Do not use tokens, pr
 | --- | --- | --- |
 | Start without credentials | Launch Relay before configuring Discord credentials. | The interface remains usable and shows the bot as offline. |
 | Bot connection | Save valid credentials and select a test Relay channel. | The bot status becomes online and visible text channels can be refreshed. |
+| Extra Relay channel | Add the same bot to a second test server, then add one of its channels under **Extra Relay channels** (Advanced mode). Post text, then an image, in each server. | Messages from both servers reach the same OBS sources and widgets in arrival order; the bot check lists the extra channel; `/relay status` in the second server replies that it cannot control a channel in another Discord server. |
+| Voice check | Turn on Moderation → Personal data protection → Listen to voices and sounds, download the voice model, then send a Discord voice message saying a test phone number, and one saying a normal sentence. While a game and OBS run, watch the graphics card in Task Manager. | The first is blocked, the second plays after a few seconds; the graphics card load does not change. With the model missing, a voice message waits in the review queue. |
+| Extra music and trap channels | In the second test server, add a music channel and a trap channel as extra channels. Request a song there, then post with a test account in the trap channel. | The request joins the same music queue; the test account gets the trap action in the second server only. |
 | Local server | Open the Outputs page. | The server status is online and the preview can connect. |
 | OBS source | Add one generated Browser Source URL to OBS. | Output readiness lists an OBS client for that output. |
 | Windows widgets | Show, move, and lock each widget. | The widget follows its visibility and lock settings without blocking Relay. |

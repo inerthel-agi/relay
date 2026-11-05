@@ -29,7 +29,7 @@ function classList() {
   };
 }
 
-function createHarness(target = "obs", language = "en", preview = false, autoGrantStage = true, { withTheme = false } = {}) {
+function createHarness(target = "obs", language = "en", preview = false, autoGrantStage = true, { withTheme = false, mediaRects = null } = {}) {
   const sockets = [];
   const timers = new Map();
   const timerDelays = [];
@@ -42,7 +42,9 @@ function createHarness(target = "obs", language = "en", preview = false, autoGra
     "#notification": {
       classList: classList(),
       attributes: new Map(),
+      style: {},
       setAttribute(name, value) { this.attributes.set(name, value); },
+      getBoundingClientRect: () => ({ top: 16, height: 60, left: 1500, right: 1880 }),
     },
     "#notification-avatar": { src: "", onerror: null },
     "#notification-author": { textContent: "" },
@@ -221,8 +223,10 @@ function createHarness(target = "obs", language = "en", preview = false, autoGra
     }
   }
 
+  const intervals = [];
   const window = {
     location,
+    innerHeight: 1080,
     addEventListener(type, listener) { windowListeners.set(type, listener); },
     clearTimeout(id) { timers.delete(id); },
     setTimeout(callback, delay) {
@@ -231,8 +235,23 @@ function createHarness(target = "obs", language = "en", preview = false, autoGra
       timerDelays.push(delay);
       return id;
     },
+    setInterval(callback, delay) {
+      intervals.push({ callback, delay });
+      return intervals.length;
+    },
     YT: { Player: FakeYoutubePlayer, PlayerState: { ENDED: 0, PLAYING: 1 } },
   };
+  if (mediaRects) {
+    // Inside the OBS Relay Visual source, beside a media layer.
+    const mediaLayer = {
+      contentWindow: {},
+      contentDocument: {
+        querySelectorAll: () => mediaRects().map((rect) => ({ getBoundingClientRect: () => rect })),
+      },
+    };
+    window.frameElement = {};
+    window.parent = { document: { querySelectorAll: () => [mediaLayer, { contentWindow: window }] } };
+  }
   const context = vm.createContext({
     URL,
     URLSearchParams,
@@ -280,6 +299,7 @@ function createHarness(target = "obs", language = "en", preview = false, autoGra
     context,
     cssProperties,
     elements,
+    intervals,
     location,
     pings,
     sockets,
@@ -438,7 +458,7 @@ test("notification output applies live crop and scale for OBS and widgets", () =
   assert.doesNotMatch(css, /min-height:\s*calc\(160px/);
 });
 
-test("musicPlay only marks stage occupancy for every notification target", async () => {
+test("musicPlay never renders music nor holds back notifications", async () => {
   for (const target of ["widget", "obs"]) {
     const harness = createHarness(target);
     if (target === "obs") {
@@ -459,9 +479,9 @@ test("musicPlay only marks stage occupancy for every notification target", async
 
     harness.socket.emit("message", JSON.stringify({
       type: "notification",
-      payload: notification(`${target}-blocked`),
+      payload: notification(`${target}-beside-music`),
     }));
-    assert.equal(harness.shownId(), null);
+    assert.equal(harness.shownId(), `${target}-beside-music`);
     assert.equal(harness.elements["#music"].classList.contains("is-visible"), false);
     assert.notEqual(harness.elements["#music"].attributes.get("aria-hidden"), "false");
     assert.equal(harness.youtubePlayers.length, 0);
@@ -503,7 +523,7 @@ test("beforeunload leaves an inactive legacy YouTube host untouched", () => {
   assert.equal(harness.youtubePlayers.length, 0);
 });
 
-test("music occupancy does not replace a notification and queued notifications resume on musicIdle", async () => {
+test("music neither replaces a notification nor holds back the next one", async () => {
   const { elements, socket, youtubePlayers, shownId, endCard } = createHarness("widget");
 
   socket.emit("message", JSON.stringify({ type: "notification", payload: notification("live-notification") }));
@@ -519,46 +539,11 @@ test("music occupancy does not replace a notification and queued notifications r
 
   endCard();
   await nextMicrotask();
-  assert.equal(shownId(), null);
-
-  socket.emit("message", JSON.stringify({ type: "musicIdle" }));
   assert.equal(shownId(), "queued-notification");
   assert.equal(elements["#notification-author"].textContent, "Next");
 });
 
-test("musicStop keeps music occupancy until authoritative idle", async () => {
-  const widget = createHarness("widget");
-  widget.socket.emit("message", JSON.stringify({
-    type: "musicPlay",
-    payload: {
-      playbackId: "stop-1",
-      videoId: "dQw4w9WgXcQ",
-      title: "Track",
-    },
-  }));
-  await Promise.resolve();
-  widget.socket.emit("message", JSON.stringify({
-    type: "notification",
-    payload: notification("wait-after-stop"),
-  }));
-
-  widget.socket.emit("message", JSON.stringify({
-    type: "musicStop",
-    payload: { playbackId: "stop-1" },
-  }));
-  widget.socket.emit("message", JSON.stringify({
-    type: "musicStop",
-    payload: { playbackId: "stop-1" },
-  }));
-  assert.equal(widget.elements["#music"].classList.contains("is-visible"), false);
-  assert.equal(widget.youtubePlayers.length, 0);
-  assert.equal(widget.shownId(), null);
-
-  widget.socket.emit("message", JSON.stringify({ type: "musicIdle" }));
-  assert.equal(widget.shownId(), "wait-after-stop");
-});
-
-test("transient WebSocket close retains music stage occupancy without local playback", async () => {
+test("transient WebSocket close plays no music and waits for the server", async () => {
   const widget = createHarness("widget");
   widget.socket.emit("message", JSON.stringify({
     type: "musicPlay",
@@ -921,37 +906,52 @@ test("visual notifications fall back to eight seconds without a configured durat
   assert.equal(timerDelays.at(-1), 8000);
 });
 
-test("notifications wait for the media stage and YouTube", () => {
+test("notifications show while media or YouTube plays", () => {
   const { elements, socket, shownId } = createHarness("widget");
 
   socket.emit("message", JSON.stringify({
     type: "stageClock",
-    payload: { mediaBusy: true, notificationBusy: false },
+    payload: { mediaBusy: true, musicBusy: true, notificationBusy: false },
   }));
-  socket.emit("message", JSON.stringify({ type: "notification", payload: notification("queued-media") }));
-  assert.equal(shownId(), null);
-  assert.equal(elements["#notification"].classList.contains("is-visible"), false);
+  socket.emit("message", JSON.stringify({ type: "musicPlay", payload: { playbackId: "yt-1" } }));
+  socket.emit("message", JSON.stringify({ type: "notification", payload: notification("beside-media") }));
+  assert.equal(shownId(), "beside-media");
+  assert.equal(elements["#notification"].classList.contains("is-visible"), true);
+});
 
-  socket.emit("message", JSON.stringify({
-    type: "stageClock",
-    payload: { mediaBusy: false, notificationBusy: false },
-  }));
-  assert.equal(shownId(), "queued-media");
-  assert.deepEqual(socket.sent.at(-1), {
-    type: "stageClock",
-    payload: { lane: "notification", busy: true },
+test("a card moves just off the media cards it would cover", () => {
+  const { dodge } = vm.runInContext("RelayLayout", createHarness("obs").context);
+  const card = { top: 16, height: 60, left: 1500, right: 1880 };
+  // An audio card in the same corner: the text goes just below it.
+  assert.equal(dodge(card, [{ top: 16, bottom: 176, left: 1480, right: 1900 }], 1080), 172);
+  // A media elsewhere on screen does not move it.
+  assert.equal(dodge(card, [{ top: 400, bottom: 700, left: 700, right: 1200 }], 1080), 0);
+  // No room below the media: just above it.
+  const low = { top: 1000, height: 60, left: 1500, right: 1880 };
+  assert.equal(dodge(low, [{ top: 900, bottom: 1080, left: 1480, right: 1900 }], 1080), -172);
+  // A media that fills the screen leaves no place: the card stays.
+  assert.equal(dodge(card, [{ top: 0, bottom: 1080, left: 0, right: 1920 }], 1080), 0);
+});
+
+test("the OBS text card keeps clear of media while it shows", () => {
+  let media = [{ top: 16, bottom: 176, left: 1480, right: 1900, width: 420, height: 160 }];
+  const { elements, intervals, socket, shownId } = createHarness("obs", "en", false, true, {
+    mediaRects: () => media,
   });
+  socket.emit("message", JSON.stringify({ type: "config", payload: { notificationsObsEnabled: true } }));
+  socket.emit("message", JSON.stringify({ type: "notification", payload: notification("beside-audio") }));
+  assert.equal(shownId(), "beside-audio");
+  const card = elements["#notification"];
+  assert.equal(card.style.translate, "0 172px");
+  // The media left the screen: the card goes back to its place.
+  media = [];
+  assert.equal(intervals.length, 1);
+  intervals[0].callback();
+  assert.equal(card.style.translate, "");
 
-  const music = createHarness("widget");
-  music.socket.emit("message", JSON.stringify({
-    type: "musicPlay",
-    payload: { playbackId: "yt-1", title: "Track", durationSeconds: 30 },
-  }));
-  music.socket.emit("message", JSON.stringify({ type: "notification", payload: notification("queued-yt") }));
-  assert.equal(music.shownId(), null);
-
-  music.socket.emit("message", JSON.stringify({ type: "musicIdle" }));
-  assert.equal(music.shownId(), "queued-yt");
+  // Widget windows are moved apart by Relay, not by the page.
+  const widget = createHarness("widget", "en", false, true, { mediaRects: () => media });
+  assert.equal(widget.intervals.length, 0);
 });
 
 test("notifications wait for the server stage grant before becoming visible", () => {
@@ -976,7 +976,7 @@ test("notifications wait for the server stage grant before becoming visible", ()
   assert.equal(shownId(), "race");
 });
 
-test("OBS hides the completed card while the next message waits for media", () => {
+test("OBS hides the completed card until the next claim is granted", () => {
   const { elements, socket, shownId, endCard } = createHarness("obs", "en", false, false);
   socket.emit("message", JSON.stringify({
     type: "config",
@@ -1016,30 +1016,6 @@ test("OBS hides the completed card while the next message waits for media", () =
     },
   }));
   assert.equal(elements["#notification"].classList.contains("is-visible"), false);
-});
-
-test("OBS notifications recover when stageClock clears a missed musicIdle", () => {
-  const { elements, socket, shownId } = createHarness("obs");
-  socket.emit("message", JSON.stringify({
-    type: "config",
-    payload: { notificationsObsEnabled: true },
-  }));
-  // Simulate a lagged client that still thinks YouTube is active.
-  socket.emit("message", JSON.stringify({
-    type: "musicPlay",
-    payload: { playbackId: "stuck", title: "Track", durationSeconds: 30 },
-  }));
-  socket.emit("message", JSON.stringify({ type: "notification", payload: notification("blocked") }));
-  assert.equal(elements["#notification"].classList.contains("is-visible"), false);
-  assert.equal(shownId(), null);
-
-  // Server watch clock recovers without a musicIdle relay event.
-  socket.emit("message", JSON.stringify({
-    type: "stageClock",
-    payload: { mediaBusy: false, musicBusy: false, notificationBusy: false },
-  }));
-  assert.equal(elements["#notification"].classList.contains("is-visible"), true);
-  assert.equal(shownId(), "blocked");
 });
 
 test("skip and clear release the notification stage without leaving it stuck", () => {

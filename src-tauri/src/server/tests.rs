@@ -728,28 +728,17 @@ async fn coordinates_media_and_notification_stage_clock() {
         ))
         .await
         .unwrap();
-    // Media claim is rejected while a notification holds the exclusive stage.
-    let rejected = next_test_event(&mut overlay, "stageClock").await;
-    assert_eq!(rejected["payload"]["mediaBusy"], false);
-    assert_eq!(rejected["payload"]["notificationBusy"], true);
-    assert_eq!(rejected["payload"]["granted"], false);
+    // Text cards have their own place: media is granted while one shows.
+    let both = next_test_event(&mut overlay, "stageClock").await;
+    assert_eq!(both["payload"]["mediaBusy"], true);
+    assert_eq!(both["payload"]["notificationBusy"], true);
+    assert!(both["payload"]["granted"].is_null());
+    let both = next_test_event(&mut notification, "stageClock").await;
+    assert_eq!(both["payload"]["mediaBusy"], true);
 
     notification
         .send(tokio_tungstenite::tungstenite::Message::Text(
             json!({ "type": "stageClock", "payload": { "lane": "notification", "busy": false } })
-                .to_string()
-                .into(),
-        ))
-        .await
-        .unwrap();
-    let idle = next_test_event(&mut overlay, "stageClock").await;
-    assert_eq!(idle["payload"]["notificationBusy"], false);
-    let idle = next_test_event(&mut notification, "stageClock").await;
-    assert_eq!(idle["payload"]["notificationBusy"], false);
-
-    overlay
-        .send(tokio_tungstenite::tungstenite::Message::Text(
-            json!({ "type": "stageClock", "payload": { "lane": "media", "busy": true } })
                 .to_string()
                 .into(),
         ))
@@ -782,6 +771,74 @@ async fn coordinates_media_and_notification_stage_clock() {
     stop_server(&core).await;
 }
 
+/// A track waiting in the queue was requested before the image: skipping the
+/// current track must still show the image first, then start the next track.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_skipped_track_lets_media_sent_meanwhile_play_before_the_next_one() {
+    let port = free_local_port();
+    let directory = tempfile::tempdir().unwrap();
+    let core = AppCore::load(directory.path().join("config.json")).unwrap();
+    core.set_config(AppConfig {
+        port,
+        ..AppConfig::default()
+    })
+    .await
+    .unwrap();
+    start_server(core.clone()).await.unwrap();
+    let secret = load_or_create_relay_secret().unwrap();
+    let mut overlay = connect_test_output(port, &secret, "all").await;
+    next_test_event(&mut overlay, "stageClock").await;
+
+    let selection = |video_id: &str| crate::music::MusicSelection {
+        owner_id: 7,
+        owner_name: "owner".into(),
+        channel_id: 9,
+        track: crate::youtube::YouTubeTrack {
+            video_id: video_id.into(),
+            title: "Track".into(),
+            channel_title: "Channel".into(),
+            thumbnail: "https://i.ytimg.com/vi/test/default.jpg".into(),
+            duration_seconds: 180,
+        },
+    };
+    // Discord times, all a few seconds before the skip.
+    let sent_at = crate::clock::now_ms() - 3_000;
+    core.start_music(
+        selection("aaaaaaaaaaa"),
+        MusicPlaybackMode::Full,
+        sent_at,
+        "900",
+    )
+    .await;
+    next_test_event(&mut overlay, "musicPlay").await;
+    core.start_music(
+        selection("bbbbbbbbbbb"),
+        MusicPlaybackMode::Full,
+        sent_at + 1_000,
+        "901",
+    )
+    .await;
+    let mut image = test_media(MediaKind::Image, "sent-during-music");
+    image.timestamp = sent_at + 2_000;
+    core.stage_scheduler
+        .enqueue(
+            RelayEvent::Media(image),
+            crate::stage_scheduler::StageLane::Media,
+        )
+        .await;
+    core.skip_playback().await;
+
+    let outputs = ["media", "musicPlay"];
+    let first = next_test_event_of(&mut overlay, &outputs).await;
+    assert_eq!(first["type"], "media", "{first}");
+    assert_eq!(first["payload"]["messageId"], "sent-during-music");
+    // Nobody claims the image here: the stage moves on after the claim delay.
+    let second = next_test_event_of(&mut overlay, &outputs).await;
+    assert_eq!(second["type"], "musicPlay");
+    assert_eq!(second["payload"]["videoId"], "bbbbbbbbbbb");
+    stop_server(&core).await;
+}
+
 type TestWebSocket =
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
@@ -803,6 +860,10 @@ async fn connect_test_output(port: u16, secret: &str, source: &str) -> TestWebSo
 }
 
 async fn next_test_event(client: &mut TestWebSocket, expected_type: &str) -> serde_json::Value {
+    next_test_event_of(client, &[expected_type]).await
+}
+
+async fn next_test_event_of(client: &mut TestWebSocket, types: &[&str]) -> serde_json::Value {
     loop {
         let message = tokio::time::timeout(Duration::from_secs(5), client.next())
             .await
@@ -811,7 +872,7 @@ async fn next_test_event(client: &mut TestWebSocket, expected_type: &str) -> ser
             .expect("websocket error");
         let event: serde_json::Value =
             serde_json::from_str(message.to_text().expect("text websocket event")).unwrap();
-        if event["type"] == expected_type {
+        if types.iter().any(|kind| event["type"] == *kind) {
             return event;
         }
     }

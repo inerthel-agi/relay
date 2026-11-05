@@ -395,6 +395,10 @@ test("images held or blocked by the AI say why and name the switch", () => {
   for (const reason of rust.match(/pub const (?:HOLD_\w+|BLOCKED): &str = "(\w+)"/g).map((line) => line.match(/"(\w+)"/)[1])) {
     assert.notEqual(reasonLabel(reason, t), reason.replace(/_/g, " "), reason);
   }
+  // A sound the voice check could not hear says why and names its switch.
+  const voice = fs.readFileSync(__dirname + "/../src-tauri/src/voice_scan.rs", "utf8").match(/HOLD_UNCHECKED: &str = "(\w+)"/)[1];
+  assert.equal(reasonLabel(voice, t), "reasonVoiceUnchecked");
+  assert.match(explainReason(voice, {}, t, format), /^whyVoiceUnchecked:.*"voiceScanEnabled"/);
   // The help pace refusal reads in plain words.
   assert.equal(describeTroubleshootAnswer({ state: "failed", cause: "helpCooldown" }, t).join(" ").includes("aiHelpPaceRefused"), true);
 });

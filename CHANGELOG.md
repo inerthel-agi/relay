@@ -13,6 +13,45 @@ This changelog is maintained in English. Interface translations are maintained i
 
 ## [Unreleased]
 
+
+## [1.5.2] - 2026-11-05
+
+### English
+
+#### Added
+
+- **Four new designs:** Titanium (bento panels), Aether (spatial glass with a floating sidebar), Orbital (sci-fi HUD) and Oled (absolute black, 1px laser edge). Each has a light and a dark variant for the panel, the tray and the OBS outputs (opaque edges, no blurred shadow).
+- **Includes 1.5.1.** Version 1.5.1 was never published, so its changes below ship with this release.
+
+#### Security
+
+- **`/relay` bound to the Relay channel's server.** While no Relay channel was set, an administrator of any other server where the bot runs could use `/relay channel` to choose the stream's source, or run `/relay test`, `status`, `show` and `url`. These commands now ask to choose the Relay channel in the application first; once it is set, they only work from that channel's server.
+- **Held text keeps its media off stream.** When a message's text is held for review or dropped (privacy scan, AI message check), its images, GIFs and stickers that were already checked no longer appear on their own.
+- **Look-alike characters no longer hide personal data or filtered words.** The scanner and the word filter now read fullwidth and mathematical letters and digits, and digits of other scripts, as ordinary ones, and ignore invisible variation selectors, tag characters and Hangul filler letters. A phone or card number written as `０６ １２ …`, or a filtered word written in fullwidth letters or with invisible fillers, is caught again.
+
+## [1.5.1] - 2026-10-31
+
+### English
+
+#### Added
+
+- **Extra Relay channels.** In Advanced mode, the Discord page can add up to 10 more Relay channels, usually in other servers where the same bot was added. Their messages and media go to the same OBS sources and widgets, in arrival order, through the same filters, privacy scan, AI check, manual review and Panic. Cleanup, the welcome message, `/relay lock`, AutoMod and `/relay` commands stay on the main Relay channel and its server. The bot check lists each extra channel, and `/relay show` names them.
+- **Extra music and trap channels.** The music requests and security trap groups take up to 10 extra channels each, in the same way. Requests from an extra music channel join the same queue with the same rules, and automatic music cleanup removes their requests and result lists there too; the welcome message and the channel cleanup button stay on the main music channel. An account that posts in an extra trap channel gets the trap action in that channel's server.
+- **Voice check before a sound plays.** Moderation → Personal data protection can listen to Discord voice messages, audio files and the sound of videos before they reach the stream. The sound is transcribed on this PC by FFmpeg 8's Whisper filter, on the processor only and at low priority, so the graphics card stays free for the game and the encoder; the text then goes through the personal-data scan and the word filter, which can block the message. The voice never leaves the PC. With AI → Check messages before they appear on, the AI provider you chose (Anthropic or OpenAI) also reads the transcript of a member's sound, with the message limits and caps, and looks for personal data the local rules miss, such as a school or where someone will be; it can only hold the sound for review, and a failed request leaves the local decision alone. The 60 MB voice model (Whisper base, about 3 s for 28 s of sound on a recent processor) downloads from the panel and is checked against its SHA-256. A number dictated with pauses ("06, 12, 34, 56, 78") is still found. A sound that cannot be checked (FFmpeg without Whisper, no model, more than about two minutes of processing or several minutes of speech) waits for review. Off by default.
+- **Built-in notification sounds.** Outputs → Messages now offers a Sound menu: Soft chime and Chat ping, both built into Relay, or My audio file. A Listen button plays the chosen sound. A chosen audio file is copied into Relay's folder, so moving or deleting the original no longer breaks the sound; Remove sound deletes that copy and goes back to Soft chime. A file chosen in an earlier version stays the sound.
+
+#### Changed
+
+- **Text and media at the same time.** A message card no longer holds back images, GIFs, videos, stickers or music, and they no longer hold it back: the card shows next to them. Each side keeps the Discord order, and the parts of one message still appear only once every part passed its checks. Skip hides both. When the card would cover a media, it moves just below it, or just above when there is no room below: inside the OBS Relay Visual source, and for the Windows widgets the Messages window moves off the Media window without changing its saved place. A media that fills the whole screen leaves no room, and the card stays.
+
+#### Fixed
+
+- **Concurrent media processing.** Relay processes at most two Discord media messages at a time, so a burst of large videos can no longer pile up downloads in memory. A message with text only never waits for them.
+- **Media after a skipped track.** When a track ends or is skipped, the images and videos sent while it played are shown before the next queued track starts. Before, a track requested shortly before them could play first and keep them waiting for its whole length.
+- **Old GIFs coming back.** A message edited more than two minutes after it was sent no longer shows its GIF again, even after Relay restarts. Discord adds a GIF preview within seconds, so a new GIF link still shows.
+- **Faster AI check of GIFs and videos.** Their three sample frames are checked at the same time instead of one after the other.
+- **Incomplete animated-media checks.** With the AI image check on, a GIF or video waits for review when FFmpeg cannot extract all three sample frames. A still GIF, or an animation with fewer than three frames, is checked whole.
+
 ## [1.5.0] - 2026-10-27
 
 ### English

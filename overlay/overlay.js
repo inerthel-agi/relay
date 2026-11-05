@@ -157,8 +157,6 @@ const YOUTUBE_SYNC_TOLERANCE_SECONDS = 0.75;
 /** YouTube payloads waiting because media or a notification is currently on screen. */
 let deferredYoutubeQueue = [];
 const DEFERRED_YOUTUBE_LIMIT = 20;
-/** True while a notification client holds the shared stage. */
-let notificationBusy = false;
 /**
  * Peer Discord media occupancy from the server stage clock.
  * On split OBS outputs (/medias vs /youtube) this is the only way the YouTube
@@ -662,22 +660,21 @@ function syncMediaStageBusy() {
 }
 
 function mediaStageBlocked() {
-  // musicBusy: YouTube jukebox. notificationBusy: spoken notifications.
+  // musicBusy: YouTube jukebox. Text cards have their own place on screen.
   // Peer mediaBusy: Discord file audio on /audios, or Windows Now Playing
   // reporting the media lane — ignore our own occupancy echo.
-  return musicBusy || notificationBusy || (mediaBusy && !mediaStageOccupied());
+  return musicBusy || (mediaBusy && !mediaStageOccupied());
 }
 
 function youtubeStageBlocked() {
   // Ignore our own media-lane report while we already hold YouTube on this page.
-  return notificationBusy || (mediaBusy && !mediaStageOccupied());
+  return mediaBusy && !mediaStageOccupied();
 }
 
 function resolveMediaStageClaim() {
   if (!mediaStageClaimPending) return;
   if (
     (lastStageClockPayload.granted === false && lastStageClockPayload.lane === "media")
-    || notificationBusy
     || musicBusy
   ) {
     mediaStageClaimPending = false;
@@ -695,7 +692,6 @@ function playDeferredYoutubeOrNextMedia() {
     !stageClockReady
     || currentMedia
     || youtubePlaybackId
-    || notificationBusy
     || mediaStageClaimPending
   ) return;
   if (deferredYoutubeQueue.length > 0) {
@@ -715,7 +711,6 @@ function activateQueuedMedia() {
     || currentMedia
     || youtubePlaybackId
     || musicBusy
-    || notificationBusy
     || !mediaClockReady
   ) {
     syncMediaStageBusy();
@@ -778,7 +773,7 @@ function startYoutubeMusic(payload = {}) {
   const playbackId = typeof payload.playbackId === "string" ? payload.playbackId : "";
   if (!/^[A-Za-z0-9_-]{11}$/.test(videoId) || !playbackId) return;
 
-  // While media or a notification holds the stage, queue YouTube instead of interrupting it.
+  // While media holds the stage, queue YouTube instead of interrupting it.
   // `mediaBusy` covers peer OBS iframes (/medias) that share the stage clock.
   if (!stageClockReady || currentMedia || youtubeStageBlocked()) {
     if (deferredYoutubeQueue.length >= DEFERRED_YOUTUBE_LIMIT) return;
@@ -1561,7 +1556,6 @@ function applyStageClock(payload = {}) {
   if (Object.prototype.hasOwnProperty.call(payload, "musicBusy")) {
     musicBusy = Boolean(payload.musicBusy);
   }
-  notificationBusy = Boolean(payload.notificationBusy);
   if (isReconnectHydration && payload.musicBusy === false) {
     deferredYoutubeQueue.length = 0;
   }
@@ -1773,7 +1767,6 @@ function connect() {
     lastStageClockPayload = {};
     reconnectHydrationPending = true;
     stageClockReady = isPreview;
-    notificationBusy = false;
     mediaBusy = false;
     musicBusy = false;
     mediaClockReady = !coordinatesSplitOutputs;

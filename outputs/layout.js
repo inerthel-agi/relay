@@ -13,4 +13,21 @@ const RelayLayout = {
       top: anchor.startsWith("bottom") ? Math.max(0, bottom - y) : anchor === "center" ? bottom / 2 : Math.min(y, bottom),
     };
   },
+  /**
+   * Vertical move that takes a card off the boxes it would cover: the
+   * smallest one that keeps it on screen, or none when nothing fits.
+   */
+  dodge(card, obstacles, viewportHeight, gap = 12) {
+    const across = obstacles.filter((box) => box.left < card.right && box.right > card.left);
+    const covers = (top) => across.some((box) => top < box.bottom && top + card.height > box.top);
+    if (!covers(card.top)) return 0;
+    const fitting = across
+      .flatMap((box) => [box.bottom + gap, box.top - gap - card.height])
+      .filter((top) => top >= 0 && top + card.height <= viewportHeight && !covers(top));
+    if (fitting.length === 0) return 0;
+    const best = fitting.reduce((closest, top) => (
+      Math.abs(top - card.top) < Math.abs(closest - card.top) ? top : closest
+    ));
+    return best - card.top;
+  },
 };

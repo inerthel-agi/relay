@@ -364,9 +364,8 @@ function sendMedia(harnesses, media) {
     harness.socket.emit("message", JSON.stringify({ type: "media", payload: media }));
     // Unit tests have no server: after a media-lane claim, grant the stage when free.
     const musicBusy = vm.runInContext("musicBusy", harness.context);
-    const notificationBusy = vm.runInContext("notificationBusy", harness.context);
     const claimPending = vm.runInContext("mediaStageClaimPending", harness.context);
-    if (claimPending && !musicBusy && !notificationBusy) {
+    if (claimPending && !musicBusy) {
       harness.socket.emit("message", JSON.stringify({
         type: "stageClock",
         payload: { mediaBusy: true, musicBusy: false, notificationBusy: false },
@@ -1158,7 +1157,7 @@ test("native hide discards deferred YouTube before authoritative idle hydration"
   const widget = createHarness("?secret=private&widget=1", "all");
   widget.socket.emit("message", JSON.stringify({
     type: "stageClock",
-    payload: { mediaBusy: false, musicBusy: true, notificationBusy: true },
+    payload: { mediaBusy: true, musicBusy: true, notificationBusy: false },
   }));
   widget.socket.emit("message", JSON.stringify({
     type: "musicPlay",
@@ -1439,7 +1438,7 @@ test("idle reconnect drops stale deferred YouTube", async () => {
   const widget = createHarness("?secret=private&widget=1", "all");
   widget.socket.emit("message", JSON.stringify({
     type: "stageClock",
-    payload: { mediaBusy: false, musicBusy: true, notificationBusy: true },
+    payload: { mediaBusy: true, musicBusy: true, notificationBusy: false },
   }));
   widget.socket.emit("message", JSON.stringify({
     type: "musicPlay",
@@ -1466,7 +1465,7 @@ test("active reconnect retains deferred YouTube until authoritative stageClock",
   const widget = createHarness("?secret=private&widget=1", "all");
   widget.socket.emit("message", JSON.stringify({
     type: "stageClock",
-    payload: { mediaBusy: false, musicBusy: true, notificationBusy: true },
+    payload: { mediaBusy: true, musicBusy: true, notificationBusy: false },
   }));
   widget.socket.emit("message", JSON.stringify({
     type: "musicPlay",
@@ -1613,40 +1612,28 @@ test("a stalled image advances to the next queued media", () => {
   assert.equal(elements["#image"].src, "https://cdn.discordapp.com/next.png");
 });
 
-test("media and YouTube wait while a notification holds the shared stage", () => {
-  const { context, elements, socket, youtubePlayers } = createHarness("?secret=private", "all");
+test("media and YouTube do not wait for a text card", () => {
+  const { elements, socket } = createHarness("?secret=private", "all");
   socket.emit("message", JSON.stringify({
     type: "stageClock",
-    payload: { mediaBusy: false, notificationBusy: true },
+    payload: { mediaBusy: false, musicBusy: false, notificationBusy: true },
   }));
   socket.emit("message", JSON.stringify({
     type: "media",
-    payload: { kind: "image", url: "https://cdn.discordapp.com/wait.png" },
+    payload: { kind: "image", url: "https://cdn.discordapp.com/beside.png" },
   }));
-  assert.equal(elements["#image"].src, "");
+  assert.equal(elements["#image"].src, "https://cdn.discordapp.com/beside.png");
 
-  socket.emit("message", JSON.stringify({
-    type: "musicPlay",
-    payload: {
-      playbackId: "yt-deferred",
-      videoId: "dQw4w9WgXcQ",
-      title: "Track",
-    },
-  }));
-  assert.equal(vm.runInContext("youtubePlaybackId", context), undefined);
-  assert.equal(youtubePlayers.length, 0);
-
-  socket.emit("message", JSON.stringify({
+  const music = createHarness("?secret=private", "all");
+  music.socket.emit("message", JSON.stringify({
     type: "stageClock",
-    payload: { mediaBusy: false, notificationBusy: false },
+    payload: { mediaBusy: false, musicBusy: true, notificationBusy: true },
   }));
-  assert.equal(vm.runInContext("youtubePlaybackId", context), "yt-deferred");
-  assert.equal(elements["#image"].src, "");
-  assert.ok(socket.sent.some((message) => (
-    message.type === "stageClock"
-    && message.payload?.lane === "media"
-    && message.payload?.busy === true
-  )));
+  music.socket.emit("message", JSON.stringify({
+    type: "musicPlay",
+    payload: { playbackId: "yt-beside", videoId: "dQw4w9WgXcQ", title: "Track" },
+  }));
+  assert.equal(vm.runInContext("youtubePlaybackId", music.context), "yt-beside");
 });
 
 test("media waits for the server stage grant before becoming visible", () => {
@@ -1673,7 +1660,7 @@ test("musicStop removes a matching deferred YouTube playback", async () => {
   const harness = createHarness("?secret=private&widget=1", "all");
   harness.socket.emit("message", JSON.stringify({
     type: "stageClock",
-    payload: { mediaBusy: false, musicBusy: true, notificationBusy: true },
+    payload: { mediaBusy: true, musicBusy: true, notificationBusy: false },
   }));
   harness.socket.emit("message", JSON.stringify({
     type: "musicPlay",
@@ -1698,7 +1685,7 @@ test("musicIdle drops deferred YouTube before resuming Discord media", async () 
   const harness = createHarness("?secret=private&widget=1", "all");
   harness.socket.emit("message", JSON.stringify({
     type: "stageClock",
-    payload: { mediaBusy: false, musicBusy: true, notificationBusy: true },
+    payload: { mediaBusy: true, musicBusy: true, notificationBusy: false },
   }));
   harness.socket.emit("message", JSON.stringify({
     type: "musicPlay",

@@ -1,5 +1,15 @@
 use super::*;
 
+#[tokio::test]
+async fn relay_media_message_slots_bound_concurrent_ingestion() {
+    let directory = tempfile::tempdir().unwrap();
+    let core = AppCore::load(directory.path().join("config.json")).unwrap();
+    let all_slots = core.media_ingest_slots.acquire_many(2).await.unwrap();
+    assert!(core.media_ingest_slots.try_acquire().is_err());
+    drop(all_slots);
+    assert_eq!(core.media_ingest_slots.available_permits(), 2);
+}
+
 #[test]
 fn honeypot_reports_each_failure_without_masking_other_failures() {
     for dm_delivered in [false, true] {
@@ -238,6 +248,31 @@ fn disables_commands_individually() {
 }
 
 #[test]
+fn relay_commands_are_bound_to_the_relay_channel_server() {
+    let watched = "123456789012345678";
+    // Configured: every Relay-wide command must run in that channel's server.
+    for subcommand in ["channel", "test", "status", "show", "url", "regenerate"] {
+        assert_eq!(
+            relay_command_scope(subcommand, watched),
+            RelayCommandScope::RelayServer(watched)
+        );
+        // Not configured yet: an administrator of any other server running
+        // the bot could otherwise pick the stream's source.
+        assert_eq!(
+            relay_command_scope(subcommand, ""),
+            RelayCommandScope::Unanchored
+        );
+    }
+    // These act on a channel of the invoking server only.
+    for subcommand in ["clear", "nuke", "changelog", "lock"] {
+        assert_eq!(
+            relay_command_scope(subcommand, ""),
+            RelayCommandScope::InvokingServer
+        );
+    }
+}
+
+#[test]
 fn default_commands_still_require_an_administrator_inside_a_guild() {
     let guild_id = Some(GuildId::new(123_456_789_012_345_678));
     assert!(default_command_authorized(
@@ -355,6 +390,55 @@ fn nuke_replaces_configured_channel_references() {
     assert_eq!(config.music_channel_id, "2");
     assert_eq!(config.honeypot_channel_id, "3");
     assert_eq!(config.channel_lock.unwrap().channel_id, "3");
+}
+
+#[test]
+fn extra_trap_and_music_channels_take_the_main_channel_role() {
+    let config = AppConfig {
+        music_channel_id: "123456789012345678".into(),
+        extra_music_channel_ids: vec!["223456789012345678".into()],
+        honeypot_channel_id: "323456789012345678".into(),
+        extra_honeypot_channel_ids: vec!["423456789012345678".into()],
+        honeypot_action: HoneypotAction::Timeout,
+        ..AppConfig::default()
+    };
+    assert_eq!(
+        honeypot_action_for_channel(&config, "423456789012345678"),
+        Some(HoneypotAction::Timeout)
+    );
+    assert_eq!(
+        honeypot_action_for_channel(&config, "223456789012345678"),
+        None
+    );
+    let mut request = relay_message(1, "never gonna give you up");
+    request.channel_id = ChannelId::new(223_456_789_012_345_678);
+    assert_eq!(
+        decision_log_lane(&config, &request),
+        Some(crate::moderation::Lane::Music)
+    );
+
+    let mut nuked = config.clone();
+    replace_configured_channel_id(&mut nuked, ChannelId::new(2), ChannelId::new(9));
+    assert_eq!(nuked, config);
+    replace_configured_channel_id(
+        &mut nuked,
+        ChannelId::new(423_456_789_012_345_678),
+        ChannelId::new(5),
+    );
+    assert_eq!(nuked.extra_honeypot_channel_ids, ["5"]);
+}
+
+#[test]
+fn nuke_replaces_an_extra_relay_channel_and_show_lists_it() {
+    let mut config = AppConfig {
+        watched_channel_id: "1".into(),
+        extra_relay_channel_ids: vec!["4".into(), "5".into()],
+        ..AppConfig::default()
+    };
+    replace_configured_channel_id(&mut config, ChannelId::new(5), ChannelId::new(6));
+    assert_eq!(config.watched_channel_id, "1");
+    assert_eq!(config.extra_relay_channel_ids, ["4", "6"]);
+    assert_eq!(relay_channel_summary(&config), "<#1>, also <#4>, <#6>");
 }
 
 #[test]
@@ -513,6 +597,19 @@ fn bulk_deletes_only_messages_safely_inside_discords_two_week_limit() {
     let old = MessageId::new(((now - 14 * 24 * 60 * 60) * 1_000 - 1_420_070_400_000) << 22);
     assert!(is_bulk_deletable(recent, now));
     assert!(!is_bulk_deletable(old, now));
+}
+
+#[test]
+fn only_a_fresh_message_update_can_show_its_gif() {
+    let now = now_ms() / 1_000;
+    let sent =
+        |seconds_ago: u64| MessageId::new(((now - seconds_ago) * 1_000 - 1_420_070_400_000) << 22);
+    // Discord's GIF preview arrives a few seconds after the message.
+    assert!(fresh_for_embeds(sent(5), now));
+    assert!(fresh_for_embeds(sent(120), now));
+    // An old message edited later does not bring its GIF back.
+    assert!(!fresh_for_embeds(sent(121), now));
+    assert!(!fresh_for_embeds(sent(3 * 60 * 60), now));
 }
 
 #[test]
@@ -1172,6 +1269,46 @@ async fn a_mixed_message_is_checked_with_the_rules_of_its_text_and_its_media() {
 }
 
 #[tokio::test]
+async fn every_relay_server_feeds_the_same_outputs_through_the_same_filter() {
+    const EXTRA_RELAY_CHANNEL: &str = "523456789012345678";
+    let mut config = AppConfig {
+        privacy_auto_delete_blocked_messages: false,
+        extra_relay_channel_ids: vec![EXTRA_RELAY_CHANNEL.into()],
+        ..relay_config()
+    };
+    config.moderation.word_packs = vec![crate::moderation::WordPack::Scams];
+    let (_directory, core) = relay_core(config).await;
+    let from = |channel: &str, id: u64, content: &str| {
+        let mut message = relay_message(id, content);
+        message.channel_id = ChannelId::new(channel.parse().unwrap());
+        message
+    };
+    assert_eq!(
+        relay_outputs(
+            &core,
+            &from(RELAY_CHANNEL, 1_000_000_000_000_000_090, "salut")
+        )
+        .await,
+        vec![Output::Notification("salut".into())]
+    );
+    let mut image = from(EXTRA_RELAY_CHANNEL, 1_000_000_000_000_000_091, "");
+    image.attachments = vec![attachment(91, "cat.png", "image/png")];
+    assert_eq!(
+        relay_outputs(&core, &image).await,
+        vec![Output::Media("image", None)]
+    );
+    let scam = from(
+        EXTRA_RELAY_CHANNEL,
+        1_000_000_000_000_000_092,
+        "FREE N1TRO for everyone",
+    );
+    assert!(relay_outputs(&core, &scam).await.is_empty());
+    // A channel that is not configured stays ignored.
+    let unknown = from("623456789012345678", 1_000_000_000_000_000_093, "ça va ?");
+    assert!(relay_outputs(&core, &unknown).await.is_empty());
+}
+
+#[tokio::test]
 async fn mixed_messages_keep_review_holds_manual_moderation_and_panic() {
     // A hold from the gate keeps both parts for review.
     let mut config = relay_config();
@@ -1445,4 +1582,133 @@ async fn library_gifs_are_not_sent_for_personal_data() {
         let verdict = core.moderation_verdict(&message.id.to_string()).unwrap();
         assert_eq!(verdict.hold, hold, "{url}");
     }
+}
+
+#[tokio::test]
+async fn a_sound_that_cannot_be_listened_to_waits_for_review() {
+    use crate::moderation::Lane;
+    let config = AppConfig {
+        voice_scan_enabled: true,
+        privacy_scan_enabled: true,
+        ..relay_config()
+    };
+    let (_directory, core) = relay_core(config.clone()).await;
+    let url = "https://relay.invalid/voice-message.ogg";
+    for (id, kind, hold) in [
+        // The voice model was never downloaded: nothing can listen to it.
+        (
+            1_000_000_000_000_000_220,
+            MediaKind::Audio,
+            Some("voice_unchecked"),
+        ),
+        (
+            1_000_000_000_000_000_221,
+            MediaKind::Video,
+            Some("voice_unchecked"),
+        ),
+        // Images never wait for the voice check.
+        (1_000_000_000_000_000_222, MediaKind::Image, None),
+    ] {
+        let message = relay_message(id, "");
+        assert!(apply_moderation_gate(
+            &core,
+            &message,
+            &[],
+            false,
+            &[Lane::Media],
+            &config
+        ));
+        let mut report = privacy::PrivacyReport::safe();
+        let candidate = (kind, url, url, Some(&b"OggS"[..]));
+        assert!(
+            !voice_check(
+                &core,
+                &Http::new(""),
+                &message,
+                candidate,
+                &config,
+                &mut report
+            )
+            .await
+        );
+        let verdict = core.moderation_verdict(&message.id.to_string()).unwrap();
+        assert_eq!(verdict.hold, hold, "{kind:?}");
+    }
+}
+
+#[tokio::test]
+async fn the_ai_reads_a_members_transcript_and_can_only_hold_it() {
+    use crate::moderation::Lane;
+    let mut config = relay_config();
+    config.ai.provider = Some(crate::ai::AiProvider::Anthropic);
+    config.ai.watch_messages = true;
+    let (_directory, core) = relay_core(config.clone()).await;
+    core.ai_watch_stub.lock().unwrap().answer = Some(crate::ai::advice::AiAdvice::Done {
+        verdict: crate::ai::advice::AiVerdict::ClearProblem,
+        categories: vec![crate::ai::advice::AiCategory::PersonalData],
+        reason: "Raison.".into(),
+    });
+    let message = relay_message(1_000_000_000_000_000_230, "");
+    assert!(apply_moderation_gate(
+        &core,
+        &message,
+        &[],
+        false,
+        &[Lane::Media],
+        &config
+    ));
+    let transcript = "je serai devant le lycée Victor-Hugo à 17 heures";
+    assert!(
+        core.ai_holds_transcript(&message.id.to_string(), transcript, &config)
+            .await
+    );
+    let sent = core.ai_watch_stub.lock().unwrap().sent.clone();
+    assert_eq!(sent.len(), 1);
+    assert!(sent[0].contains("lycée Victor-Hugo"));
+    // Off, the transcript never leaves the PC.
+    config.ai.watch_messages = false;
+    assert!(
+        !core
+            .ai_holds_transcript(&message.id.to_string(), transcript, &config)
+            .await
+    );
+    assert_eq!(core.ai_watch_stub.lock().unwrap().sent.len(), 1);
+}
+
+#[tokio::test]
+async fn a_relay_message_never_waits_for_a_second_media_slot() {
+    let (_directory, core) = relay_core(relay_config()).await;
+    // Another message is being processed and holds one of the two slots.
+    let _other_message = core.media_ingest_slots.acquire().await.unwrap();
+    // An attachment: the message downloads media, so it takes the other slot.
+    let mut message = relay_message(1_000_000_000_000_000_240, "salut");
+    message.attachments = vec![attachment(240, "wave.webm", "video/webm")];
+    let outputs = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        relay_outputs(&core, &message),
+    )
+    .await
+    .expect("the message took a second slot and waited forever");
+    assert_eq!(
+        outputs,
+        vec![
+            Output::Notification("salut".into()),
+            Output::Media("video", None)
+        ]
+    );
+}
+
+#[tokio::test]
+async fn a_text_message_never_waits_behind_media_checks() {
+    let (_directory, core) = relay_core(relay_config()).await;
+    // Two media messages are still being checked.
+    let _busy = core.media_ingest_slots.acquire_many(2).await.unwrap();
+    let message = relay_message(1_000_000_000_000_000_241, "salut");
+    let outputs = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        relay_outputs(&core, &message),
+    )
+    .await
+    .expect("a plain text waited for a media slot");
+    assert_eq!(outputs, vec![Output::Notification("salut".into())]);
 }

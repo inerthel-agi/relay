@@ -15,6 +15,7 @@ import { initializeStreamStyle, normalizeStreamBackground, normalizeStreamStyle 
 import { initializeNavigationLayout } from "./navigation-layout.mjs";
 import { initializeHelpUi } from "./help-ui.mjs";
 import { initializeAccentPicker } from "./accent-picker.mjs";
+import { renderAccessMenu } from "./reaction-access.mjs";
 const { invoke } = window.__TAURI__.core;
 let moduleControls;
 // Created after the settings search; showPage may run before that.
@@ -90,6 +91,9 @@ const inviteRowElement = $("#invite-row");
 const inviteUrlElement = $("#invite-url");
 const openInviteButton = $("#open-invite");
 const channelElement = $("#channel");
+const extraRelayChannelsElement = $("#extra-relay-channels");
+const extraMusicChannelsElement = $("#extra-music-channels");
+const extraHoneypotChannelsElement = $("#extra-honeypot-channels");
 const refreshChannelsButton = $("#refresh-channels");
 const relayChannelChoiceElement = $("#relay-channel-choice");
 const keepMediaChannelButton = $("#relay-channel-keep-media");
@@ -125,6 +129,11 @@ const moderationAllowImagesElement = $("#moderation-allow-images");
 const moderationAllowVideosElement = $("#moderation-allow-videos");
 const moderationAllowAudioElement = $("#moderation-allow-audio");
 const privacyScanEnabledElement = $("#privacy-scan-enabled");
+const voiceScanEnabledElement = $("#voice-scan-enabled");
+const voiceScanStateElement = $("#voice-scan-state");
+const downloadVoiceModelButton = $("#download-voice-model");
+/** FFmpeg with Whisper and the voice model, as Relay last found them. */
+let voiceScanStatus;
 const privacyProtectionLevelElement = $("#privacy-protection-level");
 const privacyBlockThresholdElement = $("#privacy-block-threshold");
 const privacyReviewIntermediateElement = $("#privacy-review-intermediate");
@@ -171,6 +180,8 @@ const notificationWidgetEnabledElement = $("#notification-widget-enabled");
 const lockNotificationWidgetButton = $("#lock-notification-widget");
 const notificationSoundEnabledElement = $("#notification-sound-enabled");
 const notificationSoundObsElement = $("#notification-sound-obs");
+const notificationSoundChoiceElement = $("#notification-sound-choice");
+const previewNotificationSoundButton = $("#preview-notification-sound");
 const pickNotificationSoundButton = $("#pick-notification-sound");
 const clearNotificationSoundButton = $("#clear-notification-sound");
 const notificationSoundStateElement = $("#notification-sound-state");
@@ -267,7 +278,7 @@ const defaultLocaleByLanguage = {
   zh: "zh-CN", ko: "ko-KR", ja: "ja-JP", id: "id-ID",
   it: "it-IT", pt: "pt-BR", pl: "pl-PL", tr: "tr-TR",
 };
-const supportedDesigns = ["graphite", "paper", "neo-brutalism", "gridline", "lumen", "signal", "midnight", "ember", "dawn", "cloud"];
+const supportedDesigns = ["graphite", "paper", "neo-brutalism", "gridline", "lumen", "signal", "midnight", "ember", "dawn", "cloud", "titanium", "aether", "orbital", "oled"];
 // Earlier releases stored brand-named design identifiers.
 const legacyDesignNames = { openai: "graphite", anthropic: "paper" };
 const supportedSidebarLayouts = ["fixed", "compact", "dynamic"];
@@ -299,7 +310,7 @@ const audioPlaybackTargets = new Map();
 let currentAudioPlayback;
 let nowPlayingArtworkRequest = 0;
 const artworkCache = new Map();
-let currentAppVersion = "1.5.0";
+let currentAppVersion = "1.5.2";
 let bundledChangelogMarkdown = "";
 let latestUpdate;
 let updateUiState = { kind: "idle" };
@@ -518,10 +529,7 @@ function applyLanguage() {
     setCredentials(bootstrap.credentials);
     setWidgetState(bootstrap.widget);
     setNotificationWidgetState(bootstrap.notificationWidget);
-    populateChannels(channelElement, bootstrap.channels, channelElement.value, t("selectChannel"));
-    updateRelayChannelChoice(bootstrap.config);
-    populateChannels(musicChannelElement, bootstrap.channels, musicChannelElement.value, t("musicDisabled"));
-    populateChannels(honeypotChannelElement, bootstrap.channels, honeypotChannelElement.value, t("honeypotDisabled"));
+    refreshChannelMenus(bootstrap.channels);
     renderHistory();
     renderModeration();
   }
@@ -1271,6 +1279,8 @@ function applyConfig(config) {
   moderationAllowAudioElement.checked = config.moderationAllowAudio !== false;
   honeypotActionElement.value = config.honeypotAction || "kick";
   privacyScanEnabledElement.checked = Boolean(config.privacyScanEnabled);
+  voiceScanEnabledElement.checked = Boolean(config.voiceScanEnabled);
+  renderVoiceScanStatus();
   privacyProtectionLevelElement.value = config.privacyProtectionLevel || "balanced";
   privacyBlockThresholdElement.value = config.privacyBlockThreshold || "high";
   privacySimilarityBoostElement.value = String(config.privacySimilarityBoost ?? 4);
@@ -1288,6 +1298,7 @@ function applyConfig(config) {
   privacyExemptRoleIdsElement.value = filterRoleIdsToInput(config.privacyFilterExemptRoleIds);
   moderationUi?.fillForm(config);
   populateChannels(channelElement, bootstrap?.channels || [], config.watchedChannelId, t("selectChannel"));
+  renderExtraChannels(config);
   updateRelayChannelChoice(config);
   musicWelcomeElement.value = config.musicWelcomeMessageId || "";
   musicCleanupEnabledElement.checked = Boolean(config.musicCleanupEnabled);
@@ -1333,6 +1344,41 @@ function updateRelayChannelChoice(config) {
   keepMediaChannelButton.textContent = t("relayChannelKeepMedia").replace("{channel}", label(media));
   keepMessageChannelButton.dataset.channelId = messages;
   keepMessageChannelButton.textContent = t("relayChannelKeepMessages").replace("{channel}", label(messages));
+}
+
+/** Extra Relay, music and trap channels, usually in other servers of the same
+ * bot. Kept in a variable because removing a row fires no form event: onChange fires them. */
+const extraChannelMenus = [
+  { key: "extraRelayChannelIds", element: extraRelayChannelsElement, heading: "extraRelayChannels" },
+  { key: "extraMusicChannelIds", element: extraMusicChannelsElement, heading: "extraMusicChannels" },
+  { key: "extraHoneypotChannelIds", element: extraHoneypotChannelsElement, heading: "extraHoneypotChannels" },
+];
+const extraChannelIds = {};
+function renderExtraChannels(lists) {
+  // The menu groups by guildId; the panel's channel list only names the server.
+  const choices = (bootstrap?.channels || []).map((channel) => ({ ...channel, guildId: channel.guildName }));
+  for (const { key, element, heading } of extraChannelMenus) {
+    extraChannelIds[key] = [...(lists[key] || [])];
+    renderAccessMenu(element, {
+      choices, selectedIds: extraChannelIds[key], kind: "channel", t, heading, max: 10,
+      onChange(next) {
+        if (next.join() === extraChannelIds[key].join()) return;
+        extraChannelIds[key] = next;
+        routingForm.dispatchEvent(new Event("input"));
+        routingForm.dispatchEvent(new Event("change"));
+      },
+    });
+  }
+}
+
+/** Refills every channel menu from a newer channel list (the bot connected,
+ * joined a server, or the list was refreshed), keeping each selection. */
+function refreshChannelMenus(channels) {
+  populateChannels(channelElement, channels, channelElement.value, t("selectChannel"));
+  renderExtraChannels(extraChannelIds);
+  updateRelayChannelChoice(bootstrap?.config);
+  populateChannels(musicChannelElement, channels, musicChannelElement.value, t("musicDisabled"));
+  populateChannels(honeypotChannelElement, channels, honeypotChannelElement.value, t("honeypotDisabled"));
 }
 
 function setCredentials(status) {
@@ -1907,6 +1953,7 @@ function readConfigDraft(form, filterOnly = false) {
   }
   if (form === routingForm) {
     const draft = {
+      ...extraChannelIds,
       mediaCleanupEnabled: mediaCleanupEnabledElement.checked,
       mediaWelcomeMessageId: mediaWelcomeMessageElement.value.trim(),
       musicChannelId: musicChannelElement.value,
@@ -1933,6 +1980,7 @@ function readConfigDraft(form, filterOnly = false) {
       moderationAllowVideos: moderationAllowVideosElement.checked,
       moderationAllowAudio: moderationAllowAudioElement.checked,
       privacyScanEnabled: privacyScanEnabledElement.checked,
+      voiceScanEnabled: voiceScanEnabledElement.checked,
       privacyConcepts: moderationUi.applyAdvancedEdits(filterWordsToConcepts(privacyConceptsElement.value, bootstrap.config.privacyConcepts)),
       privacyFilterExemptRoleIds: filterRoleIds(privacyExemptRoleIdsElement.value),
       privacyProtectionLevel: privacyProtectionLevelElement.value,
@@ -2057,9 +2105,15 @@ function applyNotificationSoundConfig(config) {
   notificationSoundEnabledElement.checked = Boolean(config.notificationSoundEnabled);
   notificationSoundObsElement.checked = Boolean(config.notificationSoundObsEnabled);
   const soundPath = config.notificationSoundPath || "";
-  notificationSoundStateElement.textContent = soundPath
-    ? soundPath.split(/[\\/]/).pop()
-    : t("noNotificationSound");
+  // Before 1.5.1 only a file could be chosen: a file without a choice stays the sound.
+  const choice = config.notificationSoundChoice || (soundPath ? "custom" : "soft");
+  const custom = choice === "custom";
+  notificationSoundChoiceElement.value = choice;
+  pickNotificationSoundButton.hidden = !custom;
+  clearNotificationSoundButton.hidden = !custom || !soundPath;
+  notificationSoundStateElement.textContent = !custom
+    ? ""
+    : soundPath ? soundPath.split(/[\\/]/).pop() : t("noNotificationSound");
 }
 
 async function refreshRuntimeStatus() {
@@ -2090,13 +2144,11 @@ async function refreshRuntimeStatus() {
     const channelsSignature = JSON.stringify(status.channels);
     const selectingChannel = document.activeElement === channelElement
       || document.activeElement === musicChannelElement
-      || document.activeElement === honeypotChannelElement;
+      || document.activeElement === honeypotChannelElement
+      || extraChannelMenus.some(({ element }) => element.contains(document.activeElement));
     if (channelsSignature !== lastChannelsSignature && !selectingChannel) {
       lastChannelsSignature = channelsSignature;
-      populateChannels(channelElement, status.channels, channelElement.value, t("selectChannel"));
-      updateRelayChannelChoice(bootstrap?.config);
-      populateChannels(musicChannelElement, status.channels, musicChannelElement.value, t("musicDisabled"));
-      populateChannels(honeypotChannelElement, status.channels, honeypotChannelElement.value, t("honeypotDisabled"));
+      refreshChannelMenus(status.channels);
     }
     updateOverview();
   } catch {
@@ -2411,10 +2463,7 @@ refreshChannelsButton.addEventListener("click", async () => {
   try {
     const channels = await invoke("refresh_channels");
     bootstrap.channels = channels;
-    populateChannels(channelElement, channels, channelElement.value, t("selectChannel"));
-    updateRelayChannelChoice(bootstrap.config);
-    populateChannels(musicChannelElement, channels, musicChannelElement.value, t("musicDisabled"));
-    populateChannels(honeypotChannelElement, channels, honeypotChannelElement.value, t("honeypotDisabled"));
+    refreshChannelMenus(channels);
     setSaveState(saveStateElement, "saved", t("channelsRefreshed"));
   } catch (error) {
     setSaveState(saveStateElement, "error", String(error));
@@ -2727,6 +2776,72 @@ notificationSoundObsElement.addEventListener("change", async () => {
   } catch (error) {
     notificationSoundObsElement.checked = !notificationSoundObsElement.checked;
     notificationSoundStateElement.textContent = String(error);
+  }
+});
+
+/** Says what the voice check still needs: FFmpeg with Whisper, then the model. */
+function renderVoiceScanStatus() {
+  const status = voiceScanEnabledElement.checked ? voiceScanStatus : undefined;
+  downloadVoiceModelButton.hidden = !status || status.modelReady;
+  voiceScanStateElement.textContent = !status ? ""
+    : !status.ffmpegReady ? t("voiceScanNoFfmpeg")
+      : !status.modelReady ? t("voiceScanNoModel")
+        : t("voiceScanReady");
+}
+
+async function refreshVoiceScanStatus() {
+  try {
+    voiceScanStatus = await invoke("voice_scan_status");
+  } catch {
+    voiceScanStatus = undefined;
+  }
+  renderVoiceScanStatus();
+}
+
+voiceScanEnabledElement.addEventListener("change", () => void refreshVoiceScanStatus());
+window.addEventListener("relay-language-change", renderVoiceScanStatus);
+downloadVoiceModelButton.addEventListener("click", async () => {
+  downloadVoiceModelButton.disabled = true;
+  voiceScanStateElement.textContent = t("voiceModelDownloading");
+  try {
+    voiceScanStatus = await invoke("download_voice_model");
+    renderVoiceScanStatus();
+  } catch (error) {
+    voiceScanStateElement.textContent = String(error);
+  } finally {
+    downloadVoiceModelButton.disabled = false;
+  }
+});
+void refreshVoiceScanStatus();
+
+notificationSoundChoiceElement.addEventListener("change", async () => {
+  try {
+    const config = await invoke("set_notification_sound", { sound: notificationSoundChoiceElement.value });
+    bootstrap.config = config;
+    applyNotificationSoundConfig(config);
+  } catch (error) {
+    applyNotificationSoundConfig(bootstrap.config);
+    notificationSoundStateElement.textContent = String(error);
+  }
+});
+
+let notificationSoundPreview;
+previewNotificationSoundButton.addEventListener("click", async () => {
+  previewNotificationSoundButton.disabled = true;
+  try {
+    const bytes = await invoke("preview_notification_sound");
+    notificationSoundPreview ??= new AudioContext();
+    await notificationSoundPreview.resume();
+    const source = notificationSoundPreview.createBufferSource();
+    source.buffer = await notificationSoundPreview.decodeAudioData(new Uint8Array(bytes).buffer);
+    const gain = notificationSoundPreview.createGain();
+    gain.gain.value = Math.min(1, Math.max(0, (Number(bootstrap?.config?.mediaVolume) || 50) / 100));
+    source.connect(gain).connect(notificationSoundPreview.destination);
+    source.start();
+  } catch (error) {
+    notificationSoundStateElement.textContent = String(error);
+  } finally {
+    previewNotificationSoundButton.disabled = false;
   }
 });
 

@@ -113,3 +113,47 @@ fn download_filenames_are_safe_and_keep_media_extensions() {
         )
     );
 }
+
+#[test]
+fn notification_sound_plays_relay_sounds_or_the_kept_custom_copy() {
+    let mut config = AppConfig::default();
+    let (soft, soft_type) = notification_sound_bytes(&config).unwrap();
+    assert_eq!(soft_type, "audio/wav");
+    assert!(soft.starts_with(b"RIFF"));
+    config.notification_sound_choice = Some(NotificationSound::Chat);
+    let (chat, _) = notification_sound_bytes(&config).unwrap();
+    assert!(chat.starts_with(b"RIFF"));
+    assert_ne!(chat, soft);
+    // Custom without a file plays nothing rather than a Relay sound.
+    config.notification_sound_choice = Some(NotificationSound::Custom);
+    assert!(notification_sound_bytes(&config).is_err());
+
+    let directory = tempfile::tempdir().unwrap();
+    let original = directory.path().join("my ping.mp3");
+    std::fs::write(&original, b"first").unwrap();
+    let store = directory
+        .path()
+        .join("relay")
+        .join(NOTIFICATION_SOUND_FOLDER);
+    let stored = store_custom_sound(&store, &original).unwrap();
+    assert_eq!(stored, store.join("my ping.mp3"));
+    // The original can go away: Relay plays its own copy.
+    std::fs::remove_file(&original).unwrap();
+    config.notification_sound_path = Some(stored.to_string_lossy().into_owned());
+    assert_eq!(
+        notification_sound_bytes(&config).unwrap(),
+        (b"first".to_vec(), "audio/mpeg")
+    );
+
+    // A new file replaces the previous copy; choosing the copy itself keeps it.
+    let second = directory.path().join("other.ogg");
+    std::fs::write(&second, b"second").unwrap();
+    let stored = store_custom_sound(&store, &second).unwrap();
+    assert_eq!(store_custom_sound(&store, &stored).unwrap(), stored);
+    let kept: Vec<_> = std::fs::read_dir(&store)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert_eq!(kept, ["other.ogg"]);
+    assert_eq!(std::fs::read(&stored).unwrap(), b"second");
+}
