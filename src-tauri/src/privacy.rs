@@ -1207,6 +1207,10 @@ fn category_enabled(config: &AppConfig, category: PrivacyCategory) -> bool {
     ) || config.privacy_enabled_categories.contains(&category)
 }
 
+/// Prepares text for every detector: drops characters that render as nothing
+/// (format characters, variation selectors, tag characters, Hangul fillers)
+/// and folds look-alike letters and digits to ASCII, so "０６ １２" or a word
+/// in fullwidth letters is checked like the text a viewer reads.
 fn strip_invisible_characters(value: &str) -> String {
     value
         .chars()
@@ -1216,14 +1220,49 @@ fn strip_invisible_characters(value: &str) -> String {
                 '\u{00ad}'
                     | '\u{034f}'
                     | '\u{061c}'
-                    | '\u{180e}'
+                    | '\u{115f}'
+                    | '\u{1160}'
+                    | '\u{180b}'..='\u{180f}'
                     | '\u{200b}'..='\u{200f}'
                     | '\u{202a}'..='\u{202e}'
                     | '\u{2060}'..='\u{206f}'
+                    | '\u{3164}'
+                    | '\u{fe00}'..='\u{fe0f}'
                     | '\u{feff}'
+                    | '\u{ffa0}'
+                    | '\u{e0000}'..='\u{e007f}'
+                    | '\u{e0100}'..='\u{e01ef}'
             )
         })
+        .map(fold_lookalike)
         .collect()
+}
+
+/// First code point of each decimal digit block folded to ASCII digits.
+const DIGIT_ZEROS: [u32; 21] = [
+    0x0660, 0x06f0, 0x07c0, 0x0966, 0x09e6, 0x0a66, 0x0ae6, 0x0b66, 0x0be6, 0x0c66, 0x0ce6, 0x0d66,
+    0x0de6, 0x0e50, 0x0ed0, 0x0f20, 0x1040, 0x1090, 0x17e0, 0x1810, 0xff10,
+];
+
+/// Maps fullwidth forms, mathematical letters and digits, and other decimal
+/// digits to their ASCII look-alike; any other character is kept.
+fn fold_lookalike(character: char) -> char {
+    let code = u32::from(character);
+    let ascii = |offset: u32, base: u8| char::from(base + offset as u8);
+    match code {
+        0x3000 => ' ',
+        0xff01..=0xff5e => char::from_u32(code - 0xfee0).unwrap_or(character),
+        // 13 styled alphabets of 52 letters (A-Z then a-z).
+        0x1d400..=0x1d6a3 => match (code - 0x1d400) % 52 {
+            letter @ 0..=25 => ascii(letter, b'A'),
+            letter => ascii(letter - 26, b'a'),
+        },
+        0x1d7ce..=0x1d7ff => ascii((code - 0x1d7ce) % 10, b'0'),
+        _ => DIGIT_ZEROS
+            .iter()
+            .find(|zero| (**zero..**zero + 10).contains(&code))
+            .map_or(character, |zero| ascii(code - zero, b'0')),
+    }
 }
 
 fn mask_allowlisted_values(text: &str, allowlist: &[String]) -> String {
@@ -1805,6 +1844,7 @@ fn normalize_rule_words(value: &str) -> Vec<String> {
 fn normalize_compact(value: &str) -> String {
     value
         .chars()
+        .map(fold_lookalike)
         .flat_map(char::to_lowercase)
         .filter_map(|character| {
             let mapped = match character {

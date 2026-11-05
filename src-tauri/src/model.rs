@@ -317,7 +317,7 @@ pub struct ServerStatus {
 }
 
 /// Panel designs; outputs mirror the active one when their style is "auto".
-pub const INTERFACE_DESIGNS: [&str; 10] = [
+pub const INTERFACE_DESIGNS: [&str; 14] = [
     "graphite",
     "paper",
     "neo-brutalism",
@@ -328,6 +328,10 @@ pub const INTERFACE_DESIGNS: [&str; 10] = [
     "ember",
     "dawn",
     "cloud",
+    "titanium",
+    "aether",
+    "orbital",
+    "oled",
 ];
 /// Output-only style that draws outlined text without a card.
 pub const SUBTITLE_OUTPUT_STYLE: &str = "subtitle";

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-voice-scan-status"
+description = "Enables the voice_scan_status command without any pre-configured scope."
+commands.allow = ["voice_scan_status"]
+
+[[permission]]
+identifier = "deny-voice-scan-status"
+description = "Denies the voice_scan_status command without any pre-configured scope."
+commands.deny = ["voice_scan_status"]

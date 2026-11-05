@@ -60,10 +60,6 @@ let reportedNotificationId;
 // A reconnect waits for the server's pin snapshot before draining the local
 // queue, so an already pinned message cannot be replaced by a queued item.
 let messagePinStateReady = true;
-/** True while overlay media or YouTube holds the shared stage. */
-let mediaBusy = false;
-/** True while server reports an active YouTube track (may be deferred locally on overlay). */
-let musicActive = false;
 /** True while this notification client (or a peer notification client) holds the stage. */
 let notificationBusy = false;
 let reportedNotificationStageBusy = false;
@@ -236,10 +232,6 @@ function resetPlayback() {
   window.clearTimeout(visualTimer);
 }
 
-function stageBlocked() {
-  return mediaBusy || musicActive;
-}
-
 function syncNotificationStageBusy(busy, force = false) {
   if (isPreview || socket?.readyState !== 1) return;
   if (!force && busy === reportedNotificationStageBusy) return;
@@ -284,7 +276,7 @@ function currentNotificationIsPinned() {
 
 function holdCurrentNotification() {
   if (!currentNotificationIsPinned()) return;
-  // A pinned card stays visible and releases the shared stage for media and music.
+  // A pinned card stays visible without holding the text place.
   window.clearTimeout(visualTimer);
   syncNotificationStageBusy(false);
 }
@@ -330,30 +322,16 @@ function applyMessagePin(payload = {}) {
 
 function applyStageClock(payload = {}) {
   lastStageClockPayload = payload && typeof payload === "object" ? payload : {};
-  mediaBusy = Boolean(payload.mediaBusy);
-  // Prefer server musicBusy when present so a missed musicIdle cannot strand
-  // the OBS notification lane.
-  if (Object.prototype.hasOwnProperty.call(payload, "musicBusy")) {
-    musicActive = Boolean(payload.musicBusy);
-  }
+  // Text cards have their own place: media and YouTube never hold them back.
   notificationBusy = Boolean(payload.notificationBusy);
   resolveNotificationStageClaim();
-  if (!stageBlocked() && !currentNotification && !notificationStageClaimPending) playNext();
+  playNext();
 
-}
-
-function setMusicActive(active, { resume = false } = {}) {
-  musicActive = Boolean(active);
-  if (resume && !stageBlocked() && !notificationStageClaimPending) playNext();
 }
 
 function resolveNotificationStageClaim() {
   if (!notificationStageClaimPending) return;
-  if (
-    (lastStageClockPayload.granted === false && lastStageClockPayload.lane === "notification")
-    || mediaBusy
-    || musicActive
-  ) {
+  if (lastStageClockPayload.granted === false && lastStageClockPayload.lane === "notification") {
     notificationStageClaimPending = false;
     reportedNotificationStageBusy = false;
     return;
@@ -371,9 +349,8 @@ function beginCurrentNotification() {
   currentNotification = queue.shift();
   const generation = playbackGeneration;
   setCardContent(currentNotification);
-  // Exclusive stage: never leave a music card visible under a notification.
-
   showCard();
+  if (dodgesMedia) keepClearOfMedia();
   playNotificationPing();
   syncNotificationVisibility(true, currentNotification);
   // The claim that caused this begin was sent before the server grant. Echo
@@ -413,7 +390,6 @@ function playNext() {
     currentNotification
     || queue.length === 0
     || !isEnabled(queue[0])
-    || stageBlocked()
     || notificationStageClaimPending
     || !messagePinStateReady
   ) {
@@ -489,18 +465,6 @@ function handleMessage(event) {
   } else if (message.type === "messagePin") {
     if (isPreview) return;
     applyMessagePin(message.payload);
-  } else if (message.type === "musicPlay") {
-    if (isPreview) return;
-    // YouTube renders in the media overlay. Notifications only track the
-    // authoritative music occupancy so notifications wait on every output target.
-    setMusicActive(true);
-  } else if (message.type === "musicStop") {
-    // Keep authoritative occupancy until musicIdle or stageClock releases it.
-  } else if (message.type === "musicIdle") {
-    if (isPreview) return;
-
-    setMusicActive(false, { resume: true });
-
   } else if (message.type === "stageClock") {
     if (isPreview) return;
     applyStageClock(message.payload);
@@ -537,6 +501,33 @@ function applyAppearance(preferences = {}) {
 applyAppearance({ language: interfaceLanguage, fontScale: 100, accentRgb: [88, 185, 137] });
 applyOutputGeometry();
 
+/** Media cards shown by the other layers of the OBS Relay Visual source. */
+function mediaCardRects() {
+  try {
+    return [...window.parent.document.querySelectorAll("iframe")]
+      .filter((frame) => frame.contentWindow !== window)
+      .flatMap((frame) => [...(frame.contentDocument?.querySelectorAll("main .is-visible") || [])])
+      .map((element) => element.getBoundingClientRect())
+      .filter((rect) => rect.width > 0 && rect.height > 0);
+  } catch {
+    return [];
+  }
+}
+
+function keepClearOfMedia() {
+  // A card on its way out keeps its place until it is gone.
+  if (!currentNotification) return;
+  cardElement.style.translate = "";
+  const offset = RelayLayout.dodge(cardElement.getBoundingClientRect(), mediaCardRects(), window.innerHeight);
+  if (offset) cardElement.style.translate = `0 ${offset}px`;
+}
+
+// In OBS the text card shares the Relay Visual source with the media layers,
+// which can be on screen at the same time. The Windows widget windows are
+// moved apart by Relay instead (notification_widget.rs).
+const dodgesMedia = Boolean(window.frameElement) && target !== "widget" && !isPreview;
+if (dodgesMedia) window.setInterval(keepClearOfMedia, 250);
+
 function scheduleReconnect() {
   if (isUnloading || reconnectTimer) {
     return;
@@ -570,9 +561,6 @@ function connect() {
     reportedNotificationStageBusy = false;
     notificationStageClaimPending = false;
     notificationBusy = false;
-
-    mediaBusy = false;
-    // Retain music occupancy until the server supplies a fresh stage clock.
     if (!isPreview) {
       hideCard();
     }

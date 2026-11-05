@@ -69,7 +69,8 @@ const HONEYPOT_AUDIT_REASON: &str =
     "Relay compromised-account trap: message posted in the protected channel.";
 
 fn honeypot_action_for_channel(config: &AppConfig, channel_id: &str) -> Option<HoneypotAction> {
-    (!config.honeypot_channel_id.is_empty() && config.honeypot_channel_id == channel_id)
+    config
+        .is_honeypot_channel(channel_id)
         .then_some(config.honeypot_action)
 }
 
@@ -230,7 +231,7 @@ impl EventHandler for Handler {
 
         let role_ids = message_role_ids(&message);
         let staff = is_server_staff(&context.cache, &message);
-        if !config.music_channel_id.is_empty() && channel_id == config.music_channel_id {
+        if config.is_music_channel(&channel_id) {
             let lane = crate::moderation::Lane::Music;
             if !apply_moderation_gate(&self.core, &message, &role_ids, staff, &[lane], &config) {
                 return;
@@ -271,16 +272,26 @@ impl EventHandler for Handler {
         new: Option<Message>,
         event: MessageUpdateEvent,
     ) {
+        let relays_media = self
+            .core
+            .config
+            .read()
+            .await
+            .relays_media(&event.channel_id.to_string());
+        if !relays_media
+            || (new.is_none() && event.embeds.is_none())
+            || !fresh_for_embeds(event.id, now_ms() / 1_000)
+        {
+            return;
+        }
+        // One media slot per message, taken where processing starts: the
+        // slots are not reentrant, so a nested acquire would wait forever.
+        let Ok(_media_slot) = self.core.media_ingest_slots.acquire().await else {
+            return;
+        };
         if let Some(message) = new {
             let staff = is_server_staff(&context.cache, &message);
             submit_embedded_gifs(&self.core, &context.http, &message, staff).await;
-            return;
-        }
-        if event.embeds.is_none() {
-            return;
-        }
-        let watched_channel_id = self.core.config.read().await.watched_channel_id.clone();
-        if watched_channel_id.is_empty() || event.channel_id.to_string() != watched_channel_id {
             return;
         }
         if let Ok(message) = context.http.get_message(event.channel_id, event.id).await {
@@ -611,6 +622,53 @@ async fn ai_image_check(
     }
 }
 
+/// Voice check of an audio file or a video's sound, on this PC. Returns true
+/// when it blocked the whole message; a sound that cannot be checked holds the
+/// message for review. Moderators are checked too: it protects personal data.
+/// With the AI watch on, the transcript of a member's sound gets a second
+/// reading by the chosen provider, which can only hold it.
+async fn voice_check(
+    core: &Arc<AppCore>,
+    http: &Http,
+    message: &Message,
+    candidate: (MediaKind, &str, &str, Option<&[u8]>),
+    config: &AppConfig,
+    report: &mut privacy::PrivacyReport,
+) -> bool {
+    use crate::voice_scan::{self, VoiceCheck};
+    let (kind, url, proxy_url, bytes) = candidate;
+    if !voice_scan::applies(config, kind) {
+        return false;
+    }
+    let directory = voice_scan::model_directory(&core.data_directory);
+    let source = (url, proxy_url, bytes.map(<[u8]>::to_vec));
+    match voice_scan::check(directory, source, config).await {
+        VoiceCheck::Silent => false,
+        VoiceCheck::Unchecked => {
+            core.hold_message_for_review(&message.id.to_string(), voice_scan::HOLD_UNCHECKED);
+            false
+        }
+        VoiceCheck::Checked {
+            report: voice,
+            transcript,
+        } => {
+            report.merge(voice);
+            report.apply_score_policy(config);
+            if block_and_delete_message_if_needed(core, http, message, report, config).await {
+                return true;
+            }
+            let message_id = message.id.to_string();
+            if core
+                .ai_holds_transcript(&message_id, &transcript, config)
+                .await
+            {
+                core.hold_message_for_review(&message_id, crate::ai::watch::HOLD_REASON);
+            }
+            false
+        }
+    }
+}
+
 /// Logs a block, then warns or times out the author when those options are on.
 async fn follow_up_block(
     core: &Arc<AppCore>,
@@ -686,7 +744,7 @@ fn message_author(message: &Message, config: &AppConfig) -> AuthorIdentity {
 fn decision_log_lane(config: &AppConfig, message: &Message) -> Option<crate::moderation::Lane> {
     use crate::moderation::Lane;
     let channel_id = message.channel_id.to_string();
-    if !config.music_channel_id.is_empty() && config.music_channel_id == channel_id {
+    if config.is_music_channel(&channel_id) {
         return Some(Lane::Music);
     }
     let feeds = config.channel_feeds(&channel_id)?;
@@ -878,6 +936,18 @@ async fn relay_channel_message(
     staff: bool,
     plan: &RelayMessagePlan,
 ) {
+    // Only a message that downloads media takes one of the shared slots: a
+    // plain text never waits behind slow media checks.
+    let carries_media = !plan.attachments.is_empty()
+        || !message.sticker_items.is_empty()
+        || !message_gifs(&message.content, &message.embeds).is_empty();
+    let _media_slot = match carries_media {
+        true => match core.media_ingest_slots.acquire().await {
+            Ok(slot) => Some(slot),
+            Err(_) => return,
+        },
+        false => None,
+    };
     let role_config = privacy::scoped_config_for_roles(config, role_ids);
     // The message text is checked with the rules of every output it feeds.
     let message_config =
@@ -1063,6 +1133,22 @@ async fn relay_channel_message(
             &current_scoped_config,
         )
         .await
+            || voice_check(
+                core,
+                http,
+                message,
+                (
+                    kind,
+                    &event.url,
+                    &event.proxy_url,
+                    audio_metadata
+                        .as_ref()
+                        .map(|metadata| metadata.audio.as_slice()),
+                ),
+                &current_scoped_config,
+                &mut privacy_report,
+            )
+            .await
             || ai_image_check(
                 core,
                 http,
@@ -1784,11 +1870,14 @@ const MISSING_CHANNEL_WARNING: &str = "A selected Discord channel is private or 
 async fn warn_if_watched_channel_missing(core: &Arc<AppCore>) {
     let configured_channels = {
         let config = core.config.read().await;
-        [
+        let mut channels = vec![
             config.watched_channel_id.clone(),
             config.former_message_channel_id.clone(),
             config.music_channel_id.clone(),
-        ]
+        ];
+        channels.extend(config.extra_relay_channel_ids.iter().cloned());
+        channels.extend(config.extra_music_channel_ids.iter().cloned());
+        channels
     };
     let available_channels = core.channels.read().await;
     let missing = configured_channels.iter().any(|configured_channel| {
@@ -2070,18 +2159,12 @@ async fn handle_relay(
     let guild_id = command
         .guild_id
         .context("Relay commands require a server.")?;
-    // Lock validates its actual target below, including a previous channel's snapshot.
-    if !matches!(
-        option.name.as_str(),
-        "clear" | "nuke" | "changelog" | "lock"
-    ) && !config.watched_channel_id.is_empty()
-    {
-        channel_in_guild(
-            http,
-            ChannelId::new(config.watched_channel_id.parse()?),
-            guild_id,
-        )
-        .await?;
+    match relay_command_scope(&option.name, &config.watched_channel_id) {
+        RelayCommandScope::InvokingServer => {}
+        RelayCommandScope::RelayServer(watched) => {
+            channel_in_guild(http, ChannelId::new(watched.parse()?), guild_id).await?;
+        }
+        RelayCommandScope::Unanchored => return Ok(RELAY_CHANNEL_REQUIRED.into()),
     }
     for argument in arguments {
         if let CommandDataOptionValue::Channel(channel_id) = argument.value {
@@ -2553,7 +2636,12 @@ fn replace_configured_channel_id(
         &mut config.former_message_channel_id,
         &mut config.music_channel_id,
         &mut config.honeypot_channel_id,
-    ] {
+    ]
+    .into_iter()
+    .chain(&mut config.extra_relay_channel_ids)
+    .chain(&mut config.extra_music_channel_ids)
+    .chain(&mut config.extra_honeypot_channel_ids)
+    {
         if *channel_id == old_channel_id {
             *channel_id = replacement_channel_id.clone();
         }
@@ -2614,6 +2702,15 @@ fn clear_candidate(message_id: MessageId, protected: Option<u64>) -> bool {
     Some(message_id.get()) != protected
 }
 
+/// Discord adds a GIF preview within seconds of the message. A later update
+/// is an edit: after a restart nothing remembers its GIF was shown, so it
+/// would come back on stream.
+fn fresh_for_embeds(message_id: MessageId, now_seconds: u64) -> bool {
+    const EMBED_UPDATE_WINDOW_SECONDS: u64 = 2 * 60;
+    let created = message_id.created_at().unix_timestamp().max(0) as u64;
+    now_seconds.saturating_sub(created) <= EMBED_UPDATE_WINDOW_SECONDS
+}
+
 fn is_bulk_deletable(message_id: MessageId, now_seconds: u64) -> bool {
     const SAFE_BULK_DELETE_AGE_SECONDS: u64 = 13 * 24 * 60 * 60 + 23 * 60 * 60;
     let created = message_id.created_at().unix_timestamp().max(0) as u64;
@@ -2633,6 +2730,30 @@ fn command_enabled(config: &AppConfig, command: &str) -> bool {
         "lock" => config.command_lock_enabled,
         "changelog" => config.command_changelog_enabled,
         _ => false,
+    }
+}
+
+const RELAY_CHANNEL_REQUIRED: &str = "Choose the Relay channel in the Relay application first.";
+
+#[derive(Debug, PartialEq)]
+enum RelayCommandScope<'a> {
+    /// Acts on a channel of the invoking server, checked against that server.
+    InvokingServer,
+    /// Must run in the server of the configured Relay channel.
+    RelayServer(&'a str),
+    /// No Relay channel yet: nothing ties the command to the streamer's server,
+    /// so an administrator of any other server running the bot would pass.
+    Unanchored,
+}
+
+/// Lock validates its actual target itself, including a previous channel's snapshot.
+fn relay_command_scope<'a>(subcommand: &str, watched_channel_id: &'a str) -> RelayCommandScope<'a> {
+    if matches!(subcommand, "clear" | "nuke" | "changelog" | "lock") {
+        RelayCommandScope::InvokingServer
+    } else if watched_channel_id.is_empty() {
+        RelayCommandScope::Unanchored
+    } else {
+        RelayCommandScope::RelayServer(watched_channel_id)
     }
 }
 
@@ -2706,7 +2827,7 @@ fn format_relay_status(
 }
 
 fn relay_channel_summary(config: &AppConfig) -> String {
-    if config.relay_channel_conflict() {
+    let summary = if config.relay_channel_conflict() {
         format!(
             "choice pending in the Relay application (media <#{}>, messages <#{}>)",
             config.watched_channel_id, config.former_message_channel_id
@@ -2715,7 +2836,17 @@ fn relay_channel_summary(config: &AppConfig) -> String {
         "not configured".into()
     } else {
         format!("<#{}>", config.watched_channel_id)
+    };
+    if config.extra_relay_channel_ids.is_empty() {
+        return summary;
     }
+    let extras = config
+        .extra_relay_channel_ids
+        .iter()
+        .map(|id| format!("<#{id}>"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("{summary}, also {extras}")
 }
 
 fn widget_status(visible: bool, locked: bool) -> &'static str {
@@ -2973,7 +3104,7 @@ async fn submit_embedded_gifs(
     staff: bool,
 ) -> bool {
     let config = core.config.read().await.clone();
-    if message.author.bot || message.channel_id.to_string() != config.watched_channel_id {
+    if message.author.bot || !config.relays_media(&message.channel_id.to_string()) {
         return false;
     }
     let role_ids = message_role_ids(message);
@@ -3040,7 +3171,7 @@ async fn submit_deferred_embeds(
         privacy::scoped_config_for_roles(&config, &message.role_ids),
         crate::moderation::Lane::Media,
     );
-    if config.watched_channel_id.is_empty() || message.channel_id != config.watched_channel_id {
+    if !config.relays_media(&message.channel_id) {
         return false;
     }
     let message_report = classify_privacy_values(

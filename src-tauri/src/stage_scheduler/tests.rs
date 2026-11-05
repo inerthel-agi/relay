@@ -74,45 +74,106 @@ fn music(playback_id: &str, title: &str) -> RelayEvent {
     })
 }
 
+fn notification(timestamp: u64, id: &str) -> RelayEvent {
+    RelayEvent::Notification(NotificationEvent {
+        id: id.into(),
+        text: "text".into(),
+        author: AuthorIdentity {
+            username: "user".into(),
+            display_avatar_url: String::new(),
+        },
+        guild_tag: None,
+        timestamp,
+        segments: Vec::new(),
+    })
+}
+
 #[tokio::test]
-async fn older_pending_ticket_blocks_newer_ready_media() {
+async fn media_waits_for_its_own_text_but_not_for_another_message() {
     let (tx, mut rx) = broadcast::channel(16);
     let scheduler = StageScheduler::new(tx);
-    let older = scheduler
+    let older_text = scheduler
         .reserve(22_000, "100", 0, StageLane::Notification)
         .await;
-    scheduler
-        .ready(
-            scheduler
-                .reserve(22_001, "101", 200, StageLane::Media)
-                .await,
-            media(22_001, "101"),
-        )
+    let own_text = scheduler
+        .reserve(22_001, "101", 0, StageLane::Notification)
         .await;
+    let image = scheduler
+        .reserve(22_001, "101", 200, StageLane::Media)
+        .await;
+    scheduler.ready(image, media(22_001, "101")).await;
+    // Its own text is still being checked: the image waits.
+    assert!(rx.try_recv().is_err());
+    scheduler.ready(own_text, notification(22_001, "101")).await;
+    assert!(matches!(rx.try_recv(), Ok(RelayEvent::Media(_))));
+    // Texts keep the Discord order among themselves.
     assert!(rx.try_recv().is_err());
     scheduler
-        .ready(
-            older,
-            RelayEvent::Notification(NotificationEvent {
-                id: "100".into(),
-                text: "older".into(),
-                author: AuthorIdentity {
-                    username: "user".into(),
-                    display_avatar_url: String::new(),
-                },
-                guild_tag: None,
-                timestamp: 22_000,
-                segments: Vec::new(),
-            }),
-        )
+        .ready(older_text, notification(22_000, "100"))
         .await;
-    assert!(matches!(
-        rx.recv().await.unwrap(),
-        RelayEvent::Notification(_)
-    ));
-    scheduler.stage_state(false, false, true).await;
+    assert!(matches!(rx.try_recv(), Ok(RelayEvent::Notification(event)) if event.id == "100"));
+    scheduler.stage_state(true, false, true).await;
+    scheduler.stage_state(true, false, false).await;
+    assert!(matches!(rx.try_recv(), Ok(RelayEvent::Notification(event)) if event.id == "101"));
+}
+
+#[tokio::test]
+async fn cancelling_a_message_keeps_other_messages_and_what_is_on_screen() {
+    let (tx, mut rx) = broadcast::channel(16);
+    let scheduler = StageScheduler::new(tx);
+    let on_screen = scheduler.reserve(10, "7", 200, StageLane::Media).await;
+    scheduler.ready(on_screen, media(10, "7")).await;
+    assert!(matches!(rx.try_recv(), Ok(RelayEvent::Media(_))));
+    let text = scheduler.reserve(10, "7", 0, StageLane::Notification).await;
+    let ready_image = scheduler.reserve(10, "7", 201, StageLane::Media).await;
+    scheduler.ready(ready_image, media(10, "7")).await;
+    let other = scheduler.reserve(11, "8", 200, StageLane::Media).await;
+    scheduler.ready(other, media(11, "8")).await;
+
+    scheduler.cancel_message(text).await;
+    // The part already on screen ends normally; the next one is another message.
+    scheduler.stage_state(true, false, false).await;
     scheduler.stage_state(false, false, false).await;
-    assert!(matches!(rx.recv().await.unwrap(), RelayEvent::Media(_)));
+    assert!(matches!(rx.try_recv(), Ok(RelayEvent::Media(event)) if event.message_id == "8"));
+    assert!(rx.try_recv().is_err());
+    assert!(scheduler.queue_snapshot().await.is_empty());
+}
+
+#[tokio::test]
+async fn a_text_card_alone_is_not_media_on_screen() {
+    let (tx, _rx) = broadcast::channel(16);
+    let scheduler = StageScheduler::new(tx);
+    scheduler
+        .enqueue(notification(1, "1"), StageLane::Notification)
+        .await;
+    scheduler.stage_state(false, false, true).await;
+    assert!(!scheduler.media_on_screen().await);
+    scheduler.stage_state(false, true, true).await;
+    assert!(scheduler.media_on_screen().await);
+}
+
+#[tokio::test]
+async fn text_cards_show_alongside_media_and_music() {
+    let (tx, mut rx) = broadcast::channel(16);
+    let scheduler = StageScheduler::new(tx);
+    // A track plays: a text card still shows, an image waits for the track.
+    scheduler.stage_state(false, true, false).await;
+    scheduler.enqueue(media(1, "1"), StageLane::Media).await;
+    scheduler
+        .enqueue(notification(2, "2"), StageLane::Notification)
+        .await;
+    assert!(matches!(rx.try_recv(), Ok(RelayEvent::Notification(event)) if event.id == "2"));
+    assert!(rx.try_recv().is_err());
+    // The track ended: the image shows while the text card is on screen.
+    scheduler.stage_state(false, false, true).await;
+    assert!(matches!(rx.try_recv(), Ok(RelayEvent::Media(event)) if event.message_id == "1"));
+    // One item per place: the next text waits for the first card.
+    scheduler
+        .enqueue(notification(3, "3"), StageLane::Notification)
+        .await;
+    assert!(rx.try_recv().is_err());
+    scheduler.stage_state(true, false, false).await;
+    assert!(matches!(rx.try_recv(), Ok(RelayEvent::Notification(event)) if event.id == "3"));
 }
 
 #[tokio::test]
@@ -137,8 +198,8 @@ async fn slow_head_is_demoted_then_reinserted_without_being_lost() {
     let (tx, mut rx) = broadcast::channel(16);
     let scheduler =
         StageScheduler::with_timeouts(tx, Duration::from_millis(20), Duration::from_millis(20));
-    let slow_text = scheduler
-        .reserve(22_000, "100", 0, StageLane::Notification)
+    let slow_video = scheduler
+        .reserve(22_000, "100", 200, StageLane::Media)
         .await;
     let image = scheduler
         .reserve(22_001, "101", 200, StageLane::Media)
@@ -150,30 +211,16 @@ async fn slow_head_is_demoted_then_reinserted_without_being_lost() {
             .await
             .is_err()
     );
-    assert!(matches!(rx.recv().await.unwrap(), RelayEvent::Media(_)));
+    assert!(
+        matches!(rx.recv().await.unwrap(), RelayEvent::Media(event) if event.message_id == "101")
+    );
     scheduler.stage_state(true, false, false).await;
     scheduler.stage_state(false, false, false).await;
 
-    scheduler
-        .ready(
-            slow_text,
-            RelayEvent::Notification(NotificationEvent {
-                id: "100".into(),
-                text: "slow text".into(),
-                author: AuthorIdentity {
-                    username: "user".into(),
-                    display_avatar_url: String::new(),
-                },
-                guild_tag: None,
-                timestamp: 22_000,
-                segments: Vec::new(),
-            }),
-        )
-        .await;
-    assert!(matches!(
-        rx.recv().await.unwrap(),
-        RelayEvent::Notification(_)
-    ));
+    scheduler.ready(slow_video, media(22_000, "100")).await;
+    assert!(
+        matches!(rx.recv().await.unwrap(), RelayEvent::Media(event) if event.message_id == "100")
+    );
 }
 
 #[tokio::test]

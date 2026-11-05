@@ -193,3 +193,51 @@ async fn a_single_short_word_is_shown_without_asking_the_ai() {
     }
     assert_eq!(sent.lock().unwrap().len(), 8);
 }
+
+#[tokio::test]
+async fn a_transcript_is_held_for_a_clear_problem_or_a_doubt_about_personal_data() {
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let config = watching();
+    let transcript = "je serai devant le lycée Victor-Hugo à 17 heures";
+    let hold = |advice| {
+        transcript_hold_advice(
+            &config,
+            transcript,
+            MEMBER,
+            false,
+            "fr",
+            DEADLINE,
+            provider(advice, &sent),
+        )
+    };
+    let personal = |verdict| AiAdvice::Done {
+        verdict,
+        categories: vec![AiCategory::PersonalData],
+        reason: "Raison.".into(),
+    };
+    assert!(hold(personal(AiVerdict::Ambiguous)).await.is_some());
+    assert!(hold(done(AiVerdict::ClearProblem)).await.is_some());
+    assert_eq!(hold(done(AiVerdict::Ambiguous)).await, None);
+    assert_eq!(hold(personal(AiVerdict::NoIssueSeen)).await, None);
+    assert!(sent.lock().unwrap()[0].contains("Transcript to review"));
+
+    // Staff, and a transcript the local scan already flagged, never leave the PC.
+    let untouched = Arc::new(Mutex::new(Vec::new()));
+    for (text, sender) in [
+        (transcript, Sender::Trusted),
+        ("mon numéro c'est le 06 12 34 56 78", MEMBER),
+    ] {
+        let advice = transcript_hold_advice(
+            &config,
+            text,
+            sender,
+            false,
+            "fr",
+            DEADLINE,
+            provider(done(AiVerdict::ClearProblem), &untouched),
+        )
+        .await;
+        assert_eq!(advice, None);
+    }
+    assert!(untouched.lock().unwrap().is_empty());
+}

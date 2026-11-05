@@ -5,6 +5,7 @@ pub mod moderation;
 pub mod music_queue;
 pub mod reactions;
 
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
@@ -14,7 +15,7 @@ use crate::{
     bot::{
         apply_bot_presence, invite_url, refresh_channel_list, start_bot, sync_relay_command_schema,
     },
-    config::{AppConfig, DEFAULT_SKIP_SHORTCUT, HoneypotAction, OutputGeometry},
+    config::{AppConfig, DEFAULT_SKIP_SHORTCUT, HoneypotAction, NotificationSound, OutputGeometry},
     credentials::{
         CredentialStatus, DiscordCredentials, credential_status, load_discord_credentials,
         save_ai_api_key, save_discord_credentials, save_youtube_api_key,
@@ -70,17 +71,23 @@ pub struct PanelConfig {
     /// `choose_relay_channel`, so panel fields for it are ignored.
     watched_channel_id: String,
     #[serde(default)]
+    extra_relay_channel_ids: Vec<String>,
+    #[serde(default)]
     media_cleanup_enabled: bool,
     #[serde(default)]
     media_welcome_message_id: String,
     #[serde(default)]
     music_channel_id: String,
     #[serde(default)]
+    extra_music_channel_ids: Vec<String>,
+    #[serde(default)]
     music_cleanup_enabled: bool,
     #[serde(default)]
     music_welcome_message_id: String,
     #[serde(default)]
     honeypot_channel_id: String,
+    #[serde(default)]
+    extra_honeypot_channel_ids: Vec<String>,
     #[serde(default)]
     honeypot_action: HoneypotAction,
     port: u16,
@@ -113,6 +120,8 @@ pub struct PanelConfig {
     privacy_block_threshold: crate::privacy::PrivacyClassification,
     privacy_review_intermediate: bool,
     privacy_auto_delete_blocked_messages: bool,
+    #[serde(default)]
+    voice_scan_enabled: bool,
     privacy_allowlist: Vec<String>,
     privacy_custom_patterns: Vec<String>,
     /// Absent from older panels: keep the saved moderation settings then.
@@ -646,13 +655,16 @@ pub async fn apply_config(
     let next = core
         .update_config(|current| {
             current.watched_channel_id = config.watched_channel_id;
+            current.extra_relay_channel_ids = config.extra_relay_channel_ids;
             current.media_cleanup_enabled = config.media_cleanup_enabled;
             current.media_welcome_message_id = config.media_welcome_message_id;
             current.unify_relay_channels();
             current.music_channel_id = config.music_channel_id;
+            current.extra_music_channel_ids = config.extra_music_channel_ids;
             current.music_cleanup_enabled = config.music_cleanup_enabled;
             current.music_welcome_message_id = config.music_welcome_message_id;
             current.honeypot_channel_id = config.honeypot_channel_id;
+            current.extra_honeypot_channel_ids = config.extra_honeypot_channel_ids;
             current.honeypot_action = config.honeypot_action;
             current.port = config.port;
             current.display_duration_ms = config.display_duration_ms;
@@ -684,6 +696,7 @@ pub async fn apply_config(
             current.privacy_review_intermediate = config.privacy_review_intermediate;
             current.privacy_auto_delete_blocked_messages =
                 config.privacy_auto_delete_blocked_messages;
+            current.voice_scan_enabled = config.voice_scan_enabled;
             current.privacy_allowlist = config.privacy_allowlist;
             current.privacy_custom_patterns = config.privacy_custom_patterns;
             if let Some(moderation) = config.moderation {
@@ -1504,19 +1517,111 @@ pub async fn pick_notification_sound(
     validate_notification_sound(path.clone())
         .await
         .map_err(display_error)?;
-    let path_string = path.to_string_lossy().into_owned();
+    // Relay keeps its own copy, so moving or deleting the original changes nothing.
+    let directory = core.data_directory.join(NOTIFICATION_SOUND_FOLDER);
+    let stored = tokio::task::spawn_blocking(move || store_custom_sound(&directory, &path))
+        .await
+        .map_err(display_error)?
+        .map_err(display_error)?;
+    let path_string = stored.to_string_lossy().into_owned();
     let config = core
-        .update_config(|config| config.notification_sound_path = Some(path_string))
+        .update_config(|config| {
+            config.notification_sound_path = Some(path_string);
+            config.notification_sound_choice = Some(NotificationSound::Custom);
+        })
         .await
         .map_err(display_error)?;
     Ok(Some(config))
 }
 
+/// Forgets the custom file and goes back to Relay's soft sound. Only Relay's
+/// own copy is deleted, never a file chosen before Relay kept copies.
 #[tauri::command]
 pub async fn clear_notification_sound(core: State<'_, Arc<AppCore>>) -> Result<AppConfig, String> {
-    core.update_config(|config| config.notification_sound_path = None)
+    let directory = core.data_directory.join(NOTIFICATION_SOUND_FOLDER);
+    let config = core
+        .update_config(|config| {
+            config.notification_sound_path = None;
+            config.notification_sound_choice = Some(NotificationSound::Soft);
+        })
+        .await
+        .map_err(display_error)?;
+    let _ = tokio::task::spawn_blocking(move || std::fs::remove_dir_all(directory)).await;
+    Ok(config)
+}
+
+#[tauri::command]
+pub async fn set_notification_sound(
+    core: State<'_, Arc<AppCore>>,
+    sound: NotificationSound,
+) -> Result<AppConfig, String> {
+    core.update_config(|config| config.notification_sound_choice = Some(sound))
         .await
         .map_err(display_error)
+}
+
+/// The current notification sound, for the panel's Listen button.
+#[tauri::command]
+pub async fn preview_notification_sound(core: State<'_, Arc<AppCore>>) -> Result<Vec<u8>, String> {
+    let config = core.config.read().await.clone();
+    tokio::task::spawn_blocking(move || notification_sound_bytes(&config))
+        .await
+        .map_err(display_error)?
+        .map(|(bytes, _)| bytes)
+        .map_err(|_| "Choose an audio file first.".to_owned())
+}
+
+const NOTIFICATION_SOUND_FOLDER: &str = "notification-sound";
+const SOFT_NOTIFICATION_SOUND: &[u8] = include_bytes!("../../outputs/sounds/relay-ping-soft.wav");
+const CHAT_NOTIFICATION_SOUND: &[u8] = include_bytes!("../../outputs/sounds/relay-ping-chat.wav");
+
+/// Bytes and content type of the chosen sound, for OBS, the widget and the panel.
+pub fn notification_sound_bytes(config: &AppConfig) -> anyhow::Result<(Vec<u8>, &'static str)> {
+    let path = match config.notification_sound() {
+        NotificationSound::Soft => return Ok((SOFT_NOTIFICATION_SOUND.to_vec(), "audio/wav")),
+        NotificationSound::Chat => return Ok((CHAT_NOTIFICATION_SOUND.to_vec(), "audio/wav")),
+        NotificationSound::Custom => config
+            .notification_sound_path
+            .as_deref()
+            .context("no custom notification sound")?,
+    };
+    if std::fs::metadata(path)?.len() > NOTIFICATION_SOUND_MAX_BYTES {
+        anyhow::bail!("notification sound exceeds the size limit");
+    }
+    let extension = Path::new(path)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let content_type = match extension.as_str() {
+        "mp3" => "audio/mpeg",
+        "flac" => "audio/flac",
+        "wav" => "audio/wav",
+        "ogg" | "oga" | "opus" => "audio/ogg",
+        "m4a" => "audio/mp4",
+        "aac" => "audio/aac",
+        "webm" | "weba" => "audio/webm",
+        _ => "application/octet-stream",
+    };
+    Ok((std::fs::read(path)?, content_type))
+}
+
+/// Copies the chosen file into Relay's own folder, under its name, and removes
+/// the previous copy. Choosing the stored copy again keeps it.
+fn store_custom_sound(directory: &Path, source: &Path) -> anyhow::Result<std::path::PathBuf> {
+    let name = source.file_name().context("the audio file has no name")?;
+    std::fs::create_dir_all(directory)?;
+    let target = directory.join(name);
+    let incoming = directory.join(".incoming");
+    std::fs::copy(source, &incoming)?;
+    std::fs::rename(&incoming, &target)?;
+    for entry in std::fs::read_dir(directory)? {
+        let path = entry?.path();
+        if path != target {
+            std::fs::remove_file(path)?;
+        }
+    }
+    Ok(target)
 }
 
 async fn validate_notification_sound(path: std::path::PathBuf) -> anyhow::Result<()> {

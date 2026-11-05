@@ -16,7 +16,7 @@ use crate::{
     state::AppCore,
 };
 
-const WIDGET_LABEL: &str = "widget";
+pub(crate) const WIDGET_LABEL: &str = "widget";
 const ASPECT_RATIO: f64 = 16.0 / 9.0;
 /// Host used by Windows widgets so YouTube IFrame embeds receive an accepted Referer.
 /// YouTube error 150 rejects `http://127.0.0.1` even on loopback; `http://localhost` works.

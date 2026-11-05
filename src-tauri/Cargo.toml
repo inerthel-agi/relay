@@ -1,6 +1,6 @@
 [package]
 name = "relay"
-version = "1.5.0"
+version = "1.5.2"
 description = "Local Discord media relay for OBS"
 authors = ["inerthel <contact@inerthel.com>"]
 edition = "2024"

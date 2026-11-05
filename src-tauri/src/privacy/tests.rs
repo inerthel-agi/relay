@@ -76,6 +76,54 @@ fn config() -> AppConfig {
 }
 
 #[test]
+fn look_alike_digits_and_invisible_selectors_do_not_hide_numbers() {
+    let config = config();
+    for text in [
+        // Fullwidth digits, as Discord shows them.
+        "Mon numéro : ０６ １２ ３４ ５６ ７８",
+        // A variation selector between two digits.
+        "Mon numéro : 06\u{fe0f} 12 34 56 78",
+        // Tag characters and a Mongolian selector inside the number.
+        "Mon numéro : 0\u{e0031}6 12 3\u{180b}4 56 78",
+        // Mathematical and Arabic-Indic digits.
+        "Mon numéro : \u{1d7ce}\u{1d7d4} 12 34 56 78",
+        "Mon numéro : ٠٦ ١٢ ٣٤ ٥٦ ٧٨",
+    ] {
+        assert!(
+            classify_text(Some(text), &config)
+                .categories
+                .contains(&PrivacyCategory::Phone),
+            "{text}"
+        );
+    }
+    // A test card number written in fullwidth digits is still a card.
+    let card = classify_text(Some("carte ４１１１ １１１１ １１１１ １１１１"), &config);
+    assert_eq!(card.classification, PrivacyClassification::Critical);
+}
+
+#[test]
+fn look_alike_letters_and_fillers_do_not_hide_filtered_words() {
+    let config = config();
+    for text in [
+        "ｈｉｔｌｅｒ",
+        "\u{1d421}\u{1d422}\u{1d42d}\u{1d425}\u{1d41e}\u{1d42b}",
+        "hit\u{3164}ler",
+        "h\u{3164}i\u{3164}t\u{3164}l\u{3164}e\u{3164}r",
+        "hi\u{ffa0}tler",
+    ] {
+        assert_eq!(
+            classify_text(Some(text), &config).classification,
+            PrivacyClassification::Critical,
+            "{text}"
+        );
+    }
+    assert_eq!(
+        classify_text(Some("bonne soirée à tous"), &config).classification,
+        PrivacyClassification::Safe
+    );
+}
+
+#[test]
 fn safe_text_does_not_overclassify() {
     let config = config();
     for text in [

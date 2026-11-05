@@ -73,17 +73,20 @@ pub fn required_permissions(feature: &str, config: &AppConfig) -> Permissions {
         "relay" | "media" => {
             read | delete_if(config.media_cleanup_enabled || privacy_delete) | escalation | notice
         }
+        // The 24-hour cleanup only runs in the Relay channel.
+        "extraRelay" => read | delete_if(privacy_delete) | escalation | notice,
         "notifications" => {
             read | delete_if(config.former_message_cleanup_enabled || privacy_delete)
                 | escalation
                 | notice
         }
-        "music" => {
+        // Automatic music cleanup runs in the extra music channels too.
+        "music" | "extraMusic" => {
             read | Permissions::SEND_MESSAGES
                 | Permissions::EMBED_LINKS
                 | delete_if(config.music_cleanup_enabled)
         }
-        "honeypot" => {
+        "honeypot" | "extraHoneypot" => {
             read | Permissions::MANAGE_MESSAGES
                 | match config.honeypot_action {
                     HoneypotAction::Kick => Permissions::KICK_MEMBERS,
@@ -106,8 +109,17 @@ fn checked_features(config: &AppConfig) -> Vec<(&'static str, String)> {
     } else {
         vec![("relay", config.watched_channel_id.clone())]
     };
+    for channel_id in &config.extra_relay_channel_ids {
+        features.push(("extraRelay", channel_id.clone()));
+    }
     features.push(("music", config.music_channel_id.clone()));
+    for channel_id in &config.extra_music_channel_ids {
+        features.push(("extraMusic", channel_id.clone()));
+    }
     features.push(("honeypot", config.honeypot_channel_id.clone()));
+    for channel_id in &config.extra_honeypot_channel_ids {
+        features.push(("extraHoneypot", channel_id.clone()));
+    }
     features
 }
 
@@ -253,6 +265,47 @@ mod tests {
         assert_eq!(
             features[1],
             ("notifications", "223456789012345678".to_owned())
+        );
+    }
+
+    #[test]
+    fn extra_relay_channels_are_checked_without_the_cleanup_permission() {
+        let config = AppConfig {
+            watched_channel_id: "123456789012345678".into(),
+            extra_relay_channel_ids: vec!["323456789012345678".into()],
+            media_cleanup_enabled: true,
+            ..AppConfig::default()
+        };
+        assert!(
+            checked_features(&config).contains(&("extraRelay", "323456789012345678".to_owned()))
+        );
+        let extra = required_permissions("extraRelay", &config);
+        assert!(extra.contains(Permissions::VIEW_CHANNEL));
+        assert!(!extra.contains(Permissions::MANAGE_MESSAGES));
+    }
+
+    #[test]
+    fn extra_music_and_trap_channels_are_checked_with_their_own_needs() {
+        let config = AppConfig {
+            music_channel_id: "123456789012345678".into(),
+            extra_music_channel_ids: vec!["223456789012345678".into()],
+            music_cleanup_enabled: true,
+            honeypot_channel_id: "323456789012345678".into(),
+            extra_honeypot_channel_ids: vec!["423456789012345678".into()],
+            honeypot_action: HoneypotAction::Ban,
+            ..AppConfig::default()
+        };
+        let features = checked_features(&config);
+        assert!(features.contains(&("extraMusic", "223456789012345678".to_owned())));
+        assert!(features.contains(&("extraHoneypot", "423456789012345678".to_owned())));
+        assert_eq!(
+            required_permissions("extraMusic", &config),
+            required_permissions("music", &config)
+        );
+        assert!(required_permissions("extraMusic", &config).contains(Permissions::MANAGE_MESSAGES));
+        assert_eq!(
+            required_permissions("extraHoneypot", &config),
+            required_permissions("honeypot", &config)
         );
     }
 

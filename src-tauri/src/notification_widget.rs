@@ -15,6 +15,8 @@ use crate::{
 
 pub(crate) const WINDOW_LABEL: &str = "notification-widget";
 const DEFAULT_MARGIN: i32 = 28;
+/// Space left between the media window and a notification window moved off it.
+const DODGE_GAP: i32 = 8;
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -378,6 +380,10 @@ fn watch_geometry(window: &WebviewWindow, core: Arc<AppCore>) {
 }
 
 fn persist_position(core: Arc<AppCore>, position: PhysicalPosition<i32>) {
+    // A place taken to clear the media window is not the user's.
+    if core.notification_widget_dodged.load(Ordering::Relaxed) {
+        return;
+    }
     let generation = core
         .notification_widget_move_generation
         .fetch_add(1, Ordering::Relaxed)
@@ -402,6 +408,9 @@ async fn flush_live_position(window: &WebviewWindow, core: &Arc<AppCore>) -> Res
     let Ok(position) = window.outer_position() else {
         return Ok(());
     };
+    if core.notification_widget_dodged.load(Ordering::Relaxed) {
+        return Ok(());
+    }
     // Invalidate in-flight debounced writes so they cannot overwrite this flush.
     core.notification_widget_move_generation
         .fetch_add(1, Ordering::Relaxed);
@@ -502,6 +511,90 @@ fn resolved_geometry(
         )
     };
     Ok((position, max_width, max_height))
+}
+
+/// While media is on screen, a locked notification window that would cover
+/// the media window moves just below it, or above when the screen has no room
+/// below, then goes back to its saved place. Polled: the two windows move,
+/// resize and show on their own.
+pub fn keep_clear_of_media_widget(app: AppHandle, core: Arc<AppCore>) {
+    tauri::async_runtime::spawn(async move {
+        let mut tick = tokio::time::interval(std::time::Duration::from_millis(250));
+        loop {
+            tick.tick().await;
+            let _ = dodge_media_widget(&app, &core).await;
+        }
+    });
+}
+
+async fn dodge_media_widget(app: &AppHandle, core: &Arc<AppCore>) -> Result<()> {
+    let Some(window) = app.get_webview_window(WINDOW_LABEL) else {
+        return Ok(());
+    };
+    let (home, locked) = {
+        let config = core.config.read().await;
+        (saved_position(&config), config.notification_widget_locked)
+    };
+    let Some((x, y)) = home else {
+        return Ok(());
+    };
+    let home = PhysicalPosition::new(x, y);
+    let media = app
+        .get_webview_window(crate::widget::WIDGET_LABEL)
+        .filter(|media| media.is_visible().unwrap_or(false))
+        .and_then(|media| Some((media.outer_position().ok()?, media.outer_size().ok()?)));
+    let target = match media {
+        Some(media)
+            if locked && window.is_visible()? && core.stage_scheduler.media_on_screen().await =>
+        {
+            let screen = window.current_monitor()?.map(|monitor| {
+                let area = monitor.work_area();
+                (area.position.y, area.position.y + area.size.height as i32)
+            });
+            dodge_position(home, window.outer_size()?, media, screen)
+        }
+        _ => home,
+    };
+    let dodged = target != home;
+    // Going home only follows a dodge: a window being dragged is left alone.
+    if !dodged && !core.notification_widget_dodged.load(Ordering::Relaxed) {
+        return Ok(());
+    }
+    core.notification_widget_dodged
+        .store(dodged, Ordering::Relaxed);
+    if window.outer_position()? != target {
+        crate::widget::place(&window, target)?;
+    }
+    Ok(())
+}
+
+/// Top-left that keeps the notification window off the media window: just
+/// below it, or above when the screen (`top`, `bottom` of the work area) has
+/// no room below. Home when the windows do not meet or nothing fits.
+fn dodge_position(
+    home: PhysicalPosition<i32>,
+    size: PhysicalSize<u32>,
+    (media_position, media_size): (PhysicalPosition<i32>, PhysicalSize<u32>),
+    screen: Option<(i32, i32)>,
+) -> PhysicalPosition<i32> {
+    let (width, height) = (size.width as i32, size.height as i32);
+    let media_bottom = media_position.y + media_size.height as i32;
+    let meets = home.x < media_position.x + media_size.width as i32
+        && home.x + width > media_position.x
+        && home.y < media_bottom
+        && home.y + height > media_position.y;
+    if !meets {
+        return home;
+    }
+    let (top, bottom) = screen.unwrap_or((i32::MIN / 2, i32::MAX / 2));
+    [
+        media_bottom + DODGE_GAP,
+        media_position.y - DODGE_GAP - height,
+    ]
+    .into_iter()
+    .filter(|y| *y >= top && *y + height <= bottom)
+    .min_by_key(|y| (y - home.y).abs())
+    .map_or(home, |y| PhysicalPosition::new(home.x, y))
 }
 
 async fn update_visibility(core: &Arc<AppCore>, visible: bool) -> Result<()> {

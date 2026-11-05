@@ -102,7 +102,7 @@ On the **Discord** page, under **Channels**, pick the channels:
 
 If an earlier version used two different channels for media and messages, the **Channels** section asks which one to keep. Until you choose, each channel keeps its previous role.
 
-Changes apply immediately, no restart needed. Alternatively, a server administrator can run [`/relay channel`](#11-the-relay-command) in Discord.
+Changes apply immediately, no restart needed. Once a Relay channel is set, a server administrator can also change it with [`/relay channel`](#11-the-relay-command) in Discord, from that channel's server. The first Relay channel is always chosen in the application.
 
 ## 5. Add the sources in OBS
 
@@ -158,7 +158,7 @@ Human text messages and emojis posted in the Relay channel appear as visual noti
 - **Character limit**: optionally truncate long text messages.
 - **Queue limit**: 1–50 pending messages.
 - **Notification card**: enable the OBS notification overlay to show the author and message in Relay Visual for the configured duration. The same card can appear in the Windows notification widget.
-- **Notification sound**: the optional custom notification sound remains available independently from message text.
+- **Notification sound**: optional, for the Windows widget and, if turned on, OBS. On Outputs → Messages, pick **Soft chime** or **Chat ping** (built into Relay) or **My audio file** (up to 10 seconds; Relay keeps its own copy), then use **Listen** to hear it.
 
 ## 8. Moderation
 
@@ -169,6 +169,8 @@ Enable **Moderation** in the panel to hold every incoming media for review befor
 - Disabling moderation clears the pending queue.
 
 Recommended for public channels — nothing goes on stream without your click.
+
+**Voice check** (Moderation → Personal data protection → *Listen to voices and sounds before they play*): Relay transcribes Discord voice messages, audio files and the sound of videos on this PC, then checks the text for personal data (phone numbers, addresses…) and filter words before the sound plays. Nothing is sent online and the graphics card is not used: FFmpeg runs on the processor at low priority, one sound at a time. It needs FFmpeg 8 with Whisper (`winget install Gyan.FFmpeg`) and the 190 MB voice model, downloaded with the button under the switch. A voice message usually waits a few seconds; a sound that cannot be checked waits in the review queue. With **Check messages before they appear** on (AI settings), the AI you chose also reads the transcript of a member's sound (never the voice itself) and can hold it for review, for example when someone says where they live or which school they go to.
 
 ## 9. On-screen widgets
 

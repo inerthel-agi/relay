@@ -20,6 +20,11 @@ static TRANSCODE_SLOT: Semaphore = Semaphore::const_new(1);
 pub const CHECKED_FRAMES: usize = 3;
 const FRAMES_TIMEOUT: Duration = Duration::from_secs(30);
 static FRAMES_SLOT: Semaphore = Semaphore::const_new(1);
+/// About 2 to 3 minutes of sound with the small model on a recent processor.
+const TRANSCRIBE_TIMEOUT: Duration = Duration::from_secs(120);
+static TRANSCRIBE_SLOT: Semaphore = Semaphore::const_new(1);
+/// Written by FFmpeg in the transcription's own folder, read, then deleted with it.
+const TRANSCRIPT_FILE: &str = "transcript.txt";
 
 pub enum VideoCompatibility {
     Unchanged,
@@ -82,8 +87,10 @@ async fn transcode_video_bytes(input: Vec<u8>) -> VideoCompatibility {
     }
 }
 
-/// Downloads a GIF or video from Discord and returns up to three still frames
-/// (start, one third, two thirds) as PNG, at most 1280 pixels wide.
+/// Downloads a GIF or video from Discord and returns three still frames
+/// (start, one third, two thirds), or every frame of a media that has fewer
+/// (a still GIF), as PNG, at most 1280 pixels wide. `None` when only part of
+/// the media could be sampled.
 pub async fn frames_from_url(url: &str, proxy_url: &str) -> Option<Vec<Vec<u8>>> {
     let input = download_video(url, proxy_url).await?;
     frames_from_bytes(input).await
@@ -102,6 +109,121 @@ pub async fn frames_from_bytes(input: Vec<u8>) -> Option<Vec<Vec<u8>>> {
         .filter(|frames| !frames.is_empty())
 }
 
+/// Speech of an audio file or of a video's sound, transcribed on this PC by
+/// FFmpeg's whisper filter: processor only, low priority, one at a time.
+/// `None` when the media has no sound track.
+pub async fn transcribe(
+    input: Vec<u8>,
+    model_directory: PathBuf,
+    model_file: &'static str,
+) -> Result<Option<String>> {
+    if input.is_empty() || input.len() > MAX_VIDEO_INPUT_BYTES {
+        bail!("the media is empty or too large to transcribe");
+    }
+    in_slot(&TRANSCRIBE_SLOT, move || {
+        transcribe_file(input, &model_directory, model_file)
+    })
+    .await?
+}
+
+/// Runs blocking work while holding `slot`. The slot stays taken until the
+/// work really ends, even if the waiting task is dropped (the bot restarting
+/// mid-check): blocking work cannot be cancelled, and two transcriptions would
+/// share the transcript file.
+async fn in_slot<T: Send + 'static>(
+    slot: &'static Semaphore,
+    work: impl FnOnce() -> T + Send + 'static,
+) -> Result<T> {
+    let permit = slot.acquire().await?;
+    Ok(tauri::async_runtime::spawn_blocking(move || {
+        let _permit = permit;
+        work()
+    })
+    .await?)
+}
+
+/// Same, from Discord. The download is bounded like a video's.
+pub async fn transcribe_url(
+    url: &str,
+    proxy_url: &str,
+    model_directory: PathBuf,
+    model_file: &'static str,
+) -> Result<Option<String>> {
+    let input = download_video(url, proxy_url)
+        .await
+        .context("the media could not be downloaded")?;
+    transcribe(input, model_directory, model_file).await
+}
+
+/// True when the FFmpeg Relay uses was built with whisper.cpp (FFmpeg 8, full builds).
+pub fn ffmpeg_has_whisper() -> bool {
+    let ffmpeg = crate::reaction_trim::ffmpeg_executable().unwrap_or_else(|| "ffmpeg".into());
+    let mut command = Command::new(ffmpeg);
+    command
+        .args(["-hide_banner", "-filters"])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null());
+    crate::hidden_process::hide_window(&mut command);
+    command.output().is_ok_and(|output| {
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .any(|line| line.split_whitespace().nth(1) == Some("whisper"))
+    })
+}
+
+/// Filter options have their own escaping, which a Windows path breaks: FFmpeg
+/// runs in the model folder and names its files relative to it. The processor
+/// only, so the graphics card stays free for the game and the stream encoder;
+/// 30-second chunks, so a phone number is not cut in two.
+fn whisper_filter(model_file: &str) -> String {
+    format!(
+        "whisper=model={model_file}:language=auto:use_gpu=false:queue=30:destination={TRANSCRIPT_FILE}:format=text"
+    )
+}
+
+fn transcribe_file(
+    input: Vec<u8>,
+    model_directory: &Path,
+    model_file: &str,
+) -> Result<Option<String>> {
+    let deadline = Instant::now() + TRANSCRIBE_TIMEOUT;
+    let temporary = TemporaryDirectory::create()?;
+    let input_path = temporary.path().join("input");
+    fs::write(&input_path, input).context("failed to stage local media")?;
+    let errors_path = temporary.path().join("errors.txt");
+    let transcript_path = model_directory.join(TRANSCRIPT_FILE);
+    let _ = fs::remove_file(&transcript_path);
+
+    let mut command = ffmpeg_command();
+    crate::hidden_process::hide_window_low_priority(&mut command);
+    command
+        .current_dir(model_directory)
+        .args(["-loglevel", "error", "-i"])
+        .arg(&input_path)
+        .args(["-vn", "-af"])
+        .arg(whisper_filter(model_file))
+        .args(["-f", "null", "-"])
+        // A file, not a pipe: a full pipe would stall FFmpeg until the deadline.
+        .stderr(fs::File::create(&errors_path)?);
+    let mut child = command.spawn().context("failed to start local FFmpeg")?;
+    let (succeeded, transcript) = with_transcript_file(transcript_path, |path| {
+        wait_until(&mut child, deadline)?;
+        let succeeded = child.wait()?.success();
+        let transcript = fs::read_to_string(path).unwrap_or_default();
+        Ok((succeeded, transcript))
+    })?;
+    if !succeeded {
+        let errors = fs::read_to_string(&errors_path).unwrap_or_default();
+        if errors.contains("does not contain any stream") {
+            return Ok(None);
+        }
+        bail!("local FFmpeg could not transcribe the media");
+    }
+    Ok(Some(
+        transcript.split_whitespace().collect::<Vec<_>>().join(" "),
+    ))
+}
+
 fn ffmpeg_command() -> Command {
     let ffmpeg = crate::reaction_trim::ffmpeg_executable().unwrap_or_else(|| "ffmpeg".into());
     let mut command = Command::new(ffmpeg);
@@ -111,6 +233,34 @@ fn ffmpeg_command() -> Command {
         .stdout(Stdio::null());
     crate::hidden_process::hide_window(&mut command);
     command
+}
+
+struct TranscriptFile(PathBuf);
+
+impl TranscriptFile {
+    fn new(path: PathBuf) -> Self {
+        Self(path)
+    }
+
+    fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for TranscriptFile {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
+    }
+}
+
+fn with_transcript_file<T>(path: PathBuf, operation: impl FnOnce(&Path) -> Result<T>) -> Result<T> {
+    let transcript = TranscriptFile::new(path);
+    let result = operation(transcript.path());
+    match fs::remove_file(transcript.path()) {
+        Ok(()) => result,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => result,
+        Err(error) => Err(error).context("failed to remove temporary transcript"),
+    }
 }
 
 /// Waits for FFmpeg until `deadline`, then kills it.
@@ -157,17 +307,61 @@ fn extract_frames(input: Vec<u8>) -> Result<Vec<Vec<u8>>> {
     let step = parse_duration(&String::from_utf8_lossy(&description))
         .map_or(1.0, |duration| duration / CHECKED_FRAMES as f64);
 
+    let sample = |filter: &str, fps_mode: &str, name: &str| {
+        sample_frames(
+            &input_path,
+            temporary.path(),
+            (filter, fps_mode, name),
+            deadline,
+        )
+    };
+    let spread = sample(
+        &format!(r"select='isnan(prev_selected_t)+gte(t-prev_selected_t\,{step:.3})',{SCALE}"),
+        "vfr",
+        "spread",
+    )?;
+    if spread.len() == CHECKED_FRAMES {
+        return Ok(spread);
+    }
+    // Fewer frames than the sample stand for the media only when it has no
+    // other frame (a still GIF, a two-frame animation). Otherwise the check
+    // would be partial: nothing is returned and the media waits for review.
+    let first = sample(SCALE, "passthrough", "first")?;
+    Ok(if first.len() < CHECKED_FRAMES {
+        first
+    } else {
+        Vec::new()
+    })
+}
+
+/// Frames wider than this are scaled down before the check.
+const SCALE: &str = r"scale=w='min(1280\,iw)':h=-1";
+
+/// Up to `CHECKED_FRAMES` frames through `filter`, as PNG files named `name1.png`…
+fn sample_frames(
+    input_path: &Path,
+    directory: &Path,
+    (filter, fps_mode, name): (&str, &str, &str),
+    deadline: Instant,
+) -> Result<Vec<Vec<u8>>> {
     let mut command = ffmpeg_command();
     command
         .args(["-loglevel", "error", "-y", "-i"])
-        .arg(&input_path)
-        .args(["-map", "0:v:0", "-an", "-sn", "-dn", "-vf"])
-        .arg(format!(
-            r"select='isnan(prev_selected_t)+gte(t-prev_selected_t\,{step:.3})',scale=w='min(1280\,iw)':h=-1"
-        ))
-        .args(["-fps_mode", "vfr", "-frames:v"])
+        .arg(input_path)
+        .args([
+            "-map",
+            "0:v:0",
+            "-an",
+            "-sn",
+            "-dn",
+            "-vf",
+            filter,
+            "-fps_mode",
+            fps_mode,
+        ])
+        .arg("-frames:v")
         .arg(CHECKED_FRAMES.to_string())
-        .arg(temporary.path().join("frame%d.png"))
+        .arg(directory.join(format!("{name}%d.png")))
         .stderr(Stdio::null());
     let mut child = command.spawn().context("failed to start local FFmpeg")?;
     wait_until(&mut child, deadline)?;
@@ -176,7 +370,7 @@ fn extract_frames(input: Vec<u8>) -> Result<Vec<Vec<u8>>> {
     }
     let mut frames = Vec::new();
     for index in 1..=CHECKED_FRAMES {
-        match fs::read(temporary.path().join(format!("frame{index}.png"))) {
+        match fs::read(directory.join(format!("{name}{index}.png"))) {
             Ok(frame) => frames.push(frame),
             Err(_) => break,
         }

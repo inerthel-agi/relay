@@ -64,6 +64,22 @@ async fn automatic_cleanup_does_not_request_deletion_for_protected_or_foreign_me
     assert!(core.bot_status.read().await.error.is_none());
 }
 
+#[test]
+fn automatic_cleanup_covers_extra_music_channels_only_while_enabled() {
+    let mut config = crate::config::AppConfig {
+        music_channel_id: "2".into(),
+        extra_music_channel_ids: vec!["5".into()],
+        music_welcome_message_id: "7".into(),
+        ..crate::config::AppConfig::default()
+    };
+    assert_eq!(automatic_scope(&config, 5), None);
+    config.music_cleanup_enabled = true;
+    assert_eq!(automatic_scope(&config, 2), Some(Some(7)));
+    // A results list in another server's music channel is cleaned up too.
+    assert_eq!(automatic_scope(&config, 5), Some(Some(7)));
+    assert_eq!(automatic_scope(&config, 3), None);
+}
+
 #[tokio::test]
 async fn missing_welcome_message_is_optional_for_configuration_and_verification() {
     let directory = tempfile::tempdir().unwrap();

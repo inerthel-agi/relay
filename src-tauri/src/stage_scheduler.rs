@@ -66,10 +66,68 @@ struct SchedulerState {
     message_queue_limit: usize,
     ordered: BTreeMap<StageOrderKey, StageTicket>,
     entries: HashMap<StageTicket, TicketEntry>,
-    active: Option<ActiveTicket>,
+    /// Text cards have their own place on screen; media, stickers and music
+    /// share the other one. At most one item per place.
+    active: Vec<ActiveTicket>,
     media_busy: bool,
     music_busy: bool,
     notification_busy: bool,
+}
+
+impl SchedulerState {
+    fn is_active(&self, ticket: StageTicket) -> bool {
+        self.active.iter().any(|active| active.ticket == ticket)
+    }
+
+    /// The item left the screen: it leaves the scheduler.
+    fn finish(&mut self, ticket: StageTicket) {
+        self.active.retain(|active| active.ticket != ticket);
+        self.entries.remove(&ticket);
+    }
+
+    fn place_free(&self, text: bool) -> bool {
+        let busy = match text {
+            true => self.notification_busy,
+            false => self.media_busy || self.music_busy,
+        };
+        !busy
+            && !self
+                .active
+                .iter()
+                .any(|active| is_text(active.lane) == text)
+    }
+
+    /// The oldest ready item of each place, in Discord order. A part never
+    /// passes an older part of its own message that is still being checked:
+    /// a message shows only once every part passed.
+    fn next_ready(&self) -> Option<(StageOrderKey, StageTicket)> {
+        let mut seen_places = [false; 2];
+        let mut unchecked_messages = HashSet::new();
+        for (key, ticket) in &self.ordered {
+            let Some(entry) = self.entries.get(ticket) else {
+                continue;
+            };
+            let group = message_group(entry.original_key);
+            if entry.event.is_none() {
+                unchecked_messages.insert(group);
+            }
+            let text = is_text(entry.lane);
+            // Pinned messages wait in their own bounded lane.
+            if text && self.messages_pinned {
+                continue;
+            }
+            if std::mem::replace(&mut seen_places[usize::from(text)], true) {
+                continue;
+            }
+            if entry.event.is_some()
+                && self.place_free(text)
+                && !unchecked_messages.contains(&group)
+            {
+                return Some((*key, *ticket));
+            }
+        }
+        None
+    }
 }
 
 struct TicketEntry {
@@ -93,12 +151,13 @@ impl StageScheduler {
             state.messages_pinned = pinned;
             state.message_queue_limit = queue_limit.max(1);
             if pinned
-                && state
+                && let Some(active) = state
                     .active
-                    .is_some_and(|active| active.lane == StageLane::Notification)
+                    .iter()
+                    .find(|active| is_text(active.lane))
+                    .copied()
             {
-                let active = state.active.take().expect("checked active message");
-                state.entries.remove(&active.ticket);
+                state.finish(active.ticket);
             }
         }
         self.try_dispatch().await;
@@ -181,6 +240,11 @@ impl StageScheduler {
         ticket
     }
 
+    /// True while media, a sticker or music is on screen.
+    pub async fn media_on_screen(&self) -> bool {
+        !self.inner.state.lock().await.place_free(false)
+    }
+
     pub fn set_paused(&self, paused: bool) {
         self.inner.paused.store(paused, Ordering::SeqCst);
     }
@@ -194,39 +258,34 @@ impl StageScheduler {
             let mut state = self.inner.state.lock().await;
             // While paused, content that becomes ready is discarded rather than queued,
             // so resuming does not flood the stream with everything sent meanwhile.
-            if self.is_paused() {
-                if let Some(entry) = state.entries.remove(&ticket)
-                    && let Some(key) = entry.key
-                {
-                    state.ordered.remove(&key);
+            let dropped = self.is_paused()
+                || (state.messages_pinned
+                    && matches!(&event, RelayEvent::Notification(_))
+                    && state
+                        .entries
+                        .values()
+                        .filter(|entry| is_text(entry.lane) && entry.event.is_some())
+                        .count()
+                        >= state.message_queue_limit);
+            if dropped {
+                if let Some(entry) = state.entries.remove(&ticket) {
+                    if let Some(key) = entry.key {
+                        state.ordered.remove(&key);
+                    }
+                    // The other parts of the message no longer wait for it.
+                    self.reinsert_ready_group_for_key(&mut state, entry.original_key);
                 }
-                return;
-            }
-            if state.messages_pinned
-                && matches!(&event, RelayEvent::Notification(_))
-                && state
-                    .entries
-                    .values()
-                    .filter(|entry| entry.lane == StageLane::Notification && entry.event.is_some())
-                    .count()
-                    >= state.message_queue_limit
-            {
-                if let Some(entry) = state.entries.remove(&ticket)
-                    && let Some(key) = entry.key
-                {
-                    state.ordered.remove(&key);
+            } else {
+                let demoted = match state.entries.get_mut(&ticket) {
+                    Some(entry) => {
+                        entry.event = Some(event);
+                        entry.key.is_none()
+                    }
+                    None => return,
+                };
+                if demoted {
+                    self.reinsert_ready_group(&mut state, ticket);
                 }
-                return;
-            }
-            let demoted = match state.entries.get_mut(&ticket) {
-                Some(entry) => {
-                    entry.event = Some(event);
-                    entry.key.is_none()
-                }
-                None => return,
-            };
-            if demoted {
-                self.reinsert_ready_group(&mut state, ticket);
             }
         }
         self.try_dispatch().await;
@@ -234,6 +293,31 @@ impl StageScheduler {
 
     pub async fn cancel(&self, ticket: StageTicket) {
         self.cancel_many(&[ticket]).await;
+    }
+
+    /// Withdraws every part of the ticket's message that is not on screen yet.
+    /// A held or dropped text must not leave its message's ready media to show
+    /// on their own once the text no longer gates them.
+    pub async fn cancel_message(&self, ticket: StageTicket) {
+        let tickets = {
+            let state = self.inner.state.lock().await;
+            let Some(group) = state
+                .entries
+                .get(&ticket)
+                .map(|entry| message_group(entry.original_key))
+            else {
+                return;
+            };
+            state
+                .entries
+                .iter()
+                .filter(|(other, entry)| {
+                    message_group(entry.original_key) == group && !state.is_active(**other)
+                })
+                .map(|(other, _)| *other)
+                .collect::<Vec<_>>()
+        };
+        self.cancel_many(&tickets).await;
     }
 
     /// Cancels several tickets in one step, so a part that is already ready
@@ -249,9 +333,7 @@ impl StageScheduler {
                     }
                     original_keys.push(entry.original_key);
                 }
-                if state.active.is_some_and(|active| active.ticket == *ticket) {
-                    state.active = None;
-                }
+                state.active.retain(|active| active.ticket != *ticket);
             }
             for key in original_keys {
                 self.reinsert_ready_group_for_key(&mut state, key);
@@ -261,31 +343,25 @@ impl StageScheduler {
     }
 
     pub async fn stage_state(&self, media_busy: bool, music_busy: bool, notification_busy: bool) {
-        let should_dispatch = {
+        {
             let mut state = self.inner.state.lock().await;
             state.media_busy = media_busy;
             state.music_busy = music_busy;
             state.notification_busy = notification_busy;
-            let mut completed = None;
-            if let Some(active) = state.active.as_mut() {
+            let mut completed = Vec::new();
+            for active in state.active.iter_mut() {
                 let busy = lane_busy(active.lane, media_busy, music_busy, notification_busy);
                 if busy {
                     active.saw_busy = true;
                 } else if active.saw_busy {
-                    completed = Some(active.ticket);
+                    completed.push(active.ticket);
                 }
             }
-            if let Some(ticket) = completed {
-                state.active = None;
-                state.entries.remove(&ticket);
-                true
-            } else {
-                state.active.is_none()
+            for ticket in completed {
+                state.finish(ticket);
             }
-        };
-        if should_dispatch {
-            self.try_dispatch().await;
         }
+        self.try_dispatch().await;
     }
 
     pub async fn queue_snapshot(&self) -> Vec<QueueItem> {
@@ -339,7 +415,7 @@ impl StageScheduler {
         let ticket = StageTicket(id);
         let playback_id = {
             let mut state = self.inner.state.lock().await;
-            if state.active.is_some_and(|active| active.ticket == ticket) {
+            if state.is_active(ticket) {
                 return None;
             }
             let entry = state.entries.get(&ticket)?;
@@ -365,7 +441,6 @@ impl StageScheduler {
     pub async fn reorder_music(&self, ticket_order: &[StageTicket]) -> bool {
         let accepted = {
             let mut state = self.inner.state.lock().await;
-            let active_ticket = state.active.map(|active| active.ticket);
             let mut seen = HashSet::with_capacity(ticket_order.len());
             if ticket_order.is_empty() || ticket_order.iter().any(|ticket| !seen.insert(*ticket)) {
                 false
@@ -373,7 +448,7 @@ impl StageScheduler {
                 let valid_tickets = ticket_order.iter().all(|ticket| {
                     state.entries.get(ticket).is_some_and(|entry| {
                         entry.lane == StageLane::Music
-                            && !active_ticket.is_some_and(|active| active == *ticket)
+                            && !state.is_active(*ticket)
                             && entry
                                 .key
                                 .is_some_and(|key| state.ordered.get(&key) == Some(ticket))
@@ -416,7 +491,7 @@ impl StageScheduler {
         let ticket = StageTicket(id);
         {
             let mut state = self.inner.state.lock().await;
-            if state.active.is_some_and(|active| active.ticket == ticket) {
+            if state.is_active(ticket) {
                 return false;
             }
             let Some(entry) = state.entries.get(&ticket) else {
@@ -439,59 +514,41 @@ impl StageScheduler {
         let mut state = self.inner.state.lock().await;
         state.ordered.clear();
         state.entries.clear();
-        state.active = None;
+        state.active.clear();
     }
 
+    /// Skip ends everything on screen: the pages hide the text card too.
     pub async fn skip_active(&self) {
-        let should_dispatch = {
+        {
             let mut state = self.inner.state.lock().await;
-            let Some(active) = state.active.take() else {
+            if state.active.is_empty() {
                 return;
-            };
-            state.entries.remove(&active.ticket);
-            true
-        };
-        if should_dispatch {
-            self.try_dispatch().await;
+            }
+            for active in std::mem::take(&mut state.active) {
+                state.entries.remove(&active.ticket);
+            }
         }
+        self.try_dispatch().await;
     }
 
     async fn try_dispatch(&self) {
-        let dispatched = {
-            let mut state = self.inner.state.lock().await;
-            if state.active.is_some()
-                || state.media_busy
-                || state.music_busy
-                || (state.notification_busy && !state.messages_pinned)
-            {
-                return;
-            }
-            let Some((&key, &ticket)) = state.ordered.iter().find(|(_, ticket)| {
-                !state.messages_pinned
-                    || state
-                        .entries
-                        .get(ticket)
-                        .is_none_or(|entry| entry.lane != StageLane::Notification)
-            }) else {
-                return;
-            };
-            let Some(entry) = state.entries.get_mut(&ticket) else {
+        loop {
+            let (ticket, event) = {
+                let mut state = self.inner.state.lock().await;
+                let Some((key, ticket)) = state.next_ready() else {
+                    return;
+                };
+                let entry = state.entries.get_mut(&ticket).expect("ready stage ticket");
+                let event = entry.event.take().expect("ready stage event");
+                let lane = entry.lane;
                 state.ordered.remove(&key);
-                return;
+                state.active.push(ActiveTicket {
+                    ticket,
+                    lane,
+                    saw_busy: false,
+                });
+                (ticket, event)
             };
-            let Some(event) = entry.event.take() else {
-                return;
-            };
-            let lane = entry.lane;
-            state.ordered.remove(&key);
-            state.active = Some(ActiveTicket {
-                ticket,
-                lane,
-                saw_busy: false,
-            });
-            Some((ticket, event))
-        };
-        if let Some((ticket, event)) = dispatched {
             let _ = self.inner.relay_tx.send(event);
             self.spawn_claim_timeout(ticket);
         }
@@ -504,7 +561,7 @@ impl StageScheduler {
             tokio::time::sleep(ready_timeout).await;
             let demoted = {
                 let mut state = scheduler.inner.state.lock().await;
-                let active_ticket = state.active.is_some_and(|active| active.ticket == ticket);
+                let active_ticket = state.is_active(ticket);
                 let original_key = match state.entries.get(&ticket) {
                     Some(entry) if entry.event.is_none() && !active_ticket => entry.original_key,
                     Some(_) => return,
@@ -527,12 +584,12 @@ impl StageScheduler {
                 let mut state = scheduler.inner.state.lock().await;
                 if !state
                     .active
-                    .is_some_and(|active| active.ticket == ticket && !active.saw_busy)
+                    .iter()
+                    .any(|active| active.ticket == ticket && !active.saw_busy)
                 {
                     return;
                 }
-                state.active = None;
-                state.entries.remove(&ticket);
+                state.finish(ticket);
                 true
             };
             if released {
@@ -545,12 +602,11 @@ impl StageScheduler {
         let group = message_group(original_key);
         // The active part is already on stage: demoting it would leave a
         // key-less entry that no later reinsertion can ever release.
-        let active = state.active.map(|active| active.ticket);
         let tickets = state
             .entries
             .iter()
             .filter_map(|(ticket, entry)| {
-                (message_group(entry.original_key) == group && Some(*ticket) != active)
+                (message_group(entry.original_key) == group && !state.is_active(*ticket))
                     .then_some(*ticket)
             })
             .collect::<Vec<_>>();
@@ -646,6 +702,10 @@ fn event_order(event: &RelayEvent) -> (u64, String, u16) {
 
 fn message_group(key: StageOrderKey) -> (u64, u64) {
     (key.timestamp_ms, key.message_id)
+}
+
+fn is_text(lane: StageLane) -> bool {
+    lane == StageLane::Notification
 }
 
 fn lane_busy(lane: StageLane, media_busy: bool, music_busy: bool, notification_busy: bool) -> bool {

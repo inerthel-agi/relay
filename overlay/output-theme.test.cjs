@@ -72,3 +72,24 @@ test("message and name text keep at least 4.5:1 contrast on every card", () => {
     }
   }
 });
+
+test("Titanium, Aether, Orbital and Oled resolve and keep OBS-safe tokens", () => {
+  for (const design of ["titanium", "aether", "orbital", "oled"]) {
+    assert.deepEqual(resolveOutputTheme({ design, theme: "dark" }), { style: design, background: "dark" });
+    assert.ok(styles.includes(design), design);
+    for (const background of ["light", "dark"]) {
+      const values = tokens(design, background);
+      assert.match(values["--out-shadow"], /^(none|-?\d+px -?\d+px 0 #[0-9a-f]{6})$/i, `${design} ${background}`);
+    }
+  }
+  assert.equal(tokens("titanium", "dark")["--out-surface"], "#101319");
+  assert.equal(tokens("titanium", "light")["--out-line"], "#dcdfe8");
+  assert.equal(tokens("aether", "dark")["--out-radius"], "18px");
+  assert.match(tokens("aether", "dark")["--out-surface-image"], /^linear-gradient\(145deg, color-mix\(in srgb, var\(--accent\) 20%, #0f1629\), #0f1629 68%\)$/);
+  assert.equal(tokens("orbital", "dark")["--out-shadow"], "3px 3px 0 #030508");
+  assert.equal(tokens("orbital", "light")["--out-shadow"], "3px 3px 0 #0a1929");
+  assert.equal(tokens("orbital", "dark")["--out-name-transform"], "uppercase");
+  assert.equal(tokens("orbital", "dark")["--out-radius"], "4px");
+  assert.match(tokens("oled", "dark")["--out-line"], /^color-mix\(in srgb, #1d2026 65%, var\(--accent\)\)$/);
+  assert.equal(tokens("oled", "light")["--out-surface"], "#ffffff");
+});

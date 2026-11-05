@@ -32,6 +32,8 @@ const PREVIOUS_NOTIFICATION_WIDGET_HEIGHT: f64 = 112.0;
 pub const DEFAULT_SKIP_SHORTCUT: &str = "control+alt+KeyS";
 pub const DEFAULT_PANIC_SHORTCUT: &str = "control+alt+KeyP";
 pub const MAX_PRIVACY_EXEMPT_ROLE_IDS: usize = 100;
+/// Per feature: extra Relay, music and trap channels.
+pub const MAX_EXTRA_CHANNELS: usize = 10;
 pub const MIN_WIDGET_WIDTH: f64 = 160.0;
 pub const MIN_WIDGET_HEIGHT: f64 = 90.0;
 const MAX_WIDGET_DIMENSION: f64 = 16_384.0;
@@ -153,6 +155,15 @@ pub enum HoneypotAction {
     Timeout,
 }
 
+/// Sound played for each notification: one of Relay's own, or the user's file.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum NotificationSound {
+    Soft,
+    Chat,
+    Custom,
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct AppConfig {
@@ -161,6 +172,10 @@ pub struct AppConfig {
     pub reactions: crate::reactions::ReactionSettings,
     /// The Relay channel: its messages become notifications and its media go to OBS.
     pub watched_channel_id: String,
+    /// More channels fed like the Relay channel, usually in other servers of
+    /// the same bot. Cleanup, the welcome message, lock, AutoMod and `/relay`
+    /// commands stay on the Relay channel and its server.
+    pub extra_relay_channel_ids: Vec<String>,
     /// Former separate message channel. Only kept, with its cleanup settings,
     /// while it differs from `watched_channel_id` and the user has not chosen one.
     pub former_message_channel_id: String,
@@ -169,9 +184,15 @@ pub struct AppConfig {
     pub former_message_cleanup_enabled: bool,
     pub former_message_welcome_message_id: String,
     pub music_channel_id: String,
+    /// More music request channels, usually in other servers of the same bot.
+    /// Cleanup and the welcome message stay on the music channel.
+    pub extra_music_channel_ids: Vec<String>,
     pub music_cleanup_enabled: bool,
     pub music_welcome_message_id: String,
     pub honeypot_channel_id: String,
+    /// More trap channels, usually in other servers of the same bot. The
+    /// action applies in the server of the channel the account posted in.
+    pub extra_honeypot_channel_ids: Vec<String>,
     pub honeypot_action: HoneypotAction,
     pub port: u16,
     pub display_duration_ms: u64,
@@ -203,6 +224,9 @@ pub struct AppConfig {
     pub privacy_block_threshold: PrivacyClassification,
     pub privacy_review_intermediate: bool,
     pub privacy_auto_delete_blocked_messages: bool,
+    /// Transcribe voice messages, audio files and video sound on this PC and
+    /// check the text before they play (`voice_scan`).
+    pub voice_scan_enabled: bool,
     pub privacy_allowlist: Vec<String>,
     pub privacy_custom_patterns: Vec<String>,
     pub moderation: crate::moderation::ModerationSettings,
@@ -246,6 +270,8 @@ pub struct AppConfig {
     pub notification_sound_enabled: bool,
     pub notification_sound_obs_enabled: bool,
     pub notification_sound_path: Option<String>,
+    /// `None` until a sound is chosen in the panel: see `notification_sound`.
+    pub notification_sound_choice: Option<NotificationSound>,
 }
 
 impl Default for AppConfig {
@@ -255,15 +281,18 @@ impl Default for AppConfig {
             music_reject_duplicate_pending: true,
             reactions: crate::reactions::ReactionSettings::default(),
             watched_channel_id: String::new(),
+            extra_relay_channel_ids: Vec::new(),
             former_message_channel_id: String::new(),
             media_cleanup_enabled: false,
             media_welcome_message_id: String::new(),
             former_message_cleanup_enabled: false,
             former_message_welcome_message_id: String::new(),
             music_channel_id: String::new(),
+            extra_music_channel_ids: Vec::new(),
             music_cleanup_enabled: false,
             music_welcome_message_id: String::new(),
             honeypot_channel_id: String::new(),
+            extra_honeypot_channel_ids: Vec::new(),
             honeypot_action: HoneypotAction::Kick,
             port: DEFAULT_PORT,
             display_duration_ms: DEFAULT_DISPLAY_DURATION_MS,
@@ -295,6 +324,7 @@ impl Default for AppConfig {
             privacy_block_threshold: PrivacyClassification::High,
             privacy_review_intermediate: true,
             privacy_auto_delete_blocked_messages: true,
+            voice_scan_enabled: false,
             privacy_allowlist: Vec::new(),
             privacy_custom_patterns: Vec::new(),
             moderation: crate::moderation::ModerationSettings::default(),
@@ -335,6 +365,7 @@ impl Default for AppConfig {
             notification_sound_enabled: false,
             notification_sound_obs_enabled: false,
             notification_sound_path: None,
+            notification_sound_choice: None,
         }
     }
 }
@@ -384,21 +415,50 @@ impl AppConfig {
             bail!("Music cleanup requires a music channel.");
         }
         validate_channel_id(&self.honeypot_channel_id, "honeypot")?;
-        let configured_channels = [
-            ("media", &self.watched_channel_id),
-            ("messages", &self.former_message_channel_id),
-            ("music", &self.music_channel_id),
-            ("honeypot", &self.honeypot_channel_id),
-        ];
-        for (index, (_, left_id)) in configured_channels.iter().enumerate() {
+        for (extras, main, name) in [
+            (
+                &self.extra_relay_channel_ids,
+                &self.watched_channel_id,
+                "Relay",
+            ),
+            (
+                &self.extra_music_channel_ids,
+                &self.music_channel_id,
+                "music",
+            ),
+            (
+                &self.extra_honeypot_channel_ids,
+                &self.honeypot_channel_id,
+                "trap",
+            ),
+        ] {
+            if extras.len() > MAX_EXTRA_CHANNELS {
+                bail!("At most {MAX_EXTRA_CHANNELS} extra {name} channels can be set.");
+            }
+            if !extras.is_empty() && main.is_empty() {
+                bail!("Choose the {name} channel before adding extra {name} channels.");
+            }
+            for channel_id in extras {
+                validate_snowflake_id(channel_id, &format!("extra {name} channel"))?;
+            }
+        }
+        let configured_channels: Vec<&String> = [
+            &self.watched_channel_id,
+            &self.former_message_channel_id,
+            &self.music_channel_id,
+            &self.honeypot_channel_id,
+        ]
+        .into_iter()
+        .chain(&self.extra_relay_channel_ids)
+        .chain(&self.extra_music_channel_ids)
+        .chain(&self.extra_honeypot_channel_ids)
+        .collect();
+        for (index, left_id) in configured_channels.iter().enumerate() {
             if left_id.is_empty() {
                 continue;
             }
-            if configured_channels[index + 1..]
-                .iter()
-                .any(|(_, right_id)| left_id == right_id && !right_id.is_empty())
-            {
-                bail!("The Relay channel, music, and honeypot must use separate Discord channels.");
+            if configured_channels[index + 1..].contains(left_id) {
+                bail!("The Relay, music, and trap channels must all be different.");
             }
         }
         if self.port < 1024 {
@@ -521,6 +581,16 @@ impl AppConfig {
         if channel_id.is_empty() {
             return None;
         }
+        if self
+            .extra_relay_channel_ids
+            .iter()
+            .any(|id| id == channel_id)
+        {
+            return Some(ChannelFeeds {
+                notifications: true,
+                media: true,
+            });
+        }
         let media = self.watched_channel_id == channel_id;
         let notifications = if self.relay_channel_conflict() {
             self.former_message_channel_id == channel_id
@@ -531,6 +601,40 @@ impl AppConfig {
             notifications,
             media,
         })
+    }
+
+    /// True for the Relay channel and the extra ones, the channels whose media go to the outputs.
+    pub fn relays_media(&self, channel_id: &str) -> bool {
+        self.channel_feeds(channel_id)
+            .is_some_and(|feeds| feeds.media)
+    }
+
+    /// The notification sound. Before 1.5.1 only a file could be chosen, so a
+    /// configuration with a file and no choice keeps that file.
+    pub fn notification_sound(&self) -> NotificationSound {
+        self.notification_sound_choice
+            .unwrap_or(match self.notification_sound_path {
+                Some(_) => NotificationSound::Custom,
+                None => NotificationSound::Soft,
+            })
+    }
+
+    /// True for the music channel and the extra ones.
+    pub fn is_music_channel(&self, channel_id: &str) -> bool {
+        is_main_or_extra(
+            channel_id,
+            &self.music_channel_id,
+            &self.extra_music_channel_ids,
+        )
+    }
+
+    /// True for the trap channel and the extra ones.
+    pub fn is_honeypot_channel(&self, channel_id: &str) -> bool {
+        is_main_or_extra(
+            channel_id,
+            &self.honeypot_channel_id,
+            &self.extra_honeypot_channel_ids,
+        )
     }
 
     /// Folds the former message channel into the Relay channel when that loses
@@ -640,6 +744,10 @@ fn validate_widget_size(width: f64, height: f64) -> Result<()> {
         bail!("Widget size is outside the supported bounds.");
     }
     Ok(())
+}
+
+fn is_main_or_extra(channel_id: &str, main: &str, extras: &[String]) -> bool {
+    !channel_id.is_empty() && (main == channel_id || extras.iter().any(|id| id == channel_id))
 }
 
 fn validate_channel_id(channel_id: &str, label: &str) -> Result<()> {

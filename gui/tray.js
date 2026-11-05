@@ -133,7 +133,7 @@ function applyTrayLanguage() {
     ? storedLocale
     : language === "en" ? "en-US" : language;
   document.documentElement.lang = locale;
-  document.documentElement.dataset.design = ["paper", "neo-brutalism", "gridline", "lumen", "signal", "midnight", "ember", "dawn", "cloud"].includes(storedDesign)
+  document.documentElement.dataset.design = ["paper", "neo-brutalism", "gridline", "lumen", "signal", "midnight", "ember", "dawn", "cloud", "titanium", "aether", "orbital", "oled"].includes(storedDesign)
     ? storedDesign
     : "graphite";
   document.documentElement.dataset.theme = storedTheme === "light" ? "light" : "dark";

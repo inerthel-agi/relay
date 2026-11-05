@@ -181,14 +181,21 @@ async fn reaction_protected(core: &AppCore, channel: u64, message: u64) -> bool 
     )
 }
 
+/// Automatic cleanup covers the music channel and the extra ones; the channel
+/// cleanup preview stays on the music channel. Returns the protected welcome
+/// message, which belongs to the music channel.
+fn automatic_scope(config: &crate::config::AppConfig, channel: u64) -> Option<Option<u64>> {
+    if !config.music_cleanup_enabled || !config.is_music_channel(&channel.to_string()) {
+        return None;
+    }
+    optional_protected_message(&config.music_welcome_message_id).ok()
+}
+
 pub async fn delete(core: &AppCore, http: &Http, channel: u64, message: u64) {
-    let Ok((configured_channel, protected)) = configured(core).await else {
+    let Some(protected) = automatic_scope(&*core.config.read().await, channel) else {
         return;
     };
-    if channel != configured_channel
-        || !may_delete(message, protected, false)
-        || reaction_protected(core, channel, message).await
-    {
+    if !may_delete(message, protected, false) || reaction_protected(core, channel, message).await {
         return;
     }
     core.music_cleanup
@@ -207,13 +214,10 @@ pub async fn delete(core: &AppCore, http: &Http, channel: u64, message: u64) {
 }
 
 pub async fn expire_message(core: &Arc<AppCore>, http: &Arc<Http>, channel: u64, message: u64) {
-    let Ok((configured_channel, protected)) = configured(core).await else {
+    let Some(protected) = automatic_scope(&*core.config.read().await, channel) else {
         return;
     };
-    if channel != configured_channel
-        || Some(message) == protected
-        || reaction_protected(core, channel, message).await
-    {
+    if Some(message) == protected || reaction_protected(core, channel, message).await {
         return;
     }
     core.music_cleanup

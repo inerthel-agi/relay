@@ -3,10 +3,10 @@ export function roleChoicesForChannels(catalog, channelIds) {
   return guilds.size ? catalog.roles.filter(role => guilds.has(role.guildId)) : catalog.roles;
 }
 
-export function renderAccessMenu(root, { choices, selectedIds, kind, onChange, t }) {
+export function renderAccessMenu(root, { choices, selectedIds, kind, onChange, t, heading: headingKey, max = 100 }) {
   root.replaceChildren();
   const heading = document.createElement("span");
-  heading.textContent = t(kind === "channel" ? "modAllowedChannels" : "modAllowedRoles");
+  heading.textContent = t(headingKey || (kind === "channel" ? "modAllowedChannels" : "modAllowedRoles"));
   root.append(heading);
   const rows = document.createElement("div"); rows.className = "reaction-access__rows"; root.append(rows);
   const selects = [];
@@ -40,6 +40,6 @@ export function renderAccessMenu(root, { choices, selectedIds, kind, onChange, t
   for (const id of selectedIds.length ? selectedIds : [""]) addRow(id);
   const add = document.createElement("button"); add.type = "button"; add.className = "button button--quiet";
   add.textContent = t(kind === "channel" ? "modAddChannel" : "modAddRole");
-  add.addEventListener("click", () => { if (selects.length < 100) addRow().focus(); });
+  add.addEventListener("click", () => { if (selects.length < max) addRow().focus(); });
   root.append(add);
 }

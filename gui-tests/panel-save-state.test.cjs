@@ -22,7 +22,7 @@ function fixture() {
     const id = tag.match(/id="([^"]+)"/)?.[1];
     if (tag.startsWith("</form")) form = undefined;
     else if (tag.startsWith("<form")) {
-      form = { id, controls: [], handlers: {}, addEventListener(event, fn) { this.handlers[event] = fn; }, querySelectorAll() { return this.controls; } };
+      form = { id, controls: [], handlers: {}, dispatched: [], addEventListener(event, fn) { this.handlers[event] = fn; }, dispatchEvent(event) { this.dispatched.push(event.type); }, querySelectorAll() { return this.controls; } };
       forms.set(id, form);
     } else if (id) {
       const input = element(id);
@@ -45,6 +45,9 @@ function fixture() {
     privacyListFromInput: (value) => value ? value.split("\n") : [],
     privacyListToInput: (value) => (value || []).join("\n"),
     populateChannels: (input, channels, selected) => { input.value = selected || ""; },
+    Event: class { constructor(type) { this.type = type; } },
+    renderAccessMenu(root, options) { root.menu = options; },
+    renderVoiceScanStatus() {},
     applyNotificationSoundConfig() {}, updateBotActivityAvailability() {},
     customCommandsUi: undefined,
     applyOutputGeometryConfig() {}, updateSkipShortcutDisplay() {}, updatePanicShortcutDisplay() {}, moderationUi: { applyAdvancedEdits: (concepts) => concepts, readDraft: (settings) => settings, readAiDraft: (settings) => settings, fillForm() {}, pendingTextCount: () => 0, decorateQueueItem() {}, renderTexts() {} }, obsSetup: undefined,
@@ -58,7 +61,7 @@ function fixture() {
     watchedChannelId: "media", formerMessageChannelId: "", musicChannelId: "", honeypotChannelId: "",
     mediaCleanupEnabled: false, formerMessageCleanupEnabled: false, musicCleanupEnabled: false,
     mediaWelcomeMessageId: "", formerMessageWelcomeMessageId: "", musicWelcomeMessageId: "",
-    moderationEnabled: false, privacyScanEnabled: false, showMediaTextObs: false,
+    moderationEnabled: false, privacyScanEnabled: false, voiceScanEnabled: false, showMediaTextObs: false,
     showMediaTextWidget: false, widgetSoundEnabled: false,
     port: 4590, displayDurationMs: 8000, gifDurationMs: 8000, stickerDurationMs: 8000,
     notificationDurationMs: 8000, mediaVolume: 50, notificationCharacterLimit: 0, notificationQueueLimit: 50,
@@ -164,6 +167,49 @@ test("the Discord channels form saves every channel together", async () => {
   assert.equal(saved.honeypotChannelId, "trap");
   assert.equal(saved.honeypotAction, "ban");
   assert.equal(saved.displayDurationMs, 8000);
+});
+
+test("extra Relay channels save with the channels form, removals included", async () => {
+  const f = fixture();
+  const routing = f.forms.get("routing-form");
+  f.context.bootstrap.channels = [{ id: "123456789012345678", name: "general", guildName: "Second server" }];
+  f.context.applyConfig({ ...f.context.bootstrap.config, extraRelayChannelIds: ["123456789012345678"] });
+  const menu = () => f.element("extra-relay-channels").menu;
+  assert.deepEqual([...menu().selectedIds], ["123456789012345678"]);
+  assert.equal(menu().max, 10);
+  // Choices keep their server, used to group them.
+  assert.equal(menu().choices[0].guildId, "Second server");
+
+  // Re-emitting the same list (a row added but not chosen yet) saves nothing.
+  menu().onChange(["123456789012345678"]);
+  assert.deepEqual(routing.dispatched, []);
+  // Removing a row fires no form event of its own: the menu fires them.
+  menu().onChange([]);
+  assert.deepEqual(routing.dispatched, ["input", "change"]);
+  assert.equal(await f.context.saveConfig(f.element("save-state"), routing), true);
+  const saved = f.calls.find((call) => call.command === "apply_config").args.config;
+  assert.deepEqual([...saved.extraRelayChannelIds], []);
+});
+
+test("extra music and trap channels save with the channels form", async () => {
+  const f = fixture();
+  f.context.applyConfig({ ...f.context.bootstrap.config, extraHoneypotChannelIds: ["223456789012345678"] });
+  assert.deepEqual([...f.element("extra-honeypot-channels").menu.selectedIds], ["223456789012345678"]);
+  assert.equal(f.element("extra-music-channels").menu.heading, "extraMusicChannels");
+  f.element("extra-music-channels").menu.onChange(["123456789012345678"]);
+  assert.equal(await f.context.saveConfig(f.element("save-state"), f.forms.get("routing-form")), true);
+  const saved = f.calls.find((call) => call.command === "apply_config").args.config;
+  assert.deepEqual([...saved.extraMusicChannelIds], ["123456789012345678"]);
+  assert.deepEqual([...saved.extraHoneypotChannelIds], ["223456789012345678"]);
+});
+
+test("extra Relay channels list the servers that arrive after the panel opened", () => {
+  const f = fixture();
+  // The bot was still connecting: the menu was drawn without any channel.
+  assert.equal(f.element("extra-relay-channels").menu.choices.length, 0);
+  f.context.bootstrap.channels = [{ id: "123456789012345678", name: "general", guildName: "Zone" }];
+  f.context.refreshChannelMenus(f.context.bootstrap.channels);
+  assert.deepEqual(f.element("extra-relay-channels").menu.choices.map((choice) => choice.id), ["123456789012345678"]);
 });
 
 test("two former channels lock the Relay channel until the user chooses one", async () => {

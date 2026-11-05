@@ -35,6 +35,7 @@ const REASON_KEYS = {
   ai_image: "reasonAiImage", ai_personal_data: "reasonAiPersonalData", ai_image_blocked: "reasonAiImageBlocked",
   ai_image_unchecked: "reasonAiImageUnchecked",
   ai_image_not_sent: "reasonAiImageNotSent",
+  voice_unchecked: "reasonVoiceUnchecked",
   // Privacy scan reasons reuse the labels of their category.
   email: "privacyCategoryEmail", phone: "privacyCategoryPhone", person_phone_combination: "privacyCategoryPhone",
   ip_address: "privacyCategoryIp", gps: "privacyCategoryGps", coordinates: "privacyCategoryGps",
@@ -71,6 +72,7 @@ const REASON_EXPLANATIONS = {
   ai_image_unchecked: ["whyAiImageUnchecked", "aiImageGuard"],
   ai_image_not_sent: ["whyAiImageNotSent", "aiImageGuard"],
   ai_personal_data: ["whyAiPersonalData", "aiPersonalRelay"],
+  voice_unchecked: ["whyVoiceUnchecked", "voiceScanEnabled"],
 };
 for (const reason of [
   "email", "phone", "person_phone_combination", "ip_address", "postal_address", "partial_address",

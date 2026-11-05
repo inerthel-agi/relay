@@ -306,6 +306,92 @@
   --out-line: #dfe4ec;
 }
 
+/* Titanium: flat bento card, hairline edge, Inter. */
+:root[data-output-style="titanium"] {
+  --out-surface: #101319;
+  --out-ink: #f3f5f8;
+  --out-muted: #8b95a7;
+  --out-line: #283040;
+  --out-radius: 12px;
+  --out-radius-inner: 9px;
+  --out-radius-pill: 9px;
+  --out-shadow: none;
+  --out-font: "Relay Output Inter", "Segoe UI", sans-serif;
+}
+
+:root[data-output-style="titanium"][data-output-background="light"] {
+  --out-surface: #ffffff;
+  --out-ink: #0f131a;
+  --out-muted: #5b6475;
+  --out-line: #dcdfe8;
+}
+
+/* Aether: opaque tinted card standing in for glass, rounder corners. */
+:root[data-output-style="aether"] {
+  --out-surface: #0f1629;
+  --out-surface-image: linear-gradient(145deg, color-mix(in srgb, var(--accent) 20%, #0f1629), #0f1629 68%);
+  --out-ink: #f0f4ff;
+  --out-muted: #98a8cc;
+  --out-line: #2a3862;
+  --out-radius: 18px;
+  --out-radius-inner: 13px;
+  --out-radius-pill: 999px;
+  --out-shadow: none;
+  --out-font: "Relay Output Inter", "Segoe UI", sans-serif;
+}
+
+:root[data-output-style="aether"][data-output-background="light"] {
+  --out-surface: #ffffff;
+  --out-surface-image: linear-gradient(145deg, color-mix(in srgb, var(--accent) 14%, #ffffff), #ffffff 68%);
+  --out-ink: #0f172a;
+  --out-muted: #5b6b88;
+  --out-line: #d4deed;
+}
+
+/* Orbital: square HUD card, monospace uppercase names, hard offset shadow. */
+:root[data-output-style="orbital"] {
+  --out-surface: #0b121d;
+  --out-ink: #e6f2ff;
+  --out-muted: #7fa0bf;
+  --out-line: #2b4c70;
+  --out-radius: 4px;
+  --out-radius-inner: 3px;
+  --out-radius-pill: 3px;
+  --out-shadow: 3px 3px 0 #030508;
+  --out-font: "Relay Output Space Grotesk", "Segoe UI", sans-serif;
+  --out-font-title: "Relay Output JetBrains Mono", Consolas, monospace;
+  --out-name-transform: uppercase;
+  --out-name-spacing: 0.05em;
+}
+
+:root[data-output-style="orbital"][data-output-background="light"] {
+  --out-surface: #f9fcff;
+  --out-ink: #0a1929;
+  --out-muted: #4b6a88;
+  --out-line: #8fb0cc;
+  --out-shadow: 3px 3px 0 #0a1929;
+}
+
+/* Oled: near-black card with an accent-tinted 1px edge. */
+:root[data-output-style="oled"] {
+  --out-surface: #050506;
+  --out-ink: #fafafa;
+  --out-muted: #8e929c;
+  --out-line: color-mix(in srgb, #1d2026 65%, var(--accent));
+  --out-radius: 12px;
+  --out-radius-inner: 9px;
+  --out-radius-pill: 999px;
+  --out-shadow: none;
+  --out-font: "Relay Output Inter", "Segoe UI", sans-serif;
+}
+
+:root[data-output-style="oled"][data-output-background="light"] {
+  --out-surface: #ffffff;
+  --out-ink: #090a0c;
+  --out-muted: #5c606a;
+  --out-line: color-mix(in srgb, #c5c7d0 70%, var(--accent));
+}
+
 /* Subtitle: no card, outlined text over the game. */
 :root[data-output-style="subtitle"] {
   --out-surface: transparent;

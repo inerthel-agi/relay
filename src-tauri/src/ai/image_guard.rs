@@ -242,12 +242,17 @@ pub async fn check(config: &AppConfig, candidate: Candidate<'_>, language: &str)
         Ok(found) => found,
         Err(outcome) => return outcome,
     };
-    let mut held = None;
-    for frame in frames {
-        let outcome = match advice::image_payload(frame, config).await {
+    // The frames of a GIF or video are checked at the same time: one wait
+    // instead of three before it can be shown.
+    let outcomes = futures_util::future::join_all(frames.into_iter().map(|frame| async move {
+        match advice::image_payload(frame, config).await {
             Ok(image) => check_image(settings, guard, relay, image, language).await,
             Err(cause) => Some(not_sent(cause)),
-        };
+        }
+    }))
+    .await;
+    let mut held = None;
+    for outcome in outcomes {
         if let Some(outcome) = fold_frame(&mut held, outcome) {
             return outcome;
         }

@@ -441,13 +441,14 @@ impl AppCore {
                 .lock()
                 .await
                 .remove(&playback.playback_id);
+            // The slot reserved at request time predates media sent while the
+            // previous track played: those are shown first, then this track.
             if let Some(ticket) = ticket {
-                self.complete_music(ticket, playback).await;
-            } else {
-                self.stage_scheduler
-                    .enqueue(RelayEvent::MusicPlay(playback), StageLane::Music)
-                    .await;
+                self.cancel_stage_output(ticket).await;
             }
+            self.stage_scheduler
+                .enqueue(RelayEvent::MusicPlay(playback), StageLane::Music)
+                .await;
             crate::bot::refresh_music_card(self).await;
             crate::bot::refresh_pending_music_cards(self).await;
         } else {
