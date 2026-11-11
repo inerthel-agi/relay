@@ -203,14 +203,16 @@ pub async fn delete(core: &AppCore, http: &Http, channel: u64, message: u64) {
         .await
         .active
         .remove(&(channel, message));
-    if ChannelId::new(channel)
+    let failed = ChannelId::new(channel)
         .delete_message(http, MessageId::new(message))
         .await
-        .is_err()
-    {
-        core.bot_status.write().await.error = Some(
-            "Music message cleanup failed. Check View Channel, Read Message History and Manage Messages permissions.".into());
-    }
+        .is_err();
+    crate::bot::report_action_result(
+        core,
+        failed,
+        "Music message cleanup failed. Check View Channel, Read Message History and Manage Messages permissions.",
+    )
+    .await;
 }
 
 pub async fn expire_message(core: &Arc<AppCore>, http: &Arc<Http>, channel: u64, message: u64) {
@@ -355,11 +357,12 @@ pub async fn confirm_music_cleanup(
         }
         tokio::time::sleep(Duration::from_millis(250)).await;
     }
-    if result.failed > 0 {
-        core.bot_status.write().await.error = Some(
-            "Music cleanup stopped after a Discord deletion error. Check bot permissions.".into(),
-        );
-    }
+    crate::bot::report_action_result(
+        &core,
+        result.failed > 0,
+        "Music cleanup stopped after a Discord deletion error. Check bot permissions.",
+    )
+    .await;
     Ok(result)
 }
 

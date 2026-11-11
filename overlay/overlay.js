@@ -579,8 +579,8 @@ function createYoutubePlayer() {
         }
       },
       onError: () => {
-        // A failed embed (e.g. OBS still on 127.0.0.1 getting YouTube error 150) must not
-        // clear server-side playback while another output (Windows widget) still plays.
+        // A failed embed (e.g. OBS still on 127.0.0.1 getting YouTube error 150) reports
+        // completed: false; the server ends the track only when no other output plays it.
         if (finishYoutubePlayback(playbackId, generation, false)) {
           playDeferredYoutubeOrNextMedia();
         }
@@ -590,15 +590,15 @@ function createYoutubePlayer() {
   youtubePlayer = createdPlayer;
 }
 
-function finishYoutubePlayback(playbackId, generation, notifyServer = true) {
+/** `completed` is false when this page could not play the track (embed or API failure). */
+function finishYoutubePlayback(playbackId, generation, completed = true) {
   if (!playbackId || playbackId !== youtubePlaybackId || generation !== youtubeGeneration) return false;
   if (
-    notifyServer
-    && !isPreview
+    !isPreview
     && (outputClient === "obs" || outputClient === "widget")
     && socket?.readyState === 1
   ) {
-    socket.send(JSON.stringify({ type: "musicEnded", payload: { playbackId, completed: true } }));
+    socket.send(JSON.stringify({ type: "musicEnded", payload: { playbackId, completed } }));
   }
   youtubePendingPlayback = undefined;
   youtubeActivePlayback = undefined;
@@ -1036,11 +1036,12 @@ function mediaLayout(width, height, viewportWidth, viewportHeight, scale, footer
 
 function fitVisualToViewport(element, width, height, insetPx = 0) {
   if (!width || !height || !window.innerWidth || !window.innerHeight) return;
-  const scale = Math.max(0.5, Number.parseFloat(
-    getComputedStyle(document.documentElement).getPropertyValue("--content-scale"),
-  ) || 1);
+  const rootStyle = getComputedStyle(document.documentElement);
+  const scale = Math.max(0.5, Number.parseFloat(rootStyle.getPropertyValue("--content-scale")) || 1);
+  const fontScale = Number.parseFloat(rootStyle.getPropertyValue("--font-scale")) || 1;
   const authorHeight = authorElement.hidden ? 0 : 44 * scale;
-  const captionHeight = mediaTextElement.hidden ? 0 : 80 * scale;
+  // Three caption lines grow with the text size.
+  const captionHeight = mediaTextElement.hidden ? 0 : 80 * scale * fontScale;
   const geometry = isWidgetWindow ? config.mediaWidgetGeometry : config.mediaObsGeometry;
   const layout = mediaLayout(width, height, window.innerWidth, window.innerHeight,
     scale, authorHeight + captionHeight, insetPx, geometry);
@@ -1786,7 +1787,12 @@ window.setWidgetVisible = (visible) => {
     reportAudioPlayback("idle");
     deferredYoutubeQueue.length = 0;
     reconnectHydrationPending = true;
-    stopYoutubePlayback();
+    // Hiding ends the item on screen, as a skip would: it never replays from
+    // the start when the widget comes back, and the media place is released.
+    mediaStageClaimPending = false;
+    interruptPlayback();
+    // The server frees this page's place when it disconnects.
+    reportedMediaStageBusy = false;
     playbackGeneration += 1;
     resetElements();
     stageClockReady = isPreview;

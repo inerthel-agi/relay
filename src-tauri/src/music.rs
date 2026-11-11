@@ -14,6 +14,22 @@ const PREVIEW_DURATION_SECONDS: u64 = 30;
 /// Per Discord user: minimum gap between YouTube Data API searches.
 /// Mid-range of 5–8s — slows quota spam without blocking pick/play after results.
 pub const MUSIC_SEARCH_COOLDOWN: Duration = Duration::from_secs(6);
+/// YouTube searches (search.list, 100 units each) one member may send per rolling hour.
+pub const MEMBER_SEARCHES_PER_HOUR: usize = 8;
+/// Searches for every member per rolling day: 6,000 of the default 10,000 daily units.
+// shortcut: counted in memory, so a restart resets it; persist it if restarts during a stream become common.
+pub const SEARCHES_PER_DAY: usize = 60;
+const SEARCH_HOUR: Duration = Duration::from_secs(60 * 60);
+const SEARCH_DAY: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// Why a YouTube search was not sent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SearchRefusal {
+    /// This member's searches of the hour are used: the wait until one frees up.
+    Member(Duration),
+    /// The searches of the day are used, for everyone.
+    Daily,
+}
 pub const CUSTOM_MAX_WINDOW_SECONDS: u64 = 60;
 pub const MUSIC_QUEUE_CAP: usize = 20;
 pub const DEFAULT_MUSIC_MAX_PENDING_PER_USER: u8 = 3;
@@ -118,6 +134,10 @@ pub struct MusicState {
     selections: HashMap<String, PendingSelection>,
     /// Last YouTube search attempt per Discord user id (API quota guard).
     search_cooldowns: HashMap<u64, Instant>,
+    /// search.list requests sent per Discord user id in the rolling hour.
+    member_searches: HashMap<u64, VecDeque<Instant>>,
+    /// search.list requests sent in the rolling day, for every member.
+    day_searches: VecDeque<Instant>,
     current: Option<CurrentMusic>,
     pending: VecDeque<CurrentMusic>,
     next_id: u64,
@@ -299,6 +319,48 @@ impl MusicState {
             now,
             MUSIC_SEARCH_COOLDOWN,
         )
+    }
+
+    /// Counts one search.list (100 quota units) about to be sent for
+    /// `user_id`, or says why none may be sent. A cached answer costs no
+    /// quota and is not counted; a pasted link never comes here.
+    pub fn admit_search(
+        &mut self,
+        user_id: u64,
+        now: Instant,
+        cached: bool,
+    ) -> Result<(), SearchRefusal> {
+        let age = |at: &Instant| now.saturating_duration_since(*at);
+        while self
+            .day_searches
+            .front()
+            .is_some_and(|at| age(at) >= SEARCH_DAY)
+        {
+            self.day_searches.pop_front();
+        }
+        self.member_searches.retain(|_, searches| {
+            while searches.front().is_some_and(|at| age(at) >= SEARCH_HOUR) {
+                searches.pop_front();
+            }
+            !searches.is_empty()
+        });
+        if cached {
+            return Ok(());
+        }
+        if self.day_searches.len() >= SEARCHES_PER_DAY {
+            return Err(SearchRefusal::Daily);
+        }
+        let searches = self.member_searches.entry(user_id).or_default();
+        if let Some(oldest) = searches.front()
+            && searches.len() >= MEMBER_SEARCHES_PER_HOUR
+        {
+            return Err(SearchRefusal::Member(
+                SEARCH_HOUR.saturating_sub(age(oldest)),
+            ));
+        }
+        searches.push_back(now);
+        self.day_searches.push_back(now);
+        Ok(())
     }
 
     /// Record a search attempt (call when about to hit the YouTube API).

@@ -167,6 +167,7 @@ function createHarness({
   messageStatus = { current: null, pinned: false },
   previewLibraryAsset = null,
   reactionTriggers = [],
+  t = (key) => key === "modReactionQueued" ? "Queued #{position}" : key,
 } = {}) {
   const roots = new Map([
     ["message-module", new FakeElement("section", "message-module")],
@@ -244,11 +245,11 @@ function createHarness({
     }
   };
   const getBootstrap = () => ({ config: { port: 4590, musicMaxPendingPerUser: 3, musicRejectDuplicatePending: true } });
-  const t = (key) => key === "modReactionQueued" ? "Queued #{position}" : key;
   const controls = initializeModules({ invoke, t, getBootstrap });
 
   return {
     roots,
+    listeners,
     calls,
     revokedUrls,
     audioInstances,
@@ -456,6 +457,30 @@ test("reaction disclosures retain expanded state and draft settings after librar
   } finally { harness.cleanup(); }
 });
 
+
+test("the reaction display menus follow a language change", async () => {
+  let language = "en";
+  const harness = createHarness({
+    t: (key) => `${language}:${key}`,
+    reactions: { enabled: true, globalCooldownSeconds: 10, memberCooldownSeconds: 30, musicPercent: 25,
+      allowedChannelIds: [], allowedRoleIds: [], geometry: { anchor: "legacy", marginX: 0, marginY: 0, contentScale: 100 },
+      definitions: [{ id: "one", name: "One", soundId: "sound", visualId: null, volume: 70, enabled: true }] },
+  });
+  try {
+    await flush();
+    const options = () => harness.roots.get("reaction-module").querySelectorAll("option");
+    // The anchor menu (8 places) and the "no visual" choice of the reaction.
+    assert.equal(options().filter((option) => option.textContent.startsWith("en:anchor")).length, 8);
+    assert.ok(options().some((option) => option.textContent === "en:modNoVisual"));
+    language = "fr";
+    global.Node = { TEXT_NODE: 3 };
+    harness.listeners.get("relay-language-change")();
+    delete global.Node;
+    // Library names are not translated; every Relay text now reads in the new language.
+    assert.deepEqual(options().filter((option) => option.textContent.startsWith("en:")).map((option) => option.textContent), []);
+    assert.equal(options().filter((option) => option.textContent.startsWith("fr:anchor")).length, 8);
+  } finally { harness.cleanup(); }
+});
 
 test("reaction play distinguishes immediate playback, FIFO position and queue-full refusal", async () => {
   const harness = createHarness({

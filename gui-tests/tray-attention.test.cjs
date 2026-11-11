@@ -28,6 +28,15 @@ test("pending moderation takes priority and opens the Control room, where the re
   assert.equal(context.attentionPageForTest(), "live");
 });
 
+test("held texts count in the tray reminder like held media", () => {
+  const { elements, context } = setup();
+  context.renderAttentionForTest({ pendingMedia: [{}], pendingTextCount: 2, bot: { connected: true } });
+  assert.equal(elements["#tray-attention"].hidden, false);
+  assert.equal(elements["#tray-attention-label"].textContent, "3 waiting");
+  context.renderAttentionForTest({ pendingMedia: [], pendingTextCount: 1, bot: { connected: true } });
+  assert.equal(context.attentionPageForTest(), "live");
+});
+
 test("a disconnected bot points to the Discord page", () => {
   const { elements, context } = setup();
   context.renderAttentionForTest({ pendingMedia: [], bot: { connected: false } });

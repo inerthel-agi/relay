@@ -839,6 +839,130 @@ async fn a_skipped_track_lets_media_sent_meanwhile_play_before_the_next_one() {
     stop_server(&core).await;
 }
 
+fn test_selection(video_id: &str) -> crate::music::MusicSelection {
+    crate::music::MusicSelection {
+        owner_id: 7,
+        owner_name: "owner".into(),
+        channel_id: 9,
+        track: crate::youtube::YouTubeTrack {
+            video_id: video_id.into(),
+            title: "Track".into(),
+            channel_title: "Channel".into(),
+            thumbnail: "https://i.ytimg.com/vi/test/default.jpg".into(),
+            duration_seconds: 180,
+        },
+    }
+}
+
+async fn start_test_server() -> (tempfile::TempDir, Arc<AppCore>, u16, String) {
+    let port = free_local_port();
+    let directory = tempfile::tempdir().unwrap();
+    let core = AppCore::load(directory.path().join("config.json")).unwrap();
+    core.set_config(AppConfig {
+        port,
+        ..AppConfig::default()
+    })
+    .await
+    .unwrap();
+    start_server(core.clone()).await.unwrap();
+    (
+        directory,
+        core,
+        port,
+        load_or_create_relay_secret().unwrap(),
+    )
+}
+
+/// No output reported the end of the track (failed embed everywhere, page
+/// gone): once its length and grace passed, the next track plays.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_unreported_track_ends_and_the_next_one_plays() {
+    let (_directory, core, port, secret) = start_test_server().await;
+    let mut overlay = connect_test_output(port, &secret, "all").await;
+    next_test_event(&mut overlay, "stageClock").await;
+    let now = crate::clock::now_ms();
+    core.start_music(
+        test_selection("aaaaaaaaaaa"),
+        MusicPlaybackMode::Full,
+        now,
+        "900",
+    )
+    .await;
+    next_test_event(&mut overlay, "musicPlay").await;
+    core.start_music(
+        test_selection("bbbbbbbbbbb"),
+        MusicPlaybackMode::Full,
+        now,
+        "901",
+    )
+    .await;
+    let first = core.current_music().await.unwrap();
+
+    // Started an hour ago on the server clock: well past 180 s plus the grace.
+    let ended = tokio::time::timeout(
+        Duration::from_secs(5),
+        core.end_unreported_music(&first, now - 3_600_000),
+    )
+    .await
+    .expect("an overdue track ends at once");
+    assert!(ended);
+    let next = next_test_event(&mut overlay, "musicPlay").await;
+    assert_eq!(next["payload"]["videoId"], "bbbbbbbbbbb");
+    stop_server(&core).await;
+}
+
+/// An embed that fails in OBS ends the track only once no other YouTube
+/// player (here the combined page) can play it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_failed_embed_ends_the_track_only_when_no_player_can_play_it() {
+    let (_directory, core, port, secret) = start_test_server().await;
+    let mut youtube = connect_test_output(port, &secret, "youtube").await;
+    let mut combined = connect_test_output(port, &secret, "all").await;
+    let now = crate::clock::now_ms();
+    core.start_music(
+        test_selection("aaaaaaaaaaa"),
+        MusicPlaybackMode::Full,
+        now,
+        "900",
+    )
+    .await;
+    let first = next_test_event(&mut youtube, "musicPlay").await;
+    next_test_event(&mut combined, "musicPlay").await;
+    core.start_music(
+        test_selection("bbbbbbbbbbb"),
+        MusicPlaybackMode::Full,
+        now,
+        "901",
+    )
+    .await;
+    let failed = json!({
+        "type": "musicEnded",
+        "payload": { "playbackId": first["payload"]["playbackId"], "completed": false },
+    })
+    .to_string();
+
+    youtube
+        .send(tokio_tungstenite::tungstenite::Message::Text(
+            failed.clone().into(),
+        ))
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(
+        core.current_music().await.unwrap().video_id,
+        "aaaaaaaaaaa",
+        "the combined page still plays it"
+    );
+
+    combined
+        .send(tokio_tungstenite::tungstenite::Message::Text(failed.into()))
+        .await
+        .unwrap();
+    let next = next_test_event(&mut youtube, "musicPlay").await;
+    assert_eq!(next["payload"]["videoId"], "bbbbbbbbbbb");
+    stop_server(&core).await;
+}
+
 type TestWebSocket =
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 

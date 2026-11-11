@@ -25,6 +25,12 @@ $locationPushed = $false
 try {
     Push-Location $tauriDir
     $locationPushed = $true
+    # Keep local paths (user name, Cargo home, checkout) out of panic messages in the binary.
+    $cargoHome = if ($env:CARGO_HOME) { $env:CARGO_HOME } else { Join-Path $env:USERPROFILE ".cargo" }
+    $env:CARGO_ENCODED_RUSTFLAGS = @(
+        "--remap-path-prefix=$cargoHome=/cargo",
+        "--remap-path-prefix=$repoRoot=/relay"
+    ) -join [char]0x1f
     cargo tauri build --bundles nsis
     if ($LASTEXITCODE -ne 0) {
         throw "The signed Relay build failed with exit code $LASTEXITCODE"

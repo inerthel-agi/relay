@@ -37,6 +37,16 @@ impl AppCore {
         }
     }
 
+    /// Manual review is on and the item's media type is not reviewed: dropped.
+    pub(super) fn record_type_not_reviewed(&self, verdict: Option<MessageVerdict>) {
+        self.record_moderation(
+            Some(Lane::Media),
+            LogAction::Ignored,
+            "type_not_reviewed",
+            verdict.map(|verdict| verdict.author_id),
+        );
+    }
+
     pub fn moderation_entries(&self) -> (Vec<LogEntry>, LogSummary) {
         self.moderation_log
             .lock()
@@ -145,9 +155,12 @@ impl AppCore {
         let author_id = verdict.as_ref().map(|verdict| verdict.author_id.clone());
         let trusted = verdict.as_ref().is_some_and(|verdict| verdict.trusted);
         let mut pending = self.pending_texts.write().await;
-        if pending.len() >= MODERATION_QUEUE_LIMIT {
-            pending.pop_front();
-        }
+        // Evict the oldest held text, like media, and say so in the log.
+        let evicted = if pending.len() >= MODERATION_QUEUE_LIMIT {
+            pending.pop_front()
+        } else {
+            None
+        };
         pending.push_back(PendingText {
             ai_advice,
             trusted,
@@ -164,6 +177,14 @@ impl AppCore {
             queued_at: now_ms(),
         });
         drop(pending);
+        if let Some(evicted) = evicted {
+            self.record_moderation(
+                Some(Lane::Notifications),
+                LogAction::Evicted,
+                "queue_full",
+                evicted.author_id,
+            );
+        }
         self.record_moderation(
             Some(Lane::Notifications),
             LogAction::Held,

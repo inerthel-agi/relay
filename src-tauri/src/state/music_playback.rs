@@ -2,6 +2,46 @@ use super::*;
 
 use crate::music::{MusicQueueDirection, MusicQueueMove, MusicQueuePolicy};
 
+/// Grace after a track's expected end before the server ends it itself. The
+/// pages follow the server clock (they seek to it), so a track that started
+/// late on a page still ends on time: the grace covers buffering and a
+/// pre-roll ad.
+pub(crate) const MUSIC_END_GRACE_SECONDS: u64 = 30;
+/// Length assumed when a track has none. The jukebox only accepts videos of
+/// 1 to 5 minutes (`youtube::is_jukebox_duration`), so this stays a safety net.
+const UNKNOWN_MUSIC_LENGTH_SECONDS: u64 = 10 * 60;
+
+/// Seconds the track plays from its start to its end (the custom range).
+pub(crate) fn music_length_seconds(playback: &MusicPlaybackEvent) -> u64 {
+    match playback
+        .end_seconds
+        .unwrap_or(playback.duration_seconds)
+        .saturating_sub(playback.start_seconds)
+    {
+        0 => UNKNOWN_MUSIC_LENGTH_SECONDS,
+        length => length,
+    }
+}
+
+fn music_end_deadline_ms(started_at_ms: u64, length_seconds: u64) -> u64 {
+    started_at_ms.saturating_add(
+        length_seconds
+            .saturating_add(MUSIC_END_GRACE_SECONDS)
+            .saturating_mul(1_000),
+    )
+}
+
+/// True once a track started at `started_at_ms` (server clock) ran its length
+/// plus the grace. Never while the outputs are paused.
+pub(crate) fn music_overdue(
+    started_at_ms: u64,
+    length_seconds: u64,
+    now_ms: u64,
+    paused: bool,
+) -> bool {
+    !paused && now_ms >= music_end_deadline_ms(started_at_ms, length_seconds)
+}
+
 impl AppCore {
     pub async fn start_music(
         &self,
@@ -369,6 +409,35 @@ impl AppCore {
         }));
         let _ = self.relay_tx.send(RelayEvent::Skip);
         self.stage_scheduler.skip_active().await;
+    }
+
+    /// Ends the track when no output reported its end once it ran its length
+    /// plus a grace: an embed that failed everywhere, an IFrame API that never
+    /// loaded, a page gone without closing its socket. It ends like a skip
+    /// (next track or idle): nothing confirmed it played, so a loop stops.
+    pub async fn end_unreported_music(
+        &self,
+        playback: &MusicPlaybackEvent,
+        started_at_ms: u64,
+    ) -> bool {
+        let length = music_length_seconds(playback);
+        loop {
+            let current = self.current_music().await;
+            if current.is_none_or(|current| current.playback_id != playback.playback_id) {
+                return false;
+            }
+            let now = crate::clock::now_ms();
+            if music_overdue(started_at_ms, length, now, self.outputs_paused()) {
+                return self
+                    .stop_music_if_current(&playback.playback_id)
+                    .await
+                    .is_some();
+            }
+            let wait = music_end_deadline_ms(started_at_ms, length)
+                .saturating_sub(now)
+                .max(1_000);
+            tokio::time::sleep(std::time::Duration::from_millis(wait)).await;
+        }
     }
 
     pub async fn finish_music(&self, playback_id: &str) -> bool {

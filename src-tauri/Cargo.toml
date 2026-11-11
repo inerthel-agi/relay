@@ -1,6 +1,6 @@
 [package]
 name = "relay"
-version = "1.5.2"
+version = "1.5.3"
 description = "Local Discord media relay for OBS"
 authors = ["inerthel <contact@inerthel.com>"]
 edition = "2024"
@@ -42,3 +42,7 @@ windows-native-keyring-store = { version = "1.1.0", default-features = false }
 
 [dev-dependencies]
 tempfile = "3.24.0"
+
+[profile.release]
+# Ship no symbol table or debug info (and no PDB reference) in relay.exe.
+strip = true

@@ -60,6 +60,8 @@ pub struct RuntimeStatus {
     widget: WidgetState,
     notification_widget: NotificationWidgetState,
     pending_media: Vec<PendingMedia>,
+    /// Held texts, counted only: the tray reminder includes them.
+    pending_text_count: usize,
     queue: Vec<crate::stage_scheduler::QueueItem>,
     outputs_paused: bool,
 }
@@ -178,9 +180,14 @@ pub async fn get_runtime_status(
         widget: widget::state(&app, &core).await,
         notification_widget: notification_widget::state(&app, &core).await,
         pending_media: core.pending_media.read().await.iter().cloned().collect(),
+        pending_text_count: pending_text_count(&core).await,
         queue: queue_snapshot(&core).await,
         outputs_paused: core.outputs_paused(),
     })
+}
+
+async fn pending_text_count(core: &AppCore) -> usize {
+    core.pending_texts.read().await.len()
 }
 
 /// Returns a newly typed OBS password (and whether it was typed), otherwise the stored one.

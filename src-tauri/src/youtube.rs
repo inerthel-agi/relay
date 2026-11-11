@@ -175,6 +175,12 @@ pub async fn search(query: &str, api_key: &str) -> Result<Vec<YouTubeTrack>> {
     Ok(tracks)
 }
 
+/// The answer of a recent identical search, which `search` reuses without quota.
+pub fn cached_search(query: &str) -> Option<Vec<YouTubeTrack>> {
+    let query = normalize_query(query).ok()?;
+    cache().get(&SearchCache::key(&query), Instant::now())
+}
+
 fn cache() -> std::sync::MutexGuard<'static, SearchCache> {
     // A poisoned cache only holds search results: keep using it.
     SEARCH_CACHE

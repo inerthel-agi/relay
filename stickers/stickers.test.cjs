@@ -110,6 +110,14 @@ test("the skip shortcut ends the sticker on screen and releases the media stage"
   assert.equal(elements["#sticker"].alt, "second");
 });
 
+test("the sticker and its fallback share the centred cell and a hidden fallback takes no space", () => {
+  const css = fs.readFileSync(__dirname + "/stickers.css", "utf8");
+  // Both in grid cell 1/1: an image without a source no longer takes a row of its own.
+  assert.match(css, /(?:^|\})\s*\.sticker,\r?\n\.sticker-fallback\s*\{[^}]*grid-area:\s*1\s*\/\s*1;/);
+  // `display: block` would otherwise beat the browser's [hidden] rule.
+  assert.match(css, /(?:^|\})\s*\.sticker-fallback\[hidden\]\s*\{[^}]*display:\s*none;/);
+});
+
 test("sticker reconnect keeps pending work and probes a moved server", () => {
   const source = fs.readFileSync(__dirname + "/stickers.js", "utf8");
   assert.match(

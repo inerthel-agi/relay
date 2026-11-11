@@ -46,16 +46,8 @@ html.overlay-preview body {
   border-radius: 6px;
   color: #fff;
   background: #111;
-  font: 700 12px Arial, sans-serif;
+  font: 700 calc(12px * var(--font-scale)) Arial, sans-serif;
   pointer-events: none;
-}
-
-.widget-move-badge,
-.audio-card__label,
-.audio-card__title,
-.audio-card__artist,
-.overlay__caption {
-  font-size: calc(1em * var(--font-scale));
 }
 
 .audio-card__wave i {
@@ -86,8 +78,10 @@ html.widget-edit .widget-move-layer {
   height: auto;
   min-width: 0;
   min-height: 0;
-  max-width: 100%;
-  max-height: 100%;
+  /* The box is the fitted size divided by the content scale, then scaled
+     back: cap it in those units so a scale below 100% never shrinks media. */
+  max-width: calc(100% / var(--content-scale));
+  max-height: calc(100% / var(--content-scale));
   visibility: hidden;
   opacity: 0;
   object-fit: contain;
@@ -208,7 +202,7 @@ html.youtube-video-sized #youtube-player {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--out-font-title);
-  font-size: 0.95rem;
+  font-size: calc(0.95rem * var(--font-scale));
   font-stretch: var(--out-font-stretch);
   font-weight: 650;
   letter-spacing: 0.01em;
@@ -226,7 +220,7 @@ html.youtube-video-sized #youtube-player {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--out-muted);
-  font-size: 0.82rem;
+  font-size: calc(0.82rem * var(--font-scale));
   font-weight: 500;
 }
 
@@ -253,7 +247,7 @@ html.youtube-video-sized #youtube-player {
 .youtube-credit--widget .youtube-credit__label {
   display: block;
   color: var(--out-muted);
-  font-size: 9px;
+  font-size: calc(9px * var(--font-scale));
   font-weight: 750;
   letter-spacing: 0.16em;
   line-height: 1;
@@ -261,7 +255,7 @@ html.youtube-video-sized #youtube-player {
 }
 
 .youtube-credit--widget .youtube-credit__title {
-  font-size: 14px;
+  font-size: calc(14px * var(--font-scale));
   font-weight: 700;
   letter-spacing: -0.01em;
 }
@@ -270,7 +264,7 @@ html.youtube-video-sized #youtube-player {
   display: block;
   overflow: hidden;
   color: var(--out-muted);
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   font-weight: 550;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -278,7 +272,7 @@ html.youtube-video-sized #youtube-player {
 
 .youtube-credit--widget .youtube-credit__meta {
   color: var(--out-muted);
-  font-size: 10px;
+  font-size: calc(10px * var(--font-scale));
   white-space: nowrap;
 }
 
@@ -373,7 +367,7 @@ html.youtube-video-sized #youtube-player {
   box-shadow: var(--out-shadow);
   opacity: 0;
   font-family: var(--out-font-title);
-  font-size: 14px;
+  font-size: calc(14px * var(--font-scale));
   font-stretch: var(--out-font-stretch);
   font-weight: 600;
   letter-spacing: var(--out-name-spacing);
@@ -408,7 +402,8 @@ html.youtube-video-sized #youtube-player {
   display: -webkit-box;
   width: fit-content;
   max-width: min(62ch, calc(100% - 18rem));
-  max-height: 76px;
+  /* Three lines at any text size, plus padding and border. */
+  max-height: calc(4.2em + 20px);
   margin: 0;
   overflow: hidden;
   padding: 8px 10px;
@@ -422,7 +417,7 @@ html.youtube-video-sized #youtube-player {
   box-shadow: var(--out-shadow);
   opacity: 0;
   font-family: var(--out-font);
-  font-size: 14px;
+  font-size: calc(14px * var(--font-scale));
   font-weight: 500;
   line-height: 1.4;
   overflow-wrap: anywhere;

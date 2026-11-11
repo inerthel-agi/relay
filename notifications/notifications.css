@@ -10,10 +10,6 @@
   font-family: var(--out-font, Bahnschrift, "Segoe UI Variable Display", sans-serif);
 }
 
-.notification-move-badge {
-  font-size: calc(1em * var(--font-scale));
-}
-
 html,
 body {
   width: 100%;
@@ -258,7 +254,7 @@ body {
   border-radius: 6px;
   color: #fff;
   background: #0a0c10;
-  font-size: 10px;
+  font-size: calc(10px * var(--font-scale));
   font-weight: 700;
   pointer-events: none;
 }
@@ -278,8 +274,9 @@ html.notification-widget .notification-card {
   height: auto;
   max-height: 100%;
   min-height: 0;
+  /* --notification-fit: set by notifications.js when the content would overflow. */
   --notification-scale: calc(
-    var(--content-scale) * clamp(
+    var(--content-scale) * var(--notification-fit, 1) * clamp(
       0.85,
       min((100vh - 8px) / 94px, (100vw - 8px) / 390px),
       1.15
@@ -313,13 +310,13 @@ html.widget-edit .notification-move-layer {
 .notification-card.is-sticker-only {
   grid-template-columns: calc(32px * var(--notification-scale)) minmax(0, 1fr) auto;
   width: fit-content;
-  max-width: min(360px, calc(100vw - 32px));
+  max-width: min(calc(360px * var(--notification-scale)), calc(100vw - 32px));
 }
 .notification-card.is-sticker-only .notification-card__copy { display: contents; }
 .notification-card.is-sticker-only .notification-card__message { margin: 0; }
 .notification-card.is-sticker-only .notification-card__identity { min-width: 72px; }
 .notification-card.is-sticker-only .notification-card__sticker { margin: 0; }
-html.notification-widget .notification-card.is-sticker-only { width: fit-content; max-width: min(360px, 100%); }
+html.notification-widget .notification-card.is-sticker-only { width: fit-content; max-width: min(calc(360px * var(--notification-scale)), 100%); }
 html.notification-widget .notification-card__sticker {
   width: min(calc(56px * var(--notification-scale)), max(32px, calc(100vh - 24px)));
   height: min(calc(56px * var(--notification-scale)), max(32px, calc(100vh - 24px)));

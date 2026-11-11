@@ -39,7 +39,7 @@ use std::{
     path::PathBuf,
     process::Command,
     sync::{Arc, OnceLock, atomic::Ordering},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use tauri::{
@@ -459,6 +459,11 @@ fn build_tray_panel(app: &mut tauri::App) -> tauri::Result<()> {
     let window_to_hide = window.clone();
     window.on_window_event(move |event| match event {
         tauri::WindowEvent::Focused(false) => {
+            if window_to_hide.is_visible().unwrap_or(false)
+                && let Ok(mut hidden_at) = TRAY_PANEL_FOCUS_HIDDEN_AT.lock()
+            {
+                *hidden_at = Some(Instant::now());
+            }
             let _ = window_to_hide.hide();
         }
         tauri::WindowEvent::CloseRequested { api, .. } => {
@@ -470,12 +475,30 @@ fn build_tray_panel(app: &mut tauri::App) -> tauri::Result<()> {
     Ok(())
 }
 
+/// When the open panel lost focus and hid itself. Pressing the tray icon gives
+/// the focus to the taskbar before the click (button up) reaches Relay: that
+/// click was meant to close the panel, not to open it again.
+static TRAY_PANEL_FOCUS_HIDDEN_AT: std::sync::Mutex<Option<Instant>> = std::sync::Mutex::new(None);
+const TRAY_CLICK_AFTER_HIDE: Duration = Duration::from_millis(500);
+
+fn tray_click_reopens(focus_hidden_at: Option<Instant>, now: Instant) -> bool {
+    focus_hidden_at
+        .is_none_or(|hidden| now.saturating_duration_since(hidden) >= TRAY_CLICK_AFTER_HIDE)
+}
+
 fn toggle_tray_panel(app: &AppHandle, click: PhysicalPosition<f64>) {
     let Some(window) = app.get_webview_window(TRAY_PANEL_LABEL) else {
         return;
     };
     if window.is_visible().unwrap_or(false) {
         let _ = window.hide();
+        return;
+    }
+    let hidden_at = TRAY_PANEL_FOCUS_HIDDEN_AT
+        .lock()
+        .ok()
+        .and_then(|mut hidden_at| hidden_at.take());
+    if !tray_click_reopens(hidden_at, Instant::now()) {
         return;
     }
     if let Ok(position) = tray_panel_position(app, click) {
@@ -690,6 +713,23 @@ mod tray_page_tests {
         assert_eq!(tray_panel_page("live"), Some("live"));
         assert_eq!(tray_panel_page("about"), None);
         assert_eq!(tray_panel_page("../moderation"), None);
+    }
+
+    /// The click that took the focus from the open panel closes it for good.
+    #[test]
+    fn a_tray_click_right_after_a_focus_hide_does_not_reopen() {
+        use super::{TRAY_CLICK_AFTER_HIDE, tray_click_reopens};
+        use std::time::{Duration, Instant};
+        let hidden = Instant::now();
+        assert!(tray_click_reopens(None, hidden));
+        assert!(!tray_click_reopens(
+            Some(hidden),
+            hidden + Duration::from_millis(120)
+        ));
+        assert!(tray_click_reopens(
+            Some(hidden),
+            hidden + TRAY_CLICK_AFTER_HIDE
+        ));
     }
 }
 

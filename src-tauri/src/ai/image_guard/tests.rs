@@ -43,10 +43,10 @@ fn the_relay_scope_follows_the_type_of_image() {
 fn only_categories_turned_on_block() {
     let mut settings = settings();
     assert_eq!(
-        free_hit(&settings, &["violence"]),
-        Some(ImageGuardCategory::Violence)
+        free_hit(&settings, &[("violence", true)]),
+        Some(Outcome::Block("ai_image_blocked_violence"))
     );
-    assert_eq!(free_hit(&settings, &["harassment"]), None);
+    assert_eq!(free_hit(&settings, &[("harassment", true)]), None);
     assert_eq!(
         paid_hit(&settings, &[AiCategory::Hate]),
         Some(ImageGuardCategory::Hate)
@@ -61,7 +61,10 @@ fn only_categories_turned_on_block() {
     );
     settings.image_guard_categories = vec![ImageGuardCategory::Spam];
     assert_eq!(
-        free_hit(&settings, &["sexual", "violence", "self_harm"]),
+        free_hit(
+            &settings,
+            &[("sexual", true), ("violence", true), ("self_harm", false)]
+        ),
         None
     );
     assert_eq!(paid_hit(&settings, &[AiCategory::Hate]), None);
@@ -72,7 +75,7 @@ fn only_categories_turned_on_block() {
 }
 
 #[test]
-fn a_clear_problem_or_a_doubt_blocks_with_its_category_a_failure_holds() {
+fn a_clear_problem_blocks_with_its_category_a_doubt_or_a_failure_holds() {
     let settings = settings();
     let hate = vec![AiCategory::Hate];
     assert_eq!(
@@ -91,7 +94,7 @@ fn a_clear_problem_or_a_doubt_blocks_with_its_category_a_failure_holds() {
             false,
             &done(AiVerdict::Ambiguous, hate.clone())
         ),
-        Some(Outcome::Block("ai_image_blocked_hate"))
+        Some(Outcome::Hold(HOLD_DOUBT))
     );
     assert_eq!(
         from_advice(
@@ -181,6 +184,7 @@ async fn nothing_is_checked_when_off_and_a_missing_image_is_held() {
         proxy_url: "https://relay.invalid/image.png",
         bytes: None,
         report: &report,
+        member: "1000000000000000001",
     };
     let off = AppConfig::default();
     assert_eq!(
@@ -254,11 +258,24 @@ fn personal_data_the_model_lists_holds_even_with_no_issue_seen() {
             true,
             true,
             &done(
-                AiVerdict::Ambiguous,
+                AiVerdict::ClearProblem,
                 vec![AiCategory::PersonalData, AiCategory::Hate]
             )
         ),
         Some(Outcome::Block("ai_image_blocked_hate"))
+    );
+    // A doubt still holds it, and never deletes it.
+    assert_eq!(
+        from_advice(
+            &settings,
+            true,
+            true,
+            &done(
+                AiVerdict::Ambiguous,
+                vec![AiCategory::PersonalData, AiCategory::Hate]
+            )
+        ),
+        Some(Outcome::Hold(HOLD_DOUBT))
     );
 }
 
@@ -282,6 +299,125 @@ fn the_strongest_result_over_the_frames_wins() {
     let mut held = None;
     assert_eq!(fold_frame(&mut held, None), None);
     assert_eq!(held, None);
+    // A doubt on one frame holds; a harmful later frame still blocks.
+    let doubt = Some(Outcome::Hold(HOLD_DOUBT));
+    let mut held = None;
+    assert_eq!(fold_frame(&mut held, doubt), None);
+    assert_eq!(fold_frame(&mut held, None), None);
+    assert_eq!(held, doubt);
+    assert_eq!(fold_frame(&mut held, hate), hate);
+}
+
+#[test]
+fn a_free_filter_doubt_holds_unless_the_paid_model_blocks() {
+    let settings = settings();
+    // Flagged below the block score: held, not blocked.
+    assert_eq!(
+        free_hit(&settings, &[("sexual", false)]),
+        Some(Outcome::Hold(HOLD_DOUBT))
+    );
+    // A sure group wins over a doubtful one, whatever their order.
+    assert_eq!(
+        free_hit(&settings, &[("sexual", false), ("violence", true)]),
+        Some(Outcome::Block("ai_image_blocked_violence"))
+    );
+    let doubt = Some(Outcome::Hold(HOLD_DOUBT));
+    let hate = Some(Outcome::Block("ai_image_blocked_hate"));
+    assert_eq!(strongest(doubt, hate, false), hate);
+    assert_eq!(strongest(doubt, None, false), doubt);
+    assert_eq!(
+        strongest(doubt, Some(Outcome::Hold(HOLD_UNCHECKED)), false),
+        doubt
+    );
+    assert_eq!(strongest(None, None, false), None);
+    assert_eq!(
+        strongest(None, Some(Outcome::Hold(HOLD_PERSONAL_DATA)), false),
+        Some(Outcome::Hold(HOLD_PERSONAL_DATA))
+    );
+}
+
+#[test]
+fn the_paid_model_settles_a_free_filter_doubt_only_when_it_saw_nothing_harmful() {
+    let mut settings = settings();
+    let doubt = Some(Outcome::Hold(HOLD_DOUBT));
+    // Seen by the paid model, nothing harmful: the image passes.
+    let clear = done(AiVerdict::NoIssueSeen, Vec::new());
+    assert!(settles_doubt(&settings, &clear));
+    assert_eq!(
+        strongest(doubt, from_advice(&settings, true, true, &clear), true),
+        None
+    );
+    // Personal data the model listed still holds it.
+    let personal = done(AiVerdict::NoIssueSeen, vec![AiCategory::PersonalData]);
+    assert!(settles_doubt(&settings, &personal));
+    assert_eq!(
+        strongest(doubt, from_advice(&settings, true, true, &personal), true),
+        Some(Outcome::Hold(HOLD_PERSONAL_DATA))
+    );
+    // A harmful category turned on, even with no issue seen, keeps the doubt.
+    for category in [
+        AiCategory::Sexual,
+        AiCategory::Violence,
+        AiCategory::SelfHarm,
+        AiCategory::Threat,
+    ] {
+        for verdict in [AiVerdict::NoIssueSeen, AiVerdict::Ambiguous] {
+            assert!(!settles_doubt(&settings, &done(verdict, vec![category])));
+        }
+    }
+    // An unsure answer that names nothing, or only "other", settles nothing.
+    assert!(!settles_doubt(
+        &settings,
+        &done(AiVerdict::Ambiguous, Vec::new())
+    ));
+    assert!(!settles_doubt(
+        &settings,
+        &done(AiVerdict::ClearProblem, vec![AiCategory::Other])
+    ));
+    // The paid model did not answer: the doubt holds.
+    for failure in [
+        AiAdvice::Failed {
+            cause: AiError::Timeout,
+        },
+        AiAdvice::NotSent {
+            cause: NotSentCause::Unverified,
+        },
+    ] {
+        assert!(!settles_doubt(&settings, &failure));
+        assert_eq!(
+            strongest(doubt, from_advice(&settings, true, true, &failure), false),
+            doubt
+        );
+    }
+    // Only a category the user turned off: nothing harmful among those on.
+    let spam = done(AiVerdict::Ambiguous, vec![AiCategory::Spam]);
+    assert!(!settles_doubt(&settings, &spam));
+    settings
+        .image_guard_categories
+        .retain(|category| category.free());
+    assert!(settles_doubt(&settings, &spam));
+    // Graphic violence is a category of its own for the paid model.
+    assert_eq!(
+        paid_hit(&settings, &[AiCategory::Violence]),
+        Some(ImageGuardCategory::Violence)
+    );
+}
+
+#[test]
+fn without_an_openai_key_the_paid_model_checks_the_free_categories() {
+    let mut settings = settings();
+    // Every category on: the free filter runs only with its key.
+    assert_eq!(requests(&settings, true, false, true), (true, true));
+    assert_eq!(requests(&settings, true, false, false), (false, true));
+    // Free categories alone: the paid request replaces the missing filter.
+    settings.image_guard_categories = vec![ImageGuardCategory::Sexual];
+    assert_eq!(requests(&settings, true, false, true), (true, false));
+    assert_eq!(requests(&settings, true, false, false), (false, true));
+    // Paid categories alone, or the relay alone: no free filter at all.
+    settings.image_guard_categories = vec![ImageGuardCategory::Hate];
+    assert_eq!(requests(&settings, true, false, false), (false, true));
+    assert_eq!(requests(&settings, false, true, true), (false, true));
+    assert_eq!(requests(&settings, false, false, true), (false, false));
 }
 
 #[test]

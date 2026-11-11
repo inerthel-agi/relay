@@ -104,13 +104,19 @@ function applyOutputGeometry() {
     ? config.notificationWidgetGeometry
     : config.notificationObsGeometry;
   const crop = (value) => Math.min(40, Math.max(0, Number(value) || 0));
-  const scale = Math.min(400, Math.max(50, Number(geometry?.contentScale) || 100));
   const rootStyle = document.documentElement.style;
   rootStyle.setProperty("--crop-top", `${crop(geometry?.cropTop)}%`);
   rootStyle.setProperty("--crop-right", `${crop(geometry?.cropRight)}%`);
   rootStyle.setProperty("--crop-bottom", `${crop(geometry?.cropBottom)}%`);
   rootStyle.setProperty("--crop-left", `${crop(geometry?.cropLeft)}%`);
-  rootStyle.setProperty("--content-scale", String(scale / 100));
+  rootStyle.setProperty("--content-scale", String(contentScale()));
+}
+
+function contentScale() {
+  const geometry = target === "widget"
+    ? config.notificationWidgetGeometry
+    : config.notificationObsGeometry;
+  return Math.min(400, Math.max(50, Number(geometry?.contentScale) || 100)) / 100;
 }
 
 function setGuildTag(guildTag) {
@@ -153,6 +159,9 @@ function setCardIdentity(notification) {
   avatarElement.src = config.showAuthor
     ? notification.author?.displayAvatarUrl || fallbackAvatar
     : fallbackAvatar;
+  // Config (geometry, author) and appearance (text size, style) changes both
+  // re-render the identity of the card on screen.
+  fitWidgetCard();
 }
 
 function setCardContent(notification) {
@@ -185,6 +194,23 @@ function showCard() {
 
   cardElement.classList.add("is-visible");
   cardElement.setAttribute("aria-hidden", "false");
+  fitWidgetCard();
+}
+
+/** Shrinks the widget card's content until the window holds it: with a short
+ * window or a large content scale, the name and the message spilled over the
+ * card's edges. Runs again when a setting changes the card on screen. */
+function fitWidgetCard() {
+  if (target !== "widget" || !cardElement.classList.contains("is-visible")) return;
+  // Down to half the normal size (content scale 100%): at 400% a 90 px
+  // window needs the content below half of its scaled size.
+  const floor = 0.5 / Math.max(1, contentScale());
+  let fit = 1;
+  cardElement.style.setProperty("--notification-fit", "1");
+  while (fit > floor && cardElement.scrollHeight > cardElement.clientHeight + 1) {
+    fit = Math.max(floor, Math.round((fit - 0.05) * 100) / 100);
+    cardElement.style.setProperty("--notification-fit", String(fit));
+  }
 }
 
 function normalizeInterfaceLanguage(value) {
@@ -595,6 +621,7 @@ if (target === "widget") {
 
 // Widget windows are not web pages: no browser menu on right click.
 window.addEventListener("contextmenu", (event) => event.preventDefault());
+window.addEventListener("resize", fitWidgetCard);
 window.addEventListener("beforeunload", () => {
   isUnloading = true;
   window.clearTimeout(reconnectTimer);

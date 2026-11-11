@@ -42,7 +42,9 @@ function createHarness(target = "obs", language = "en", preview = false, autoGra
     "#notification": {
       classList: classList(),
       attributes: new Map(),
-      style: {},
+      style: { setProperty(name, value) { this[name] = value; } },
+      clientHeight: 60,
+      scrollHeight: 60,
       setAttribute(name, value) { this.attributes.set(name, value); },
       getBoundingClientRect: () => ({ top: 16, height: 60, left: 1500, right: 1880 }),
     },
@@ -952,6 +954,62 @@ test("the OBS text card keeps clear of media while it shows", () => {
   // Widget windows are moved apart by Relay, not by the page.
   const widget = createHarness("widget", "en", false, true, { mediaRects: () => media });
   assert.equal(widget.intervals.length, 0);
+});
+
+test("the widget card shrinks its content until the window holds it", () => {
+  const widget = createHarness("widget", "en", false, true);
+  const card = widget.elements["#notification"];
+  // Content 80 px tall at full size in a 60 px card: the name spilled over the edge.
+  Object.defineProperty(card, "scrollHeight", {
+    get() { return 80 * Number(card.style["--notification-fit"] ?? 1); },
+  });
+  widget.socket.emit("message", JSON.stringify({ type: "notification", payload: notification("long") }));
+  assert.equal(widget.shownId(), "long");
+  assert.equal(card.style["--notification-fit"], "0.75");
+  // It fits again after the window grew.
+  card.clientHeight = 100;
+  widget.emitWindow("resize");
+  assert.equal(card.style["--notification-fit"], "1");
+
+  // OBS cards grow with their text and are never shrunk.
+  const obs = createHarness("obs", "en", false, true);
+  obs.socket.emit("message", JSON.stringify({ type: "config", payload: { notificationsObsEnabled: true } }));
+  obs.socket.emit("message", JSON.stringify({ type: "notification", payload: notification("obs") }));
+  assert.equal(obs.shownId(), "obs");
+  assert.equal(obs.elements["#notification"].style["--notification-fit"], undefined);
+});
+
+test("a widget card on screen fits again when a setting changes it", () => {
+  const widget = createHarness("widget", "en", false, true);
+  const card = widget.elements["#notification"];
+  let contentHeight = 60;
+  Object.defineProperty(card, "scrollHeight", {
+    get() { return contentHeight * Number(card.style["--notification-fit"] ?? 1); },
+  });
+  const send = (type, payload) => widget.socket.emit("message", JSON.stringify({ type, payload }));
+  send("notification", notification("pinned"));
+  assert.equal(card.style["--notification-fit"], "1");
+  // Larger content scale: the card on screen shrinks its content at once.
+  contentHeight = 80;
+  send("config", { notificationWidgetGeometry: { contentScale: 150 } });
+  assert.equal(card.style["--notification-fit"], "0.75");
+  // Smaller text size: it grows back.
+  contentHeight = 60;
+  send("appearance", { language: "en", fontScale: 80 });
+  assert.equal(card.style["--notification-fit"], "1");
+  // At 400% in the smallest window it may go below half its scaled size.
+  contentHeight = 400;
+  send("config", { notificationWidgetGeometry: { contentScale: 400 } });
+  assert.equal(card.style["--notification-fit"], "0.15");
+});
+
+test("a sticker-only text card grows with the content scale", () => {
+  const css = fs.readFileSync(__dirname + "/notifications.css", "utf8");
+  assert.match(css, /(?:^|\})\s*\.notification-card\.is-sticker-only\s*\{[^}]*max-width:\s*min\(calc\(360px \* var\(--notification-scale\)\)/);
+  assert.match(css, /html\.notification-widget \.notification-card\.is-sticker-only\s*\{[^}]*max-width:\s*min\(calc\(360px \* var\(--notification-scale\)\), 100%\)/);
+  // The move label follows the text size (a later fixed size used to win).
+  const badge = [...css.matchAll(/(?:^|\})\s*\.notification-move-badge\s*\{([^}]*)\}/g)].at(-1)[1];
+  assert.match(badge, /font-size:\s*calc\(10px \* var\(--font-scale\)\)/);
 });
 
 test("notifications wait for the server stage grant before becoming visible", () => {

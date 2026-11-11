@@ -131,6 +131,37 @@ struct RelayServerState {
     stage_clock_tx: tokio::sync::watch::Sender<StageClockState>,
     stage_clock_counts: Arc<Mutex<StageClockCounts>>,
     music_clock: Arc<Mutex<MusicClockState>>,
+    music_players: Arc<Mutex<MusicPlayers>>,
+}
+
+/// Pages that load the YouTube player, and how many of them could not play
+/// the current track (a failed embed in OBS while the widget plays it).
+#[derive(Default)]
+struct MusicPlayers {
+    connected: usize,
+    failed: Option<(String, usize)>,
+}
+
+impl MusicPlayers {
+    /// One more page could not play the track: true once no page can.
+    fn fail(&mut self, playback_id: &str) -> bool {
+        match &mut self.failed {
+            Some((id, count)) if id == playback_id => *count += 1,
+            failed => *failed = Some((playback_id.to_owned(), 1)),
+        }
+        self.failed
+            .as_ref()
+            .is_some_and(|(_, count)| *count >= self.connected)
+    }
+
+    fn leave(&mut self, failed_playback: Option<&str>) {
+        self.connected = self.connected.saturating_sub(1);
+        if let (Some(left), Some((id, count))) = (failed_playback, &mut self.failed)
+            && left == id
+        {
+            *count = count.saturating_sub(1);
+        }
+    }
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
@@ -286,6 +317,7 @@ pub async fn start_server(core: Arc<AppCore>) -> Result<()> {
         stage_clock_tx,
         stage_clock_counts: Arc::new(Mutex::new(StageClockCounts::default())),
         music_clock: Arc::new(Mutex::new(MusicClockState::default())),
+        music_players: Arc::new(Mutex::new(MusicPlayers::default())),
     };
     // Keep musicBusy on the stage clock in sync with the server jukebox so
     // lagged overlay/notification sockets cannot strand musicActive=true.
@@ -295,7 +327,8 @@ pub async fn start_server(core: Arc<AppCore>) -> Result<()> {
         loop {
             match music_events.recv().await {
                 Ok(RelayEvent::MusicPlay(playback)) => {
-                    mark_music_clock(&music_clock_state, &playback.playback_id);
+                    let started_at_ms = mark_music_clock(&music_clock_state, &playback.playback_id);
+                    watch_music_end(&music_clock_state, playback, started_at_ms);
                     set_stage_music_busy(&music_clock_state, true);
                     sync_stage_scheduler(&music_clock_state).await;
                 }
@@ -308,8 +341,15 @@ pub async fn start_server(core: Arc<AppCore>) -> Result<()> {
                 }
                 Ok(_) => {}
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                    let busy = music_clock_state.core.current_music().await.is_some();
-                    set_stage_music_busy(&music_clock_state, busy);
+                    let current = music_clock_state.core.current_music().await;
+                    // A missed MusicPlay still gets its watch once it is on the clock.
+                    if let Some(playback) = current.clone()
+                        && let Some(started_at_ms) =
+                            current_music_clock(&music_clock_state, &playback.playback_id)
+                    {
+                        watch_music_end(&music_clock_state, playback, started_at_ms);
+                    }
+                    set_stage_music_busy(&music_clock_state, current.is_some());
                     sync_stage_scheduler(&music_clock_state).await;
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
@@ -460,13 +500,15 @@ async fn websocket(
         "panel" => None,
         _ => return StatusCode::BAD_REQUEST.into_response(),
     };
-    upgrade.on_upgrade(move |socket| handle_socket(socket, state, output))
+    let plays_music = output_plays_music(role, query.source.as_deref(), output);
+    upgrade.on_upgrade(move |socket| handle_socket(socket, state, output, plays_music))
 }
 
 async fn handle_socket(
     socket: WebSocket,
     state: RelayServerState,
     output: Option<OutputConnection>,
+    plays_music: bool,
 ) {
     let is_output = output.is_some();
     let tracked_clock_source = match output {
@@ -591,6 +633,11 @@ async fn handle_socket(
     } else {
         None
     };
+    // The track this page could not play, counted once.
+    let mut failed_music: Option<String> = None;
+    if plays_music {
+        music_players(&state).connected += 1;
+    }
     loop {
         tokio::select! {
             _ = shutdown_rx.recv() => {
@@ -667,8 +714,15 @@ async fn handle_socket(
                             OutputClientMessage::MusicEnded(event) if receives_music => {
                                 if event.completed {
                                     let _ = state.core.finish_music(&event.playback_id).await;
-                                } else {
-                                    let _ = state.core.stop_music_if_current(&event.playback_id).await;
+                                } else if plays_music
+                                    && failed_music.as_deref() != Some(event.playback_id.as_str())
+                                {
+                                    // This page could not play it: end it only when no page can.
+                                    failed_music = Some(event.playback_id.clone());
+                                    let none_can_play = music_players(&state).fail(&event.playback_id);
+                                    if none_can_play {
+                                        let _ = state.core.stop_music_if_current(&event.playback_id).await;
+                                    }
                                 }
                             }
                             OutputClientMessage::NotificationState(report)
@@ -766,6 +820,9 @@ async fn handle_socket(
     if let Some(source) = tracked_clock_source {
         release_output_lease(&state, source, &mut reported_busy);
     }
+    if plays_music {
+        music_players(&state).leave(failed_music.as_deref());
+    }
     if let Some(lane) = reported_stage_lane {
         apply_stage_clock_report(&state, lane, false, &mut reported_stage_lane);
         sync_stage_scheduler(&state).await;
@@ -830,6 +887,21 @@ fn output_receives_music(output: Option<OutputConnection>) -> bool {
             client: OutputClient::Obs | OutputClient::Widget,
         })
     )
+}
+
+/// Pages that load the YouTube player: OBS `/youtube`, the combined `/overlay`
+/// and the Windows widget (`/audios` connects as `audio` and never plays it).
+fn output_plays_music(role: &str, source: Option<&str>, output: Option<OutputConnection>) -> bool {
+    role == "overlay"
+        && matches!(source, None | Some("all" | "youtube"))
+        && output_receives_music(output)
+}
+
+fn music_players(state: &RelayServerState) -> std::sync::MutexGuard<'_, MusicPlayers> {
+    state
+        .music_players
+        .lock()
+        .expect("music players mutex poisoned")
 }
 
 fn output_is_notification(output: Option<OutputConnection>) -> bool {
@@ -1053,6 +1125,14 @@ fn current_music_anchor(clock: &MusicClockState, playback_id: &str) -> Option<u6
         .iter()
         .find(|(known_id, _)| known_id == playback_id)
         .map(|(_, started_at_ms)| *started_at_ms)
+}
+
+/// Ends a track no output reported as ended (see `AppCore::end_unreported_music`).
+fn watch_music_end(state: &RelayServerState, playback: MusicPlaybackEvent, started_at_ms: u64) {
+    let core = state.core.clone();
+    tokio::spawn(async move {
+        core.end_unreported_music(&playback, started_at_ms).await;
+    });
 }
 
 fn set_stage_music_busy(state: &RelayServerState, busy: bool) {

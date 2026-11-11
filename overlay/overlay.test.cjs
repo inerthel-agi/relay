@@ -450,6 +450,35 @@ test("the maximum media size shrinks the media and keeps the current layout on t
   assert.ok(Math.abs(anchored.displayedWidth - 1280 * ratio) < 0.001);
 });
 
+test("the content scale never changes the size of the media, only of its card", () => {
+  const css = require("./test-source.cjs").styles();
+  const media = css.match(/(?:^|\})\s*\.overlay__media\s*\{([^}]*)\}/)[1];
+  // The media box is its fitted size divided by the scale, then scaled back:
+  // a cap of 100% would shrink big media whenever the scale is below 100%.
+  assert.match(media, /max-width:\s*calc\(100% \/ var\(--content-scale\)\);/);
+  assert.match(media, /max-height:\s*calc\(100% \/ var\(--content-scale\)\);/);
+  const { context } = createHarness();
+  for (const scale of [0.5, 0.8, 1, 2, 4]) {
+    const layout = context.mediaLayout(1600, 900, 1920, 1080, scale, 0);
+    assert.ok(Math.abs(layout.width * scale - 1056 * 16 / 9) < 0.001, `scale ${scale}`);
+    assert.ok(layout.width <= 1920 / scale && layout.height <= 1080 / scale, `scale ${scale}`);
+  }
+});
+
+test("a larger text size keeps room for three caption lines under the media", () => {
+  const { context, elements } = createHarness();
+  elements["#author"].hidden = true;
+  elements["#media-text"].hidden = false;
+  const heightAt = (fontScale) => {
+    vm.runInContext(`applyAppearance({ fontScale: ${fontScale} })`, context);
+    vm.runInContext("fitVisualToViewport(imageElement, 1280, 720)", context);
+    return Number.parseFloat(elements["#image"].style.height);
+  };
+  // 360 px canvas, 12 px margins: 80 px of caption at 100%, 112 px at 140%.
+  assert.equal(heightAt(100), 360 - 24 - 80);
+  assert.equal(heightAt(140), 360 - 24 - 112);
+});
+
 test("audio attribution is inside the card and respects the author toggle", () => {
   const { context, elements } = createHarness();
   vm.runInContext('setAuthor({ kind: "audio", author: { username: "Listener" } })', context);
@@ -986,7 +1015,7 @@ test("Discord audio overlays ignore YouTube musicPlay events", async () => {
   assert.equal(audio.youtubePlayers.length, 0);
 });
 
-test("YouTube embed errors do not clear server-side playback via musicEnded", async () => {
+test("YouTube embed errors report a failed track, never a completed one", async () => {
   const audio = createHarness("?secret=private", "youtube");
   audio.socket.emit("message", JSON.stringify({
     type: "musicPlay",
@@ -999,12 +1028,12 @@ test("YouTube embed errors do not clear server-side playback via musicEnded", as
   await Promise.resolve();
   const player = audio.youtubePlayers[0];
   player.ready();
-  const beforeMusicEnded = audio.socket.sent.filter((message) => message.type === "musicEnded").length;
   player.emitError();
-  assert.equal(
-    audio.socket.sent.filter((message) => message.type === "musicEnded").length,
-    beforeMusicEnded,
-  );
+  // The server ends the track only if no other output (the Windows widget) plays it.
+  const ended = audio.socket.sent.filter((message) => message.type === "musicEnded");
+  assert.deepEqual(ended.map((message) => message.payload), [
+    { playbackId: "err-1", completed: false },
+  ]);
   assert.equal(vm.runInContext("youtubePlaybackId", audio.context), undefined);
   assert.ok(player.stopCalls >= 1);
 });
@@ -1128,7 +1157,7 @@ test("desktop media widget keeps video visible when WebView2 blocks audible auto
   assert.equal(video.classList.contains("is-visible"), true);
 });
 
-test("desktop media widget restores active media after its reconnect stageClock", () => {
+test("hiding the desktop media widget ends its media instead of replaying it later", () => {
   for (const [selector, media] of [
     ["#image", { kind: "image", url: "https://cdn.discordapp.com/photo.png" }],
     ["#video", { kind: "gif", contentType: "video/mp4", url: "https://cdn.discordapp.com/loop.mp4" }],
@@ -1137,20 +1166,40 @@ test("desktop media widget restores active media after its reconnect stageClock"
   ]) {
     const widget = createHarness("?secret=private&widget=1");
     widget.socket.emit("message", JSON.stringify({ type: "media", payload: media }));
+    assert.equal(widget.elements[selector].src, media.url);
+    assert.deepEqual(widget.socket.sent.filter((message) => message.type === "stageClock").at(-1).payload,
+      { lane: "media", busy: true });
     vm.runInContext("window.setWidgetVisible(false)", widget.context);
     assert.equal(widget.elements[selector].src, "");
+    assert.equal(vm.runInContext("currentMedia", widget.context), undefined);
+    // The media place is released before the page disconnects.
+    assert.deepEqual(widget.socket.sent.filter((message) => message.type === "stageClock").at(-1).payload,
+      { lane: "media", busy: false });
     assert.equal(widget.socket.readyState, 3);
     vm.runInContext("window.setWidgetVisible(true)", widget.context);
     assert.equal(widget.sockets.length, 2);
-    assert.equal(widget.elements[selector].src, "");
+    widget.sockets.at(-1).emit("open");
     widget.sockets.at(-1).emit("message", JSON.stringify({
       type: "stageClock",
       payload: { mediaBusy: false, musicBusy: false, notificationBusy: false },
     }));
-    assert.equal(widget.elements[selector].src, media.url);
-    widget.socket.emit("close");
-    assert.equal(widget.elements[selector].src, media.url);
+    // Nothing replays and the new connection never claims the stage.
+    assert.equal(widget.elements[selector].src, "");
+    assert.equal(widget.sockets.at(-1).sent.some((message) => message.type === "stageClock"), false);
   }
+
+  // Hidden while its connection was already closing: the next media still
+  // claims the stage on the new connection.
+  const widget = createHarness("?secret=private&widget=1");
+  widget.socket.emit("message", JSON.stringify({ type: "media", payload: { kind: "image", url: "https://cdn.discordapp.com/a.png" } }));
+  widget.socket.readyState = 2;
+  vm.runInContext("window.setWidgetVisible(false); window.setWidgetVisible(true)", widget.context);
+  const reconnected = widget.sockets.at(-1);
+  reconnected.emit("open");
+  reconnected.emit("message", JSON.stringify({ type: "stageClock", payload: { mediaBusy: false, musicBusy: false } }));
+  reconnected.emit("message", JSON.stringify({ type: "media", payload: { kind: "image", url: "https://cdn.discordapp.com/b.png" } }));
+  assert.deepEqual(reconnected.sent.find((message) => message.type === "stageClock")?.payload, { lane: "media", busy: true });
+  assert.equal(widget.elements["#image"].src, "https://cdn.discordapp.com/b.png");
 });
 
 test("native hide discards deferred YouTube before authoritative idle hydration", async () => {

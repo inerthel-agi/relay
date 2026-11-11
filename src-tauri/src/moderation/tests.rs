@@ -546,10 +546,14 @@ fn cooldown_notices_are_rate_limited_per_member_and_in_all() {
 fn the_cooldown_notice_says_the_delay_in_the_interface_language() {
     assert_eq!(
         messages::cooldown_notice("fr", 10),
-        "Doucement : un message toutes les 10 s au maximum. Les messages envoyés plus vite ne sont pas affichés sur le stream."
+        "Doucement : un texte et un média toutes les 10 s au maximum. Les messages envoyés plus vite ne sont pas affichés sur le stream."
     );
-    // Languages without a translation of the bot messages use English.
-    assert!(messages::cooldown_notice("pl", 3).starts_with("Slow down: one message every 3 s"));
+    // Languages without a translation of the bot messages use English. The
+    // delay is kept per output: a text and a media each pass once per delay.
+    assert!(
+        messages::cooldown_notice("pl", 3)
+            .starts_with("Slow down: one text and one media every 3 s")
+    );
     assert!(!messages::cooldown_notice("ja", 5).contains("{seconds}"));
     assert!(ModerationSettings::default().cooldown_notice);
 }

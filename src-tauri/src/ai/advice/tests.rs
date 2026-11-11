@@ -193,19 +193,70 @@ fn only_images_can_be_reviewed_so_videos_and_sounds_are_never_downloaded_for_the
 }
 
 #[tokio::test]
-async fn photos_that_reveal_a_location_or_their_camera_are_never_sent() {
+async fn photos_that_reveal_a_location_or_their_owner_are_never_sent() {
     // The privacy scan is off for the stream: the AI check still runs every rule.
     let config = AppConfig::default();
     assert!(!config.privacy_scan_enabled);
-    for photo in [
-        crate::privacy::tests::jpeg_with_gps_metadata(),
-        crate::privacy::tests::jpeg_with_model_metadata(),
-    ] {
+    // The model tag (0x0110) of the test photo, turned into its author (0x013B).
+    let mut artist = crate::privacy::tests::jpeg_with_model_metadata();
+    assert_eq!(artist[22..24], [0x10, 0x01]);
+    artist[22] = 0x3b;
+    assert!(crate::privacy::exif_identifies(&artist));
+    for photo in [crate::privacy::tests::jpeg_with_gps_metadata(), artist] {
         assert_eq!(
             image_payload(photo, &config).await.unwrap_err(),
             NotSentCause::Location
         );
     }
+    // A camera model alone is not a location (this one has no pixels to read).
+    let camera = crate::privacy::tests::jpeg_with_model_metadata();
+    assert!(!crate::privacy::exif_identifies(&camera));
+    assert_eq!(
+        image_payload(camera, &config).await.unwrap_err(),
+        NotSentCause::Unverified
+    );
+}
+
+#[test]
+fn camera_metadata_alone_does_not_keep_an_image_on_the_pc() {
+    use crate::privacy::PrivacyReport;
+    // A camera model or a date: sent.
+    assert_eq!(
+        kept_on_pc(&PrivacyReport::low("exif_metadata"), false),
+        Ok(())
+    );
+    // Its author, owner or serial number, or a GPS position: kept.
+    assert_eq!(
+        kept_on_pc(&PrivacyReport::low("exif_metadata"), true),
+        Err(NotSentCause::Location)
+    );
+    assert_eq!(
+        kept_on_pc(&PrivacyReport::sensitive("gps"), false),
+        Err(NotSentCause::Location)
+    );
+    // Text read in the image keeps it, even a low clue: an email scores low.
+    let mut email = PrivacyReport::low("exif_metadata");
+    email.merge(PrivacyReport::low("email"));
+    assert_eq!(kept_on_pc(&email, false), Err(NotSentCause::PersonalData));
+    assert_eq!(
+        kept_on_pc(&PrivacyReport::low("scan_incomplete"), false),
+        Err(NotSentCause::Unverified)
+    );
+}
+
+#[test]
+fn an_image_waits_longer_for_a_slot_than_a_text() {
+    let text = request("hello", "en");
+    assert_eq!(slot_wait(&text, ADVICE_DEADLINE), ADVICE_DEADLINE);
+    let image = image_request(
+        AiImage {
+            mime: "image/png",
+            data: Vec::new(),
+        },
+        "en",
+    );
+    assert_eq!(slot_wait(&image, ADVICE_DEADLINE), IMAGE_SLOT_WAIT);
+    assert!(IMAGE_SLOT_WAIT > ADVICE_DEADLINE);
 }
 
 #[tokio::test]

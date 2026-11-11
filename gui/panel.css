@@ -4955,6 +4955,12 @@ video.history-item__thumb:not([src]) {
   content: "• ";
 }
 
+/* Why a field's value is not saved, under the field. */
+.save-state.field-error {
+  max-width: none;
+  text-align: left;
+}
+
 .settings-actions {
   padding-top: 16px;
   border-top: 1px solid var(--line);

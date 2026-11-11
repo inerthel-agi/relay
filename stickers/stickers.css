@@ -18,6 +18,8 @@ body {
 .sticker,
 .sticker-fallback {
   display: block;
+  /* One cell for both: the unused one never pushes the other off centre. */
+  grid-area: 1 / 1;
   width: min(240px, calc(100vmin - 24px));
   height: min(240px, calc(100vmin - 24px));
   max-width: 100%;
@@ -37,6 +39,10 @@ body {
 .sticker-fallback {
   width: min(240px, calc(100vmin - 24px));
   aspect-ratio: 1;
+}
+
+.sticker-fallback[hidden] {
+  display: none;
 }
 
 .sticker-fallback img {

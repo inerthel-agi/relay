@@ -101,6 +101,41 @@ fn caps_count_requests_over_a_rolling_hour_and_day() {
     gate.acquire(provider, &limits, DAY_MS + 1, false).unwrap();
 }
 
+/// Audit finding 6: one member's messages cannot use up the hourly cap and
+/// leave the others' texts unchecked.
+#[test]
+fn one_member_uses_at_most_a_third_of_the_hourly_cap() {
+    let mut gate = AiGate::default();
+    let limits = settings(6, 100);
+    let provider = AiProvider::OpenAi;
+    let (a, b) = (Some("1000000000000000001"), Some("1000000000000000002"));
+    gate.acquire_for(provider, &limits, 0, false, a).unwrap();
+    gate.acquire_for(provider, &limits, 1, false, a).unwrap();
+    assert_eq!(
+        gate.acquire_for(provider, &limits, 2, false, a),
+        Err(AiError::HourlyLimit)
+    );
+    // Other members and requests asked from the panel still pass.
+    gate.acquire_for(provider, &limits, 3, false, b).unwrap();
+    for at in 4..7 {
+        gate.acquire(provider, &limits, at, false).unwrap();
+    }
+    // The cap of every request still applies.
+    assert_eq!(
+        gate.acquire_for(provider, &limits, 7, false, b),
+        Err(AiError::HourlyLimit)
+    );
+    // A refusal is not an outage, and old requests leave the member list.
+    assert_eq!(gate.failures, 0);
+    gate.acquire_for(provider, &limits, HOUR_MS + 3, false, a)
+        .unwrap();
+    assert_eq!(gate.member_calls.len(), 1);
+    // A tiny cap still lets each member send one request.
+    let mut gate = AiGate::default();
+    gate.acquire_for(provider, &settings(1, 100), 0, false, a)
+        .unwrap();
+}
+
 #[test]
 fn repeated_outages_pause_the_ai_for_five_minutes() {
     let mut gate = AiGate::default();

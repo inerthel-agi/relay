@@ -35,6 +35,64 @@ async fn byte_helper_keeps_original_when_synthetic_hevc_cannot_be_transcoded() {
     assert!(matches!(result, VideoCompatibility::HevcFallback));
 }
 
+/// Audit finding 9. FFmpeg 8.1 (this PC) already refuses an HLS playlist
+/// staged without extension and keeps `file,crypto,data` for nested
+/// resources, so a loopback listener is never contacted, whitelist or not:
+/// the test checks the option itself.
+#[test]
+fn member_media_is_read_from_local_files_only() {
+    let command = member_media_command(Path::new("input"));
+    let args: Vec<_> = command
+        .get_args()
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect();
+    let input = args.iter().position(|arg| arg == "-i").unwrap();
+    assert_eq!(args[input - 2..input], ["-protocol_whitelist", "file"]);
+    assert_eq!(args[input + 1], "input");
+    // Every FFmpeg run on member media opens its input through it.
+    assert_eq!(
+        include_str!("../media_compat.rs").matches("\"-i\"").count(),
+        1
+    );
+}
+
+/// Audit finding 13: a description larger than a pipe used to block FFmpeg
+/// until the 30-second deadline.
+#[tokio::test]
+async fn a_long_media_description_does_not_stall_the_frame_check() {
+    if crate::reaction_trim::ffmpeg_executable().is_none() {
+        return;
+    }
+    let directory = tempfile::tempdir().unwrap();
+    let metadata = directory.path().join("metadata.txt");
+    let mut tags = String::from(";FFMETADATA1\n");
+    for index in 0..1500 {
+        tags.push_str(&format!("key{index:04}={}\n", "0".repeat(100)));
+    }
+    fs::write(&metadata, tags).unwrap();
+    let video = directory.path().join("chatty.mkv");
+    let mut command = ffmpeg_command();
+    command
+        .args([
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc=duration=3:size=64x64:rate=10",
+            "-i",
+        ])
+        .arg(&metadata)
+        .args(["-map", "0", "-map_metadata", "1", "-c:v", "ffv1"])
+        .arg(&video)
+        .stderr(Stdio::null());
+    assert!(command.status().unwrap().success());
+    let started = Instant::now();
+    let frames = frames_from_bytes(fs::read(&video).unwrap()).await;
+    assert_eq!(frames.map(|frames| frames.len()), Some(CHECKED_FRAMES));
+    assert!(started.elapsed() < Duration::from_secs(15));
+}
+
 #[test]
 fn reads_the_duration_ffmpeg_prints() {
     let description =
@@ -111,29 +169,57 @@ async fn takes_three_frames_spread_over_a_video() {
     assert!(frames_from_bytes(b"not a video".to_vec()).await.is_none());
 }
 
-/// A partial sample cannot stand in for the three frames Relay promises to check.
+/// Sparse or uneven frames that the time spread misses are picked by their
+/// number, spread over the media, instead of holding it unchecked.
 #[tokio::test]
-async fn refuses_video_when_ffmpeg_returns_fewer_than_three_sample_frames() {
+async fn spreads_by_frame_number_when_the_time_sample_misses_frames() {
     if crate::reaction_trim::ffmpeg_executable().is_none() {
         return;
     }
     let directory = tempfile::tempdir().unwrap();
-    let video = directory.path().join("sparse.webm");
-    let mut command = ffmpeg_command();
-    command
-        .args([
-            "-loglevel",
-            "error",
-            "-f",
-            "lavfi",
-            "-i",
+    for (name, source, filter) in [
+        // Four frames over two seconds: the time spread finds two.
+        (
+            "sparse.webm",
             "testsrc=duration=2:size=320x240:rate=2",
-        ])
-        .arg(&video)
-        .stderr(Stdio::null());
-    assert!(command.status().unwrap().success());
+            None,
+        ),
+        // Three quick frames, then one that lasts three seconds.
+        (
+            "uneven.gif",
+            "testsrc=size=64x64:rate=10:duration=0.4",
+            Some(r"setpts='if(lt(N\,3)\,N*0.1\,3)/TB'"),
+        ),
+    ] {
+        let media = directory.path().join(name);
+        let mut command = ffmpeg_command();
+        command.args(["-loglevel", "error", "-f", "lavfi", "-i", source]);
+        if let Some(filter) = filter {
+            command.args(["-vf", filter, "-fps_mode", "vfr"]);
+        }
+        command.arg(&media).stderr(Stdio::null());
+        assert!(command.status().unwrap().success());
+        let frames = frames_from_bytes(fs::read(&media).unwrap())
+            .await
+            .unwrap_or_default();
+        assert_eq!(frames.len(), CHECKED_FRAMES, "{name}");
+        assert_ne!(frames[0], frames[2], "{name}");
+    }
+}
 
-    assert!(frames_from_bytes(fs::read(&video).unwrap()).await.is_none());
+/// A count FFmpeg could not give, or fewer frames than the sample, picks nothing.
+#[test]
+fn frame_numbers_come_from_the_last_progress_count() {
+    assert_eq!(
+        parse_frame_count("frame=2\nprogress=continue\nframe=12\nprogress=end\n"),
+        Some(12)
+    );
+    assert_eq!(parse_frame_count("progress=end\n"), None);
+    assert_eq!(parse_frame_count("frame=N/A\n"), None);
+    assert_eq!(spread_indexes(2), None);
+    assert_eq!(spread_indexes(3), Some([0, 1, 2]));
+    assert_eq!(spread_indexes(4), Some([0, 1, 2]));
+    assert_eq!(spread_indexes(30), Some([0, 10, 20]));
 }
 
 /// A still GIF or a two-frame animation is checked whole, not held.

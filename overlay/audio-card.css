@@ -60,7 +60,7 @@
   color: var(--out-muted);
   font-family: var(--out-font-title);
   font-stretch: var(--out-font-stretch);
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale));
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -69,7 +69,7 @@
 .audio-card__title {
   overflow: hidden;
   font-family: var(--out-font-title);
-  font-size: clamp(16px, 3vw, 22px);
+  font-size: calc(clamp(16px, 3vw, 22px) * var(--font-scale));
   font-stretch: var(--out-font-stretch);
   font-weight: 600;
   letter-spacing: -0.03em;
@@ -80,7 +80,7 @@
 .audio-card__artist {
   overflow: hidden;
   color: var(--out-muted);
-  font-size: 14px;
+  font-size: calc(14px * var(--font-scale));
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;

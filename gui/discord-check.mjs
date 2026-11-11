@@ -40,12 +40,15 @@ export function describeDiscordCheck(report, t, formatTranslation) {
     if (check.status === "ok") return { label, channel, state: "saved", text: t("checkOk") };
     if (check.status === "notConfigured") return { label, channel, state: "idle", text: t("checkNotConfigured") };
     if (check.status === "channelNotFound") return { label, channel, state: "error", text: t("checkNotFound") };
+    // Discord has not sent the server or the bot's member yet: not a missing permission.
+    if (check.status === "unverified") return { label, channel, state: "idle", text: t("checkUnverified") };
     const permissions = check.missing.map((name) => t(permissionLabels[name] || name)).join(", ");
     return { label, channel, state: "error", text: formatTranslation("checkMissing", { permissions }) };
   });
   const intentOk = report.messageContentIntent === "enabled";
   const needsInvite = rows.some((row) => row.state === "error");
-  const allGood = intentOk && !needsInvite;
+  const unverified = (report.checks || []).some((check) => check.status === "unverified");
+  const allGood = intentOk && !needsInvite && !unverified;
   return {
     state: allGood ? "saved" : "error",
     message: allGood ? t("checkAllGood") : t("checkProblems"),

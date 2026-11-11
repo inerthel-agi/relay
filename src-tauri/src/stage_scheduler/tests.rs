@@ -410,6 +410,21 @@ async fn pending_music_reorders_around_a_ready_current_ticket() {
     );
 }
 
+/// A queued track keeps its reservation until its promotion: it can still be
+/// moved after the reservation waited past the ready delay.
+#[tokio::test]
+async fn a_queued_track_can_still_be_moved_after_the_ready_delay() {
+    let (tx, _rx) = broadcast::channel(16);
+    let scheduler =
+        StageScheduler::with_timeouts(tx, Duration::from_millis(20), Duration::from_secs(5));
+    let first = scheduler.reserve(10, "1", 300, StageLane::Music).await;
+    let second = scheduler.reserve(11, "2", 300, StageLane::Music).await;
+    tokio::time::sleep(Duration::from_millis(80)).await;
+    assert!(scheduler.reorder_music(&[second, first]).await);
+    let third = scheduler.reserve(12, "3", 300, StageLane::Music).await;
+    assert!(scheduler.reorder_music(&[third, first, second]).await);
+}
+
 #[tokio::test]
 async fn scheduler_rejects_reordering_an_active_or_incomplete_music_set() {
     let (tx, mut rx) = broadcast::channel(16);

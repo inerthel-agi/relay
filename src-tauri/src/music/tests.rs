@@ -479,6 +479,37 @@ fn cooldown_wait_seconds_ceils_partial_seconds() {
     assert_eq!(cooldown_wait_seconds(Duration::from_secs(6)), 6);
 }
 
+/// Audit finding 11: one member cannot spend the whole YouTube quota.
+#[test]
+fn youtube_searches_are_capped_per_member_and_per_day() {
+    let mut state = MusicState::default();
+    let start = Instant::now();
+    let minute = |minutes: u64| start + Duration::from_secs(minutes * 60);
+    for _ in 0..MEMBER_SEARCHES_PER_HOUR {
+        state.admit_search(7, start, false).unwrap();
+    }
+    let Err(SearchRefusal::Member(wait)) = state.admit_search(7, minute(10), false) else {
+        panic!("the ninth search of the hour must be refused");
+    };
+    assert_eq!(wait, Duration::from_secs(50 * 60));
+    // A cached answer costs no quota and is not counted.
+    state.admit_search(7, minute(10), true).unwrap();
+    // Another member still searches, and the first one again after the hour.
+    state.admit_search(8, minute(10), false).unwrap();
+    state.admit_search(7, minute(60), false).unwrap();
+
+    let mut state = MusicState::default();
+    for member in 0..SEARCHES_PER_DAY as u64 {
+        state.admit_search(member, start, false).unwrap();
+    }
+    assert_eq!(
+        state.admit_search(1_000, minute(1), false),
+        Err(SearchRefusal::Daily)
+    );
+    state.admit_search(1_000, minute(1), true).unwrap();
+    state.admit_search(1_000, minute(24 * 60), false).unwrap();
+}
+
 #[test]
 fn search_cooldown_is_per_user_and_ignores_select_play() {
     let mut state = MusicState::default();
