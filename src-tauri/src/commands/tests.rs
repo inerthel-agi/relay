@@ -157,3 +157,52 @@ fn notification_sound_plays_relay_sounds_or_the_kept_custom_copy() {
     assert_eq!(kept, ["other.ogg"]);
     assert_eq!(std::fs::read(&stored).unwrap(), b"second");
 }
+
+#[tokio::test]
+async fn the_runtime_status_counts_held_texts_for_the_tray() {
+    let directory = tempfile::tempdir().unwrap();
+    let core = AppCore::load(directory.path().join("config.json")).unwrap();
+    core.pending_texts
+        .write()
+        .await
+        .push_back(crate::model::PendingText {
+            id: 1,
+            message_id: "1".into(),
+            text: "held".into(),
+            author: crate::model::AuthorIdentity {
+                username: "Member".into(),
+                display_avatar_url: String::new(),
+            },
+            guild_tag: None,
+            segments: vec![],
+            timestamp: 0,
+            reason: None,
+            author_id: None,
+            channel_id: None,
+            queued_at: 0,
+            ai_advice: None,
+            trusted: false,
+        });
+    let hidden = WidgetState {
+        visible: false,
+        locked: false,
+    };
+    let status = RuntimeStatus {
+        bot: BotStatus::default(),
+        server: ServerStatus::default(),
+        channels: vec![],
+        widget: hidden,
+        notification_widget: NotificationWidgetState {
+            visible: false,
+            locked: false,
+        },
+        pending_media: vec![],
+        pending_text_count: pending_text_count(&core).await,
+        queue: vec![],
+        outputs_paused: false,
+    };
+    let json = serde_json::to_value(status).unwrap();
+    // The count only: the text itself never reaches the tray.
+    assert_eq!(json["pendingTextCount"], 1);
+    assert!(!json.to_string().contains("held"));
+}

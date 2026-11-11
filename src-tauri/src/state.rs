@@ -39,7 +39,7 @@ use crate::{
     },
     music::{MusicSelection, MusicState},
     privacy::{self, PrivacyAction, PrivacyReport},
-    stage_scheduler::{StageLane, StageScheduler, StageTicket},
+    stage_scheduler::{Readiness, StageLane, StageScheduler, StageTicket},
 };
 
 pub const HISTORY_LIMIT: usize = 50;
@@ -247,29 +247,58 @@ impl AppCore {
             .await
     }
 
-    pub async fn complete_media(&self, ticket: StageTicket, event: MediaEvent) {
-        self.stage_scheduler
+    pub async fn complete_media(&self, ticket: StageTicket, event: MediaEvent) -> Readiness {
+        let message_id = event.message_id.clone();
+        let readiness = self
+            .stage_scheduler
             .ready(ticket, RelayEvent::Media(event))
             .await;
+        self.record_stage_drop(readiness, crate::moderation::Lane::Media, &message_id);
+        readiness
     }
 
     pub async fn complete_sticker(&self, ticket: StageTicket, event: StickerEvent) {
-        self.stage_scheduler
+        let message_id = event.message_id.clone();
+        let readiness = self
+            .stage_scheduler
             .ready(ticket, RelayEvent::Sticker(event))
             .await;
+        self.record_stage_drop(readiness, crate::moderation::Lane::Media, &message_id);
     }
 
     pub async fn complete_notification(&self, ticket: StageTicket, event: NotificationEvent) {
         self.remember_authoritative_notification(&event).await;
-        self.stage_scheduler
+        let message_id = event.id.clone();
+        let readiness = self
+            .stage_scheduler
             .ready(ticket, RelayEvent::Notification(event))
             .await;
+        self.record_stage_drop(
+            readiness,
+            crate::moderation::Lane::Notifications,
+            &message_id,
+        );
     }
 
     pub async fn complete_music(&self, ticket: StageTicket, event: MusicPlaybackEvent) {
-        self.stage_scheduler
+        let readiness = self
+            .stage_scheduler
             .ready(ticket, RelayEvent::MusicPlay(event))
             .await;
+        self.record_stage_drop(readiness, crate::moderation::Lane::Music, "");
+    }
+
+    /// An item the stage discarded (outputs paused, pinned text queue full)
+    /// leaves a line in the decision log.
+    fn record_stage_drop(&self, readiness: Readiness, lane: crate::moderation::Lane, id: &str) {
+        if let Readiness::Dropped(reason) = readiness {
+            self.record_moderation(
+                Some(lane),
+                crate::moderation::log::LogAction::Ignored,
+                reason,
+                self.moderation_verdict(id).map(|verdict| verdict.author_id),
+            );
+        }
     }
 
     pub async fn cancel_stage_output(&self, ticket: StageTicket) {
@@ -309,19 +338,27 @@ impl AppCore {
         tokio::task::spawn_blocking(move || store.save(&to_save)).await??;
         *self.config.write().await = config.clone();
         let mut pending = self.pending_media.write().await;
-        if config.moderation_enabled {
-            pending.retain(|item| {
-                item.privacy_classification.is_some()
-                    || item.hold_reason.is_some()
-                    || media_type_allowed(&config, item.media.kind)
-            });
-        } else {
-            // Privacy and moderation holds are independent from manual review
-            // and must remain actionable when the manual switch is turned off.
-            pending
-                .retain(|item| item.privacy_classification.is_some() || item.hold_reason.is_some());
-        }
+        let mut removed = Vec::new();
+        // Privacy and moderation holds are independent from manual review
+        // and must remain actionable when the manual switch is turned off.
+        pending.retain(|item| {
+            let keep = item.privacy_classification.is_some()
+                || item.hold_reason.is_some()
+                || (config.moderation_enabled && media_type_allowed(&config, item.media.kind));
+            if !keep {
+                removed.push(item.author_id.clone());
+            }
+            keep
+        });
         drop(pending);
+        for author_id in removed {
+            self.record_moderation(
+                Some(crate::moderation::Lane::Media),
+                crate::moderation::log::LogAction::Ignored,
+                "setting_changed",
+                author_id,
+            );
+        }
         let pending_ids = self
             .pending_media
             .read()
@@ -440,6 +477,7 @@ impl AppCore {
         }
         let Some(route) = review_route(&config, media.kind, privacy_action, verdict.as_ref())
         else {
+            self.record_type_not_reviewed(verdict);
             self.cancel_stage_output(ticket).await;
             return;
         };
@@ -536,11 +574,14 @@ impl AppCore {
                     privacy::analyze_image_bytes_async(bytes, Some(&analysis_text), &scoped_config)
                         .await,
                 ),
+                // Outputs show the Relay logo for a Lottie sticker, never its file.
+                None if sticker.format == "lottie" => {}
                 None => authoritative_report.merge(PrivacyReport::suspicious("scan_incomplete")),
             }
         }
         if config.privacy_scan_enabled
             && bytes.is_none()
+            && sticker.format != "lottie"
             && authoritative_report.classification == privacy::PrivacyClassification::Safe
         {
             authoritative_report.merge(PrivacyReport::suspicious("scan_incomplete"));
@@ -591,6 +632,7 @@ impl AppCore {
         };
         let Some(route) = review_route(&config, media.kind, privacy_action, verdict.as_ref())
         else {
+            self.record_type_not_reviewed(verdict);
             self.cancel_stage_output(ticket).await;
             return;
         };
@@ -903,12 +945,14 @@ impl AppCore {
     pub async fn publish_media_with_ticket(&self, ticket: StageTicket, mut media: MediaEvent) {
         self.prepare_video_compatibility(&mut media).await;
         self.prepare_media_delivery(media.kind).await;
-        {
+        let entry = HistoryEntry::Media(media.clone());
+        // History lists only what the outputs accepted: never a media
+        // discarded during a pause or cancelled with its message.
+        if self.complete_media(ticket, media).await == Readiness::Queued {
             let mut history = self.history.write().await;
-            history.push_front(HistoryEntry::Media(media.clone()));
+            history.push_front(entry);
             history.truncate(HISTORY_LIMIT);
         }
-        self.complete_media(ticket, media).await;
     }
 
     async fn prepare_video_compatibility(&self, media: &mut MediaEvent) {
@@ -1116,9 +1160,11 @@ impl AppCore {
             crate::moderation::Lane::Notifications,
         );
         let verdict = self.moderation_verdict(&id);
+        let trusted = skips_review(verdict.as_ref());
         let mut hold_reason = verdict
             .as_ref()
             .and_then(|verdict| verdict.hold)
+            .filter(|_| !trusted)
             .map(str::to_owned);
         if privacy::privacy_rules_enabled(&scoped_config) {
             let report = classify_notification_privacy(&text, &segments, &scoped_config);
@@ -1126,10 +1172,11 @@ impl AppCore {
             if !matches!(action, PrivacyAction::Allow) {
                 privacy::log_decision(&report, action);
                 let reason = report.primary_reason().unwrap_or("privacy");
-                if matches!(action, PrivacyAction::Block) || !config.moderation.review_text {
+                let blocked = matches!(action, PrivacyAction::Block);
+                if blocked || (!trusted && !config.moderation.review_text) {
                     self.record_moderation(
                         Some(crate::moderation::Lane::Notifications),
-                        if matches!(action, PrivacyAction::Block) {
+                        if blocked {
                             crate::moderation::log::LogAction::Blocked
                         } else {
                             crate::moderation::log::LogAction::Ignored
@@ -1140,7 +1187,9 @@ impl AppCore {
                     self.cancel_stage_message(ticket).await;
                     return false;
                 }
-                hold_reason = Some(reason.to_owned());
+                if !trusted {
+                    hold_reason = Some(reason.to_owned());
+                }
             }
         }
         // A held or dropped text withdraws the rest of its message too: its
@@ -1160,6 +1209,7 @@ impl AppCore {
             None => crate::ai::watch::Sender::Unknown,
         };
         let language = self.interface_preferences.read().await.language.clone();
+        let member = verdict.as_ref().map(|verdict| verdict.author_id.as_str());
         if let Some(advice) = crate::ai::watch::hold_advice(
             &config,
             &text,
@@ -1167,7 +1217,7 @@ impl AppCore {
             self.outputs_paused(),
             &language,
             crate::ai::watch::DEADLINE,
-            |provider, request| self.watch_ask(&config.ai, provider, request),
+            |provider, request| self.watch_ask(&config.ai, provider, request, member),
         )
         .await
         {
@@ -1202,11 +1252,13 @@ impl AppCore {
         transcript: &str,
         config: &AppConfig,
     ) -> bool {
-        let sender = match self.moderation_verdict(message_id) {
+        let verdict = self.moderation_verdict(message_id);
+        let sender = match &verdict {
             Some(verdict) if verdict.trusted => crate::ai::watch::Sender::Trusted,
             Some(_) => crate::ai::watch::Sender::Member,
             None => crate::ai::watch::Sender::Unknown,
         };
+        let member = verdict.as_ref().map(|verdict| verdict.author_id.as_str());
         let language = self.interface_preferences.read().await.language.clone();
         crate::ai::watch::transcript_hold_advice(
             config,
@@ -1215,7 +1267,7 @@ impl AppCore {
             self.outputs_paused(),
             &language,
             crate::ai::watch::DEADLINE,
-            |provider, request| self.watch_ask(&config.ai, provider, request),
+            |provider, request| self.watch_ask(&config.ai, provider, request, member),
         )
         .await
         .is_some()
@@ -1227,10 +1279,11 @@ impl AppCore {
         settings: &crate::ai::AiSettings,
         provider: crate::ai::AiProvider,
         request: crate::ai::AiRequest,
+        member: Option<&str>,
     ) -> crate::ai::advice::AiAdvice {
         #[cfg(test)]
         {
-            let _ = (settings, provider);
+            let _ = (settings, provider, member);
             let mut stub = self
                 .ai_watch_stub
                 .lock()
@@ -1243,7 +1296,7 @@ impl AppCore {
                 })
         }
         #[cfg(not(test))]
-        crate::ai::watch::ask(settings, provider, request).await
+        crate::ai::watch::ask(settings, provider, request, member).await
     }
 }
 
@@ -1397,9 +1450,9 @@ fn review_route(
     privacy_action: PrivacyAction,
     verdict: Option<&crate::moderation::MessageVerdict>,
 ) -> Option<ReviewRoute> {
-    let trusted = verdict.is_some_and(|verdict| verdict.trusted);
+    let trusted = skips_review(verdict);
     let hold = verdict.and_then(|verdict| verdict.hold);
-    if matches!(privacy_action, PrivacyAction::Review) || hold.is_some() {
+    if (matches!(privacy_action, PrivacyAction::Review) || hold.is_some()) && !trusted {
         return Some(ReviewRoute::Review(hold));
     }
     let manually_moderated = config.moderation_enabled && !trusted;
@@ -1417,6 +1470,13 @@ fn review_route(
         ));
     }
     Some(ReviewRoute::Publish)
+}
+
+/// Staff and the trusted roles and users never wait for manual review: a
+/// privacy review or a hold publishes their message. A privacy block is
+/// decided before and still applies.
+pub(crate) fn skips_review(verdict: Option<&crate::moderation::MessageVerdict>) -> bool {
+    verdict.is_some_and(|verdict| verdict.trusted)
 }
 
 fn media_type_allowed(config: &AppConfig, kind: MediaKind) -> bool {

@@ -576,7 +576,7 @@ async fn approval_rechecks_sensitive_pending_entries() {
         id: 99,
         media: pending_media,
         sticker: None,
-        sticker_bytes: Some(Arc::new(b"not an image".to_vec())),
+        sticker_bytes: Some(Arc::new(crate::privacy::tests::jpeg_with_gps_metadata())),
         privacy_classification: Some(privacy::PrivacyClassification::Sensitive),
         privacy_categories: vec![privacy::PrivacyCategory::GpsLocation],
         privacy_reason: Some("gps".into()),
@@ -605,8 +605,8 @@ async fn approval_rechecks_cached_audio_artwork_before_publication() {
     core.cache_artwork(
         "audio-artwork".into(),
         EmbeddedArtwork {
-            content_type: "image/png".into(),
-            bytes: b"not an image".to_vec(),
+            content_type: "image/jpeg".into(),
+            bytes: crate::privacy::tests::jpeg_with_gps_metadata(),
         },
     )
     .await;
@@ -988,7 +988,11 @@ async fn notification_privacy_gate_blocks_filter_concepts_and_holds_medium_risk(
 async fn claims_delayed_embeds_only_once() {
     let directory = tempfile::tempdir().unwrap();
     let core = AppCore::load(directory.path().join("config.json")).unwrap();
+    // Looking does not claim: a failed download leaves the GIF to the embed update.
+    assert!(!core.embed_claimed("message-embed-0").await);
+    assert!(!core.embed_claimed("message-embed-0").await);
     assert!(core.claim_embed("message-embed-0".into()).await);
+    assert!(core.embed_claimed("message-embed-0").await);
     assert!(!core.claim_embed("message-embed-0".into()).await);
 }
 
@@ -1142,6 +1146,132 @@ async fn trusted_members_skip_manual_review() {
     assert_eq!(core.history.read().await.len(), 1);
 }
 
+/// Staff and trusted roles share the same verdict: `trusted`.
+fn staff_verdict(hold: Option<&'static str>) -> crate::moderation::MessageVerdict {
+    verdict(hold, true)
+}
+
+async fn reviewing_core(directory: &tempfile::TempDir) -> std::sync::Arc<AppCore> {
+    let core = AppCore::load(directory.path().join("config.json")).unwrap();
+    core.set_config(AppConfig {
+        privacy_scan_enabled: true,
+        moderation_enabled: true,
+        privacy_auto_delete_blocked_messages: false,
+        ..AppConfig::default()
+    })
+    .await
+    .unwrap();
+    core
+}
+
+#[tokio::test]
+async fn staff_media_with_a_privacy_review_is_published_not_queued() {
+    let directory = tempfile::tempdir().unwrap();
+    let core = reviewing_core(&directory).await;
+    core.remember_moderation_verdict("staff", staff_verdict(None));
+    core.submit_analyzed_media(
+        media(MediaKind::Image, "staff"),
+        Some(PrivacyReport::suspicious("scan_incomplete")),
+    )
+    .await;
+    core.submit_sticker(
+        sticker("staff"),
+        Some("safe caption"),
+        Some(vec![1, 2, 3]),
+        Some(PrivacyReport::suspicious("scan_incomplete")),
+    )
+    .await;
+    assert!(core.pending_media.read().await.is_empty());
+    assert_eq!(core.history.read().await.len(), 1);
+    // A published sticker caches its bytes for the outputs.
+    assert_eq!(core.cached_media.read().await.len(), 1);
+}
+
+#[tokio::test]
+async fn only_untrusted_media_with_a_privacy_review_waits() {
+    let directory = tempfile::tempdir().unwrap();
+    let core = reviewing_core(&directory).await;
+    core.remember_moderation_verdict("member", verdict(None, false));
+    core.submit_analyzed_media(
+        media(MediaKind::Image, "member"),
+        Some(PrivacyReport::suspicious("scan_incomplete")),
+    )
+    .await;
+    assert_eq!(core.pending_media.read().await.len(), 1);
+    assert!(core.history.read().await.is_empty());
+}
+
+#[tokio::test]
+async fn staff_media_with_personal_data_is_still_blocked() {
+    let directory = tempfile::tempdir().unwrap();
+    let core = reviewing_core(&directory).await;
+    let mut events = core.relay_tx.subscribe();
+    core.remember_moderation_verdict("staff", staff_verdict(None));
+    core.submit_analyzed_media(
+        media(MediaKind::Image, "staff"),
+        Some(PrivacyReport::sensitive("forbidden_concept")),
+    )
+    .await;
+    assert!(core.pending_media.read().await.is_empty());
+    assert!(core.history.read().await.is_empty());
+    assert!(events.try_recv().is_err());
+}
+
+#[tokio::test]
+async fn a_hold_on_a_staff_message_does_not_queue_its_media() {
+    let directory = tempfile::tempdir().unwrap();
+    let core = reviewing_core(&directory).await;
+    core.remember_moderation_verdict("staff", staff_verdict(None));
+    core.hold_message_for_review("staff", crate::voice_scan::HOLD_UNCHECKED);
+    core.submit_analyzed_media(media(MediaKind::Audio, "staff"), None)
+        .await;
+    assert!(core.pending_media.read().await.is_empty());
+    assert_eq!(core.history.read().await.len(), 1);
+}
+
+#[tokio::test]
+async fn a_staff_text_that_would_be_held_is_shown() {
+    let directory = tempfile::tempdir().unwrap();
+    let core = reviewing_core(&directory).await;
+    let publish = |id: &'static str| {
+        let core = &core;
+        async move {
+            let ticket = core
+                .register_stage_output(42, id, 0, StageLane::Notification)
+                .await;
+            core.publish_notification_card_if_allowed_with_ticket_and_roles(
+                ticket,
+                id.into(),
+                "Call 06 12 34 56 78".into(),
+                crate::model::AuthorIdentity {
+                    username: "Moderator".into(),
+                    display_avatar_url: String::new(),
+                },
+                None,
+                42,
+                Vec::new(),
+                &[],
+            )
+            .await
+        }
+    };
+    // A privacy review of the text, with and without the text review queue.
+    core.remember_moderation_verdict("review", staff_verdict(None));
+    assert!(publish("review").await);
+    core.update_config(|config| config.moderation.review_text = false)
+        .await
+        .unwrap();
+    core.remember_moderation_verdict("ignored", staff_verdict(None));
+    assert!(publish("ignored").await);
+    // A hold set on the verdict.
+    core.remember_moderation_verdict("held", staff_verdict(Some("ai_flagged")));
+    assert!(publish("held").await);
+    assert!(core.pending_texts.read().await.is_empty());
+    // The same text from an ordinary member is still not shown.
+    core.remember_moderation_verdict("member", verdict(None, false));
+    assert!(!publish("member").await);
+}
+
 #[tokio::test]
 async fn unchecked_types_can_pass_instead_of_being_dropped() {
     let directory = tempfile::tempdir().unwrap();
@@ -1226,16 +1356,35 @@ async fn ai_advice_annotates_held_texts_without_publishing_or_releasing_them() {
     core.remember_moderation_verdict("new", verdict(Some("new_account"), false));
     core.remember_moderation_verdict("staff", verdict(Some("raid"), true));
     hold_text_for(&core, "new").await;
-    hold_text_for(&core, "staff").await;
+    let ticket = core
+        .register_stage_output(42, "staff", 0, StageLane::Notification)
+        .await;
+    assert!(
+        core.publish_notification_card_if_allowed_with_ticket_and_roles(
+            ticket,
+            "staff".into(),
+            "message staff".into(),
+            crate::model::AuthorIdentity {
+                username: "Moderator".into(),
+                display_avatar_url: String::new(),
+            },
+            None,
+            42,
+            vec![],
+            &[],
+        )
+        .await
+    );
 
-    // Only the untrusted member's text is handed out, once.
+    // A trusted member's text is shown, never held: only the other one is handed out, once.
     let taken = core.take_texts_for_advice().await;
     assert_eq!(taken.len(), 1);
     assert_eq!(taken[0].1, "message new");
     assert!(core.take_texts_for_advice().await.is_empty());
     let held = core.pending_texts.read().await.clone();
+    assert_eq!(held.len(), 1);
     assert_eq!(held[0].ai_advice, Some(AiAdvice::Pending));
-    assert_eq!(held[1].ai_advice, None);
+    while events.try_recv().is_ok() {}
 
     // A "nothing spotted" advice changes nothing: the message still waits.
     core.set_text_advice(
@@ -1247,7 +1396,7 @@ async fn ai_advice_annotates_held_texts_without_publishing_or_releasing_them() {
         },
     )
     .await;
-    assert_eq!(core.pending_texts.read().await.len(), 2);
+    assert_eq!(core.pending_texts.read().await.len(), 1);
     assert!(events.try_recv().is_err());
     // A "clear problem" advice does not reject it either.
     core.set_text_advice(
@@ -1259,12 +1408,12 @@ async fn ai_advice_annotates_held_texts_without_publishing_or_releasing_them() {
         },
     )
     .await;
-    assert_eq!(core.pending_texts.read().await.len(), 2);
+    assert_eq!(core.pending_texts.read().await.len(), 1);
 
     // Advice for an item already decided is dropped.
     assert!(core.reject_text(taken[0].0).await.is_some());
     core.set_text_advice(taken[0].0, AiAdvice::Pending).await;
-    assert_eq!(core.pending_texts.read().await.len(), 1);
+    assert!(core.pending_texts.read().await.is_empty());
 }
 
 #[tokio::test]
@@ -1451,4 +1600,219 @@ async fn the_ai_watch_only_holds_publishable_member_messages_and_failures_publis
     });
     core.remember_moderation_verdict("other", verdict(None, false));
     assert!(post_text(&core, "other", "je vais te trouver").await);
+}
+
+/// Log lines with this reason: (lane, action, author).
+fn logged(
+    core: &AppCore,
+    reason: &str,
+) -> Vec<(
+    Option<crate::moderation::Lane>,
+    crate::moderation::log::LogAction,
+    Option<String>,
+)> {
+    core.moderation_entries()
+        .0
+        .into_iter()
+        .filter(|entry| entry.reason == reason)
+        .map(|entry| (entry.lane, entry.action, entry.author_id))
+        .collect()
+}
+
+const MEMBER_ID: &str = "123456789012345678";
+
+#[tokio::test]
+async fn media_removed_from_review_by_a_setting_change_is_logged() {
+    use crate::moderation::{Lane, log::LogAction};
+    let directory = tempfile::tempdir().unwrap();
+    let core = AppCore::load(directory.path().join("config.json")).unwrap();
+    let reviewing = AppConfig {
+        moderation_enabled: true,
+        ..AppConfig::default()
+    };
+    core.set_config(reviewing.clone()).await.unwrap();
+    core.remember_moderation_verdict("member", verdict(None, false));
+    core.submit_media(media(MediaKind::Video, "member")).await;
+    assert_eq!(core.pending_media.read().await.len(), 1);
+    core.set_config(AppConfig {
+        moderation_allow_videos: false,
+        ..reviewing
+    })
+    .await
+    .unwrap();
+    assert!(core.pending_media.read().await.is_empty());
+    assert_eq!(
+        logged(&core, "setting_changed"),
+        vec![(
+            Some(Lane::Media),
+            LogAction::Ignored,
+            Some(MEMBER_ID.into())
+        )]
+    );
+}
+
+#[tokio::test]
+async fn a_media_type_left_out_of_review_is_logged_when_dropped() {
+    use crate::moderation::{Lane, log::LogAction};
+    let directory = tempfile::tempdir().unwrap();
+    let core = AppCore::load(directory.path().join("config.json")).unwrap();
+    core.set_config(AppConfig {
+        moderation_enabled: true,
+        moderation_allow_images: false,
+        moderation_allow_videos: false,
+        ..AppConfig::default()
+    })
+    .await
+    .unwrap();
+    core.remember_moderation_verdict("member", verdict(None, false));
+    core.submit_media(media(MediaKind::Video, "member")).await;
+    core.submit_sticker(sticker("member"), None, Some(vec![1, 2, 3]), None)
+        .await;
+    assert!(core.pending_media.read().await.is_empty());
+    assert!(core.history.read().await.is_empty());
+    let dropped = (
+        Some(Lane::Media),
+        LogAction::Ignored,
+        Some(MEMBER_ID.to_owned()),
+    );
+    assert_eq!(
+        logged(&core, "type_not_reviewed"),
+        vec![dropped.clone(), dropped]
+    );
+}
+
+#[tokio::test]
+async fn media_dropped_during_a_pause_is_logged_and_kept_out_of_history() {
+    use crate::moderation::{Lane, log::LogAction};
+    let directory = tempfile::tempdir().unwrap();
+    let core = AppCore::load(directory.path().join("config.json")).unwrap();
+    let mut events = core.relay_tx.subscribe();
+    core.set_outputs_paused(true).await;
+    core.remember_moderation_verdict("member", verdict(None, false));
+    core.submit_media(media(MediaKind::Video, "member")).await;
+    assert!(core.history.read().await.is_empty());
+    assert!(
+        std::iter::from_fn(|| events.try_recv().ok())
+            .all(|event| !matches!(event, RelayEvent::Media(_)))
+    );
+    assert_eq!(
+        logged(&core, "outputs_paused"),
+        vec![(
+            Some(Lane::Media),
+            LogAction::Ignored,
+            Some(MEMBER_ID.into())
+        )]
+    );
+    // Once resumed, what reaches the outputs is in the history again.
+    core.set_outputs_paused(false).await;
+    core.submit_media(media(MediaKind::Video, "member")).await;
+    assert_eq!(core.history.read().await.len(), 1);
+}
+
+#[tokio::test]
+async fn a_text_the_full_pinned_queue_drops_is_logged() {
+    use crate::moderation::{Lane, log::LogAction};
+    let directory = tempfile::tempdir().unwrap();
+    let core = AppCore::load(directory.path().join("config.json")).unwrap();
+    core.stage_scheduler.set_messages_pinned(true, 1).await;
+    for id in ["first", "second"] {
+        core.remember_moderation_verdict(id, verdict(None, false));
+        core.publish_notification_card(
+            id.into(),
+            "hello".into(),
+            crate::model::AuthorIdentity {
+                username: "viewer".into(),
+                display_avatar_url: String::new(),
+            },
+            None,
+            42,
+            Vec::new(),
+        )
+        .await;
+    }
+    assert_eq!(core.stage_scheduler.queue_snapshot().await.len(), 1);
+    assert_eq!(
+        logged(&core, "queue_full"),
+        vec![(
+            Some(Lane::Notifications),
+            LogAction::Ignored,
+            Some(MEMBER_ID.into())
+        )]
+    );
+}
+
+#[tokio::test]
+async fn an_evicted_held_text_is_logged() {
+    use crate::moderation::{Lane, log::LogAction};
+    let directory = tempfile::tempdir().unwrap();
+    let core = AppCore::load(directory.path().join("config.json")).unwrap();
+    core.remember_moderation_verdict("0", verdict(None, false));
+    for index in 0..=MODERATION_QUEUE_LIMIT {
+        core.hold_text(
+            index.to_string(),
+            "held".into(),
+            crate::model::AuthorIdentity {
+                username: "viewer".into(),
+                display_avatar_url: String::new(),
+            },
+            None,
+            42,
+            Vec::new(),
+            "manual_review",
+            None,
+        )
+        .await;
+    }
+    assert_eq!(
+        core.pending_texts.read().await.len(),
+        MODERATION_QUEUE_LIMIT
+    );
+    assert_eq!(
+        logged(&core, "queue_full"),
+        vec![(
+            Some(Lane::Notifications),
+            LogAction::Evicted,
+            Some(MEMBER_ID.into())
+        )]
+    );
+}
+
+/// The server ends a track nobody reported only after its length plus the
+/// grace, counted from its start on the server clock, and never while paused.
+#[test]
+fn an_unreported_track_is_overdue_only_after_its_length_and_grace() {
+    use music_playback::{MUSIC_END_GRACE_SECONDS, music_length_seconds, music_overdue};
+    let started = 1_000_000;
+    let length = 180;
+    let grace_end = started + (length + MUSIC_END_GRACE_SECONDS) * 1_000;
+    assert!(!music_overdue(started, length, started, false));
+    // Still playing, or ending late after buffering: not cut.
+    assert!(!music_overdue(
+        started,
+        length,
+        started + length * 1_000,
+        false
+    ));
+    assert!(!music_overdue(started, length, grace_end - 1, false));
+    assert!(music_overdue(started, length, grace_end, false));
+    assert!(!music_overdue(started, length, grace_end + 60_000, true));
+
+    let mut playback = MusicPlaybackEvent {
+        playback_id: "p1".into(),
+        video_id: "aaaaaaaaaaa".into(),
+        title: "Track".into(),
+        channel_title: "Channel".into(),
+        thumbnail: String::new(),
+        duration_seconds: 240,
+        mode: MusicPlaybackMode::Custom,
+        start_seconds: 30,
+        end_seconds: Some(90),
+        requested_by: "owner".into(),
+    };
+    assert_eq!(music_length_seconds(&playback), 60);
+    playback.end_seconds = None;
+    assert_eq!(music_length_seconds(&playback), 210);
+    playback.duration_seconds = 0;
+    playback.start_seconds = 0;
+    assert_eq!(music_length_seconds(&playback), 600);
 }

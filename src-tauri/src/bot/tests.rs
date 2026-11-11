@@ -765,6 +765,58 @@ fn accepts_masked_direct_tenor_gif_links_without_embeds() {
 }
 
 #[test]
+fn an_expired_gif_link_falls_back_to_the_urls_of_its_own_embed() {
+    let link = "https://cdn.discordapp.com/attachments/1/2/dance.gif?ex=old&is=old&hm=old";
+    let content = format!("look {link}");
+    let own: serenity::all::Embed = serde_json::from_value(serde_json::json!({
+        "type": "image",
+        "url": "https://cdn.discordapp.com/attachments/1/2/dance.gif?ex=new&is=new&hm=new",
+        "thumbnail": {
+            "url": "https://cdn.discordapp.com/attachments/1/2/dance.gif?ex=new&is=new&hm=new",
+            "proxy_url": "https://media.discordapp.net/attachments/1/2/dance.gif?ex=new"
+        }
+    }))
+    .unwrap();
+    let other: serenity::all::Embed = serde_json::from_value(serde_json::json!({
+        "type": "image",
+        "url": "https://media.tenor.com/other/other.gif",
+    }))
+    .unwrap();
+    let embeds = [other, own];
+    let gifs = message_gifs(&content, &embeds);
+    assert_eq!(gifs.len(), 1);
+    let fallbacks = link_embed_gifs(&gifs[0].url, &embeds);
+    assert_eq!(fallbacks.len(), 1);
+    assert_eq!(
+        fallbacks[0].proxy_url,
+        "https://media.discordapp.net/attachments/1/2/dance.gif?ex=new"
+    );
+    assert!(
+        link_embed_gifs(
+            "https://cdn.discordapp.com/attachments/1/2/other.gif",
+            &embeds
+        )
+        .is_empty()
+    );
+    assert!(link_embed_gifs(link, &[]).is_empty());
+}
+
+#[test]
+fn a_failed_gif_link_waits_for_its_embed_only_before_discord_sends_it() {
+    let embed: serenity::all::Embed = serde_json::from_value(serde_json::json!({
+        "type": "image",
+        "url": "https://media.tenor.com/a/dance.gif",
+    }))
+    .unwrap();
+    // Message create: no embed yet, so the update may retry.
+    assert!(wait_for_link_embed(true, &[]));
+    // Embed update: every source failed, the GIF goes to review.
+    assert!(!wait_for_link_embed(true, std::slice::from_ref(&embed)));
+    // A GIF taken from an embed is never left for a later retry.
+    assert!(!wait_for_link_embed(false, &[]));
+}
+
+#[test]
 fn sniffs_mp4_bytes_when_discord_reports_an_image() {
     let bytes = b"\0\0\0\x18ftypisom\0\0\0\0isom";
     assert_eq!(sniff_media_type(bytes, "image/gif"), "video/mp4");
@@ -1474,6 +1526,45 @@ async fn staff_gifs_are_not_dropped_by_the_member_cooldown() {
 }
 
 #[tokio::test]
+async fn a_staff_image_that_could_not_be_scanned_plays_without_review() {
+    let mut config = relay_config();
+    config.privacy_scan_enabled = true;
+    config.privacy_auto_delete_blocked_messages = false;
+    config.moderation.trusted_role_ids = vec!["423456789012345678".into()];
+    let (_directory, core) = relay_core(config).await;
+    let image = |id: u64| {
+        let mut message = relay_message(id, "");
+        // Refused host: the download fails, so the scan ends in a review.
+        message.attachments = vec![attachment(id, "photo.png", "image/png")];
+        message
+    };
+    let relay = |message: Message, roles: Vec<String>, staff: bool| {
+        let core = core.clone();
+        async move {
+            let config = core.config.read().await.clone();
+            route_relay_message(&core, &Http::new(""), &message, &config, &roles, staff).await;
+        }
+    };
+    // An ordinary member waits for review.
+    relay(image(1_000_000_000_000_000_199), Vec::new(), false).await;
+    assert_eq!(core.pending_media.read().await.len(), 1);
+    assert!(core.history.read().await.is_empty());
+    // A trusted-role member's image plays.
+    relay(
+        image(1_000_000_000_000_000_200),
+        vec!["423456789012345678".into()],
+        false,
+    )
+    .await;
+    assert_eq!(core.pending_media.read().await.len(), 1);
+    assert_eq!(core.history.read().await.len(), 1);
+    // A moderator's image plays.
+    relay(image(1_000_000_000_000_000_201), Vec::new(), true).await;
+    assert_eq!(core.pending_media.read().await.len(), 1);
+    assert_eq!(core.history.read().await.len(), 2);
+}
+
+#[tokio::test]
 async fn the_final_media_check_keeps_the_media_filter_scope() {
     use crate::moderation::FilterScopes;
     let mut config = AppConfig {
@@ -1698,6 +1789,37 @@ async fn a_relay_message_never_waits_for_a_second_media_slot() {
     );
 }
 
+/// Audit finding 12: an MP4 that may need a transcode (up to two minutes) is
+/// prepared without holding a shared media slot.
+#[tokio::test]
+async fn a_video_being_prepared_leaves_its_media_slot_free() {
+    let (_directory, core) = relay_core(relay_config()).await;
+    let (delivery, mut requests) = tokio::sync::mpsc::unbounded_channel();
+    core.set_media_delivery(delivery).await;
+    let mut message = relay_message(1_000_000_000_000_000_255, "");
+    message.attachments = vec![
+        attachment(255, "clip.mp4", "video/mp4"),
+        attachment(256, "wave.webm", "video/webm"),
+    ];
+    let relay = tokio::spawn({
+        let core = core.clone();
+        async move { relay_outputs(&core, &message).await }
+    });
+    // The MP4 is past the transcode step, its slot already given back.
+    let request = requests.recv().await.unwrap();
+    assert_eq!(core.media_ingest_slots.available_permits(), 2);
+    request.ready.send(()).unwrap();
+    // The next attachment is handled with a slot again.
+    let request = requests.recv().await.unwrap();
+    assert_eq!(core.media_ingest_slots.available_permits(), 1);
+    request.ready.send(()).unwrap();
+    assert_eq!(
+        relay.await.unwrap(),
+        vec![Output::Media("video", None), Output::Media("video", None)]
+    );
+    assert_eq!(core.media_ingest_slots.available_permits(), 2);
+}
+
 #[tokio::test]
 async fn a_text_message_never_waits_behind_media_checks() {
     let (_directory, core) = relay_core(relay_config()).await;
@@ -1711,4 +1833,417 @@ async fn a_text_message_never_waits_behind_media_checks() {
     .await
     .expect("a plain text waited for a media slot");
     assert_eq!(outputs, vec![Output::Notification("salut".into())]);
+}
+
+/// Privacy on, a content rule, and a word-filter scope that leaves `lane` out.
+fn filter_scope_without(lane: crate::moderation::Lane) -> AppConfig {
+    let mut config = AppConfig {
+        privacy_scan_enabled: true,
+        privacy_auto_delete_blocked_messages: false,
+        former_message_channel_id: FORMER_MESSAGE_CHANNEL.into(),
+        ..relay_config()
+    };
+    config.moderation.block_invites = true;
+    match lane {
+        crate::moderation::Lane::Media => config.moderation.filter_scopes.media = false,
+        crate::moderation::Lane::Notifications => {
+            config.moderation.filter_scopes.notifications = false;
+        }
+        crate::moderation::Lane::Music => config.moderation.filter_scopes.music = false,
+    }
+    config
+}
+
+#[tokio::test]
+async fn a_gif_embed_is_not_held_when_the_word_filter_skips_media() {
+    let (_directory, core) = relay_core(filter_scope_without(crate::moderation::Lane::Media)).await;
+    let mut message = relay_message(1_000_000_000_000_000_250, "");
+    message.embeds = vec![
+        serde_json::from_value(serde_json::json!({
+            "type": "gifv",
+            "url": "https://relay.invalid/dance",
+            "video": { "url": "https://relay.invalid/dance.webm" }
+        }))
+        .unwrap(),
+    ];
+    assert_eq!(
+        relay_outputs(&core, &message).await,
+        vec![Output::Media("gif", None)]
+    );
+    assert!(core.pending_media.read().await.is_empty());
+}
+
+/// Audit finding 5: with the media scope off and intermediate review off, the
+/// image findings of a GIF must survive the second check.
+#[tokio::test]
+async fn a_gif_keeps_its_image_findings_when_the_word_filter_skips_media() {
+    let config = AppConfig {
+        privacy_review_intermediate: false,
+        privacy_protection_level: crate::privacy::ProtectionLevel::Strict,
+        ..filter_scope_without(crate::moderation::Lane::Media)
+    };
+    let scoped = crate::moderation::scope_config(config.clone(), crate::moderation::Lane::Media);
+    // Text read from the image (OCR), not from the message.
+    let image_report = privacy::classify_text(Some("appelle-moi au 06 12 34 56 78"), &scoped);
+    assert_ne!(
+        image_report.classification,
+        privacy::PrivacyClassification::Safe
+    );
+    let rechecked = reclassify_privacy_report(image_report.clone(), "", &scoped);
+    assert_eq!(rechecked.classification, image_report.classification);
+    assert_eq!(rechecked.reasons, image_report.reasons);
+    assert_eq!(rechecked.categories, image_report.categories);
+
+    // Through the bot: the GIF image cannot be fetched, an image-level finding
+    // that asks for review whatever the intermediate setting.
+    let (_directory, core) = relay_core(config).await;
+    let mut message = relay_message(1_000_000_000_000_000_254, "");
+    message.embeds = vec![
+        serde_json::from_value(serde_json::json!({
+            "type": "image",
+            "url": "https://relay.invalid/dance.gif",
+            "image": { "url": "https://relay.invalid/dance.gif" }
+        }))
+        .unwrap(),
+    ];
+    assert!(relay_outputs(&core, &message).await.is_empty());
+    assert_eq!(core.pending_media.read().await.len(), 1);
+}
+
+#[tokio::test]
+async fn a_former_channel_sticker_is_not_held_when_the_word_filter_skips_text() {
+    // Without the image scan, so only the word filter scope decides.
+    let (_directory, core) = relay_core(AppConfig {
+        privacy_scan_enabled: false,
+        ..filter_scope_without(crate::moderation::Lane::Notifications)
+    })
+    .await;
+    let mut message = relay_message(1_000_000_000_000_000_251, "Hello");
+    message.channel_id = ChannelId::new(FORMER_MESSAGE_CHANNEL.parse().unwrap());
+    message.sticker_items = vec![lottie_sticker(251, "wave")];
+    assert_eq!(
+        relay_outputs(&core, &message).await,
+        vec![Output::Notification("Hello".into())]
+    );
+}
+
+#[tokio::test]
+async fn a_former_channel_staff_sticker_that_would_wait_is_shown() {
+    // With the image scan on, a phone number in the sticker name asks for review.
+    let (_directory, core) = relay_core(AppConfig {
+        privacy_scan_enabled: true,
+        privacy_auto_delete_blocked_messages: false,
+        former_message_channel_id: FORMER_MESSAGE_CHANNEL.into(),
+        ..relay_config()
+    })
+    .await;
+    let notifications = |id: u64, staff: bool| {
+        let core = core.clone();
+        async move {
+            let mut message = relay_message(id, "Hello");
+            message.channel_id = ChannelId::new(FORMER_MESSAGE_CHANNEL.parse().unwrap());
+            message.sticker_items = vec![lottie_sticker(id, "06 12 34 56 78")];
+            let mut events = core.relay_tx.subscribe();
+            let config = core.config.read().await.clone();
+            route_relay_message(&core, &Http::new(""), &message, &config, &[], staff).await;
+            let mut count = 0;
+            while let Ok(event) = events.try_recv() {
+                if matches!(event, crate::model::RelayEvent::Notification(_)) {
+                    count += 1;
+                    core.stage_scheduler.skip_active().await;
+                }
+            }
+            count
+        }
+    };
+    assert_eq!(notifications(1_000_000_000_000_000_252, false).await, 0);
+    assert_eq!(notifications(1_000_000_000_000_000_253, true).await, 1);
+}
+
+#[test]
+fn a_text_checked_again_or_named_twice_counts_once() {
+    let config = AppConfig {
+        privacy_scan_enabled: true,
+        privacy_protection_level: crate::privacy::ProtectionLevel::Strict,
+        ..AppConfig::default()
+    };
+    let text = "appelle-moi au 06 12 34 56 78";
+    let report = privacy::classify_text(Some(text), &config);
+    assert_eq!(
+        report.classification,
+        privacy::PrivacyClassification::Medium
+    );
+    let rechecked = reclassify_privacy_report(report.clone(), text, &config);
+    assert_eq!(rechecked.score, report.score);
+    assert_eq!(
+        rechecked.classification,
+        privacy::PrivacyClassification::Medium
+    );
+    // The file name and its stem are one finding.
+    let named = classify_privacy_values("", [], ["06 12 34 56 78.png"], &config);
+    assert_eq!(named.classification, privacy::PrivacyClassification::Medium);
+    assert!(!should_auto_delete_blocked_message(&named, &config));
+}
+
+#[tokio::test]
+async fn a_lottie_sticker_is_checked_on_its_name_instead_of_held() {
+    let (_directory, core) = relay_core(AppConfig {
+        privacy_scan_enabled: true,
+        privacy_auto_delete_blocked_messages: false,
+        ..relay_config()
+    })
+    .await;
+    let mut message = relay_message(1_000_000_000_000_000_260, "");
+    message.sticker_items = vec![lottie_sticker(260, "wave")];
+    assert_eq!(
+        relay_outputs(&core, &message).await,
+        vec![Output::Sticker("wave".into())]
+    );
+    assert!(core.pending_media.read().await.is_empty());
+    // A name that asks for review still waits.
+    let mut held = relay_message(1_000_000_000_000_000_261, "");
+    held.sticker_items = vec![lottie_sticker(261, "06 12 34 56 78")];
+    assert!(relay_outputs(&core, &held).await.is_empty());
+    assert_eq!(core.pending_media.read().await.len(), 1);
+}
+
+fn gifv_embed(url: &str) -> serenity::all::Embed {
+    serde_json::from_value(serde_json::json!({
+        "type": "gifv",
+        "url": url,
+        "video": { "url": format!("{url}.webm") }
+    }))
+    .unwrap()
+}
+
+#[tokio::test]
+async fn a_gif_blocked_after_an_edit_is_logged_like_any_block() {
+    let (_directory, core) = relay_core(AppConfig {
+        privacy_auto_delete_blocked_messages: false,
+        privacy_concepts: vec![privacy::ForbiddenConcept {
+            canonical: "blockedname".into(),
+            aliases: Vec::new(),
+            regexes: vec!["blockedname".into()],
+        }],
+        ..relay_config()
+    })
+    .await;
+    // The GIF embed arrives with a message update.
+    let mut message = relay_message(1_000_000_000_000_000_270, "blockedname");
+    message.embeds = vec![gifv_embed("https://relay.invalid/dance")];
+    assert!(submit_embedded_gifs(&core, &Http::new(""), &message, false).await);
+    let (entries, _) = core.moderation_entries();
+    assert!(
+        entries.iter().any(|entry| {
+            entry.action == crate::moderation::log::LogAction::Blocked
+                && entry.lane == Some(crate::moderation::Lane::Media)
+                && entry.reason == "forbidden_regex"
+                && entry.author_id.as_deref() == Some("223456789012345678")
+        }),
+        "{entries:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_gif_dropped_for_an_unknown_member_age_is_logged_once() {
+    let mut config = relay_config();
+    config.moderation.min_member_age_days = 3;
+    let (_directory, core) = relay_core(config).await;
+    // Discord sent the update without the member's join date.
+    let mut message = relay_message(1_000_000_000_000_000_280, "look");
+    message.embeds = vec![gifv_embed("https://relay.invalid/dance")];
+    for _ in 0..2 {
+        assert!(!submit_embedded_gifs(&core, &Http::new(""), &message, false).await);
+    }
+    let (entries, _) = core.moderation_entries();
+    let logged = entries
+        .iter()
+        .filter(|entry| {
+            entry.action == crate::moderation::log::LogAction::Ignored
+                && entry.lane == Some(crate::moderation::Lane::Media)
+                && entry.reason == "member_age_unknown"
+                && entry.author_id.as_deref() == Some("223456789012345678")
+        })
+        .count();
+    assert_eq!(logged, 1, "{entries:?}");
+}
+
+#[tokio::test]
+async fn a_failed_action_error_clears_when_the_same_action_succeeds() {
+    let (_directory, core) = relay_core(relay_config()).await;
+    let error = || async { core.bot_status.read().await.error.clone() };
+    report_action_result(&core, true, PRIVACY_DELETION_FAILED).await;
+    assert_eq!(error().await.as_deref(), Some(PRIVACY_DELETION_FAILED));
+    // Another action's success says nothing about this one.
+    report_action_result(&core, false, AI_IMAGE_DELETION_FAILED).await;
+    assert_eq!(error().await.as_deref(), Some(PRIVACY_DELETION_FAILED));
+    report_action_result(&core, false, PRIVACY_DELETION_FAILED).await;
+    assert_eq!(error().await, None);
+    // A warning that is still true stays.
+    core.bot_status.write().await.error = Some(MISSING_CHANNEL_WARNING.into());
+    report_action_result(&core, false, AUTOMATIC_TIMEOUT_FAILED).await;
+    assert_eq!(error().await.as_deref(), Some(MISSING_CHANNEL_WARNING));
+}
+
+#[tokio::test]
+async fn the_former_message_channel_shows_the_same_text_as_the_relay_channel() {
+    let (_directory, core) = relay_core(AppConfig {
+        former_message_channel_id: FORMER_MESSAGE_CHANNEL.into(),
+        ..relay_config()
+    })
+    .await;
+    let former = |id: u64, content: &str| {
+        let mut message = relay_message(id, content);
+        message.channel_id = ChannelId::new(FORMER_MESSAGE_CHANNEL.parse().unwrap());
+        message
+    };
+    assert!(
+        relay_outputs(&core, &former(1_000_000_000_000_000_271, "/relay status"))
+            .await
+            .is_empty()
+    );
+    assert!(
+        relay_outputs(
+            &core,
+            &former(
+                1_000_000_000_000_000_272,
+                "https://tenor.com/view/dance-gif-123"
+            )
+        )
+        .await
+        .is_empty()
+    );
+    assert_eq!(
+        relay_outputs(
+            &core,
+            &former(
+                1_000_000_000_000_000_273,
+                "lol https://tenor.com/view/dance-gif-123"
+            )
+        )
+        .await,
+        vec![Output::Notification("lol".into())]
+    );
+    let mut joined = former(1_000_000_000_000_000_274, "welcome to the server");
+    joined.kind = MessageType::MemberJoin;
+    assert!(relay_outputs(&core, &joined).await.is_empty());
+}
+
+#[tokio::test]
+async fn a_link_preview_never_makes_a_new_text_a_duplicate() {
+    use crate::moderation::Lane;
+    let mut config = relay_config();
+    config.moderation.block_duplicates = true;
+    let (_directory, core) = relay_core(config.clone()).await;
+    let lanes = [Lane::Notifications, Lane::Media];
+    let link: serenity::all::Embed = serde_json::from_value(serde_json::json!({
+        "type": "link",
+        "url": "https://example.com/page",
+        "title": "A page"
+    }))
+    .unwrap();
+    let send = |id: u64, content: &str, embed: &serenity::all::Embed| {
+        let mut message = relay_message(id, content);
+        message.embeds = vec![embed.clone()];
+        apply_moderation_gate(&core, &message, &[], false, &lanes, &config)
+    };
+    assert!(send(
+        1_000_000_000_000_000_275,
+        "read https://example.com/page",
+        &link
+    ));
+    assert!(send(
+        1_000_000_000_000_000_276,
+        "and again https://example.com/page",
+        &link
+    ));
+    // The same GIF twice is still a repeated media.
+    let gif = gifv_embed("https://relay.invalid/dance");
+    assert!(send(1_000_000_000_000_000_277, "", &gif));
+    assert!(!send(1_000_000_000_000_000_278, "", &gif));
+}
+
+#[tokio::test]
+async fn an_older_message_waiting_for_a_media_slot_keeps_its_place_on_stage() {
+    let (_directory, core) = relay_core(relay_config()).await;
+    let mut events = core.relay_tx.subscribe();
+    let busy = core.media_ingest_slots.acquire_many(2).await.unwrap();
+    let route = |message: Message| {
+        let core = core.clone();
+        async move {
+            let config = core.config.read().await.clone();
+            route_relay_message(&core, &Http::new(""), &message, &config, &[], false).await;
+        }
+    };
+    let mut older = relay_message(1_000_000_000_000_000_279, "first");
+    older.attachments = vec![attachment(279, "wave.webm", "video/webm")];
+    let older = tokio::spawn(route(older));
+    // The older message reserves its places, then waits for a media slot.
+    for _ in 0..50 {
+        if !core.stage_scheduler.queue_snapshot().await.is_empty() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    route(relay_message(1_000_000_000_000_000_280, "second")).await;
+    assert!(events.try_recv().is_err(), "a later text showed first");
+    drop(busy);
+    older.await.unwrap();
+    let mut outputs = Vec::new();
+    while let Ok(event) = events.try_recv() {
+        outputs.push(match event {
+            crate::model::RelayEvent::Notification(event) => Output::Notification(event.text),
+            crate::model::RelayEvent::Media(event) => {
+                Output::Media(media_kind_name(event.kind), event.text)
+            }
+            _ => continue,
+        });
+        core.stage_scheduler.skip_active().await;
+    }
+    assert_eq!(
+        outputs,
+        vec![
+            Output::Notification("first".into()),
+            Output::Media("video", None),
+            Output::Notification("second".into()),
+        ]
+    );
+}
+
+/// A track chosen while Relay is paused stays with the member: once the pause
+/// ends, the same buttons or custom range still start it.
+#[tokio::test]
+async fn a_selection_refused_during_a_pause_can_start_after_it() {
+    let directory = tempfile::tempdir().unwrap();
+    let core = AppCore::load(directory.path().join("config.json")).unwrap();
+    let strings = music_locale(&core).await;
+    let selection = MusicSelection {
+        owner_id: 7,
+        owner_name: "owner".into(),
+        channel_id: 9,
+        track: crate::youtube::YouTubeTrack {
+            video_id: "aaaaaaaaaaa".into(),
+            title: "Track".into(),
+            channel_title: "Channel".into(),
+            thumbnail: "https://relay.invalid/thumb.jpg".into(),
+            duration_seconds: 180,
+        },
+    };
+    core.music.lock().await.restore_selection("s1", selection);
+    core.stage_scheduler.set_paused(true);
+    assert_eq!(
+        take_selection_to_start(&core, "s1", 7, &strings)
+            .await
+            .unwrap_err(),
+        strings.relay_paused
+    );
+    core.stage_scheduler.set_paused(false);
+    let taken = take_selection_to_start(&core, "s1", 7, &strings).await;
+    assert_eq!(taken.unwrap().track.video_id, "aaaaaaaaaaa");
+    assert_eq!(
+        take_selection_to_start(&core, "s1", 7, &strings)
+            .await
+            .unwrap_err(),
+        strings.selection_expired
+    );
 }

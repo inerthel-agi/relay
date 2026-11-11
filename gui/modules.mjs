@@ -1,6 +1,21 @@
 import { selectReactionSound } from "./reaction-trim.mjs";
 import { renderAccessMenu, roleChoicesForChannels } from "./reaction-access.mjs";
 
+/** Inline confirmation added to `container`: resolves true on confirm, false on cancel. */
+export function confirmInline(container, t, questionKey, confirmKey) {
+  return new Promise((resolve) => {
+    const text = (tag, key) => { const element = document.createElement(tag); element.textContent = t(key); element.dataset.i18n = key; return element; };
+    const choice = (key, value) => {
+      const element = text("button", key); element.type = "button"; element.className = "button button--quiet";
+      element.addEventListener("click", () => { confirmation.remove(); resolve(value); });
+      return element;
+    };
+    const confirmation = document.createElement("div"); confirmation.setAttribute("role", "group");
+    const no = choice("modCancel", false);
+    confirmation.append(text("span", questionKey), choice(confirmKey, true), no); container.append(confirmation); no.focus();
+  });
+}
+
 export function initializeModules({ invoke, t, getBootstrap }) {
   const $ = (id) => document.getElementById(id);
   let library = [], reactionSettings, messageStatus, refreshInFlight = false, previewAudio, previewSource, previewImageUrl, previewGeneration = 0, musicSignature;
@@ -56,13 +71,7 @@ export function initializeModules({ invoke, t, getBootstrap }) {
     }
     if (!libraryList.children.length) libraryList.append(node("li", t("modEmptyLibrary")));
   }
-  function confirmDelete(row) {
-    return new Promise(resolve => {
-      const confirmation = node("div"); confirmation.setAttribute("role", "group"); confirmation.append(label("span", "modDeleteConfirm"));
-      const yes = button("modDelete", () => { confirmation.remove(); resolve(true); });
-      const no = button("modCancel", () => { confirmation.remove(); resolve(false); }); confirmation.append(yes, no); row.append(confirmation); no.focus();
-    });
-  }
+  const confirmDelete = (row) => confirmInline(row, t, "modDeleteConfirm", "modDelete");
 
   const musicRoot = $("music-queue-module"); musicRoot.append(label("h3", "modMusicRequests")); const musicState = status(musicRoot);
   const musicConfig = { maxPendingPerUser: getBootstrap()?.config.musicMaxPendingPerUser ?? 3, rejectDuplicatePending: getBootstrap()?.config.musicRejectDuplicatePending ?? true };
@@ -187,7 +196,7 @@ export function initializeModules({ invoke, t, getBootstrap }) {
     access.append(label("p", "modProtectedHelp"));
     const display = reactionSection("modReactionDisplay");
     const anchorLabel = label("label", "modAnchor"), anchor = node("select"); anchorLabel.className = "module-field module-field--wide";
-    for (const value of ["legacy", "topLeft", "topCenter", "topRight", "center", "bottomLeft", "bottomCenter", "bottomRight"]) { const option = node("option", t(`anchor${value[0].toUpperCase()}${value.slice(1)}`)); option.value = value; anchor.append(option); }
+    for (const value of ["legacy", "topLeft", "topCenter", "topRight", "center", "bottomLeft", "bottomCenter", "bottomRight"]) { const option = label("option", `anchor${value[0].toUpperCase()}${value.slice(1)}`); option.value = value; anchor.append(option); }
     anchor.value = settings.geometry.anchor; anchor.addEventListener("change", () => settings.geometry.anchor = anchor.value); anchorLabel.append(anchor); display.append(anchorLabel);
     field(display, "modMarginX", "number", settings.geometry.marginX, value => settings.geometry.marginX = value, 0, 200);
     field(display, "modMarginY", "number", settings.geometry.marginY, value => settings.geometry.marginY = value, 0, 200);
@@ -204,7 +213,7 @@ export function initializeModules({ invoke, t, getBootstrap }) {
       field(row, "modName", "text", item.name, value => item.name = value);
       field(row, "modEnabled", "checkbox", item.enabled, value => item.enabled = value);
       field(row, "modVolume", "number", item.volume, value => item.volume = value, 0, 100);
-      const visualLabel = label("label", "modVisual"), select = node("select"); visualLabel.className = "module-field"; const empty = node("option", t("modNoVisual")); empty.value = ""; select.append(empty);
+      const visualLabel = label("label", "modVisual"), select = node("select"); visualLabel.className = "module-field"; const empty = label("option", "modNoVisual"); empty.value = ""; select.append(empty);
       for (const media of library.filter(media => (media.kind === "image" || media.kind === "gif") && media.contentType.startsWith("image/"))) { const option = node("option", media.name); option.value = media.id; select.append(option); }
       select.value = item.visualId || ""; select.addEventListener("change", () => item.visualId = select.value || null); visualLabel.append(select); row.append(visualLabel);
       row.append(button("modTestLocal", () => testReaction(item)), button("modPlay", async () => { const result = await invoke("trigger_reaction", { id: item.id }); reactionState.textContent = reactionTriggerText(result); }), button("modDelete", async () => { if (await confirmDelete(row)) { settings.definitions = settings.definitions.filter(value => value.id !== item.id); renderReactions(); saveReactionsSoon(); } })); list.append(row);

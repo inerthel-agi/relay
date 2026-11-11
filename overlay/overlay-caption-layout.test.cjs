@@ -16,10 +16,27 @@ test("compact widget captions preserve their content width", () => {
   assert.match(styles, /\.audio-card__caption\s*\{[\s\S]*?font-size:\s*calc\(14px \* var\(--font-scale\)\)/);
 });
 
-test("shared text scaling does not add padding to audio metadata", () => {
-  const shared = styles.slice(styles.indexOf(".widget-move-badge,"), styles.indexOf("\n}", styles.indexOf(".widget-move-badge,")));
-  assert.doesNotMatch(shared, /padding:|max-height:|transform-origin:/);
-  assert.match(shared, /font-size: calc\(1em \* var\(--font-scale\)\)/);
+test("every text of the media and audio cards follows the text size setting", () => {
+  // Rules in cascade order (overlay.css, then audio-card.css). For each text,
+  // the last font-size declared for its selector is the one that applies.
+  const rules = [...styles.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .map(([, selectors, body]) => ({ selectors: selectors.split(",").map((selector) => selector.trim()), body }));
+  const appliedFontSize = (selector) => rules
+    .filter((rule) => rule.selectors.includes(selector))
+    .flatMap((rule) => [...rule.body.matchAll(/(?:^|;)\s*font(?:-size)?:\s*([^;]+)/g)].map((match) => match[1]))
+    .at(-1);
+  for (const selector of [
+    ".overlay__author", ".overlay__caption",
+    ".audio-card__label", ".audio-card__title", ".audio-card__artist",
+    ".audio-card__caption", ".audio-card__author", ".audio-card__time",
+    ".youtube-credit__title", ".youtube-credit__added",
+    ".youtube-credit--widget .youtube-credit__label", ".youtube-credit--widget .youtube-credit__title",
+    ".youtube-credit--widget .youtube-credit__source", ".youtube-credit--widget .youtube-credit__meta",
+  ]) {
+    assert.match(appliedFontSize(selector) || "", /var\(--font-scale\)/, selector);
+  }
+  // Three caption lines stay visible at any text size.
+  assert.match(styles, /\.overlay__caption\s*\{[^}]*max-height:\s*calc\(4\.2em \+ 20px\);/);
 });
 
 test("audio cards anchor to the right edge without a horizontal translation", () => {

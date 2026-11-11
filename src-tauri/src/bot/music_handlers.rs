@@ -1,8 +1,10 @@
 use super::*;
+use crate::music::SearchRefusal;
 
 const MUSIC_MOVE_UP_PREFIX: &str = "relay:music:up:";
 const MUSIC_MOVE_DOWN_PREFIX: &str = "relay:music:down:";
 const MUSIC_REMOVE_PREFIX: &str = "relay:music:remove:";
+const QUOTA_EXCEEDED: &str = "YouTube API quota exceeded for today. Try again after the daily reset, or raise the quota in Google Cloud.";
 
 pub(super) async fn music_notice(
     core: &Arc<AppCore>,
@@ -70,7 +72,29 @@ pub(super) async fn handle_music_message(
     // A pasted link skips search.list: 1 quota unit instead of 101.
     let found = match youtube::video_id_from_link(query) {
         Some(video_id) => youtube::lookup(&video_id, &api_key).await,
-        None => youtube::search(query, &api_key).await,
+        None => {
+            let cached = youtube::cached_search(query);
+            let admitted =
+                core.music
+                    .lock()
+                    .await
+                    .admit_search(user_id, Instant::now(), cached.is_some());
+            match (admitted, cached) {
+                (Err(SearchRefusal::Daily), _) => {
+                    music_notice(core, http, message.channel_id, QUOTA_EXCEEDED).await;
+                    return;
+                }
+                (Err(SearchRefusal::Member(wait)), _) => {
+                    let minutes = wait.as_secs().div_ceil(60).max(1).to_string();
+                    let reply =
+                        music_i18n::fill(strings.search_hourly_limit, &[("minutes", &minutes)]);
+                    music_notice(core, http, message.channel_id, &reply).await;
+                    return;
+                }
+                (Ok(()), Some(tracks)) => Ok(tracks),
+                (Ok(()), None) => youtube::search(query, &api_key).await,
+            }
+        }
     };
     let mut results = match found {
         Ok(results) => results,
@@ -78,7 +102,7 @@ pub(super) async fn handle_music_message(
             let detail = error.to_string();
             core.bot_status.write().await.error = Some(detail.clone());
             let reply = if detail.to_ascii_lowercase().contains("quota") {
-                "YouTube API quota exceeded for today. Try again after the daily reset, or raise the quota in Google Cloud."
+                QUOTA_EXCEEDED
             } else {
                 strings.search_unavailable
             };
@@ -340,45 +364,16 @@ pub(super) async fn handle_music_component(
             "full" => MusicPlaybackMode::Full,
             _ => return,
         };
-        let selection = match core
-            .music
-            .lock()
-            .await
-            .take_selection(selection_id, component.user.id.get())
-        {
-            SelectionTake::Taken(selection) => selection,
-            SelectionTake::NotOwner => {
-                respond_music_component(
-                    core,
-                    context,
-                    component,
-                    strings.selection_not_owner,
-                    Vec::new(),
-                )
-                .await;
-                return;
-            }
-            SelectionTake::NotFound => {
-                respond_music_component(
-                    core,
-                    context,
-                    component,
-                    strings.selection_expired,
-                    Vec::new(),
-                )
-                .await;
-                return;
-            }
-        };
-        if core.outputs_paused() {
-            core.music
-                .lock()
+        let selection =
+            match take_selection_to_start(core, selection_id, component.user.id.get(), &strings)
                 .await
-                .restore_selection(selection_id, selection.clone());
-            respond_music_component(core, context, component, strings.relay_paused, Vec::new())
-                .await;
-            return;
-        }
+            {
+                Ok(selection) => selection,
+                Err(refusal) => {
+                    respond_music_component(core, context, component, refusal, Vec::new()).await;
+                    return;
+                }
+            };
         let result = core
             .start_music(selection.clone(), mode, now_ms(), &component.id.to_string())
             .await;
@@ -663,27 +658,14 @@ pub(super) async fn handle_music_custom_modal(
         return;
     };
 
-    let selection = match core
-        .music
-        .lock()
-        .await
-        .take_selection(selection_id, modal.user.id.get())
-    {
-        SelectionTake::Taken(selection) => selection,
-        SelectionTake::NotOwner => {
-            respond_music_modal(core, context, modal, strings.selection_not_owner).await;
-            return;
-        }
-        SelectionTake::NotFound => {
-            respond_music_modal(core, context, modal, strings.selection_expired).await;
-            return;
-        }
-    };
-
-    if core.outputs_paused() {
-        respond_music_modal(core, context, modal, strings.relay_paused).await;
-        return;
-    }
+    let selection =
+        match take_selection_to_start(core, selection_id, modal.user.id.get(), &strings).await {
+            Ok(selection) => selection,
+            Err(refusal) => {
+                respond_music_modal(core, context, modal, refusal).await;
+                return;
+            }
+        };
     let result = match core
         .start_music_custom(
             selection.clone(),
@@ -741,6 +723,26 @@ pub(super) async fn handle_music_custom_modal(
             };
             respond_music_modal(core, context, modal, &content).await;
         }
+    }
+}
+
+/// Takes the member's selection to start it. While Relay is paused the
+/// selection stays theirs, so they can start it once the pause ends.
+pub(super) async fn take_selection_to_start(
+    core: &AppCore,
+    selection_id: &str,
+    user_id: u64,
+    strings: &MusicStrings,
+) -> Result<MusicSelection, &'static str> {
+    let mut music = core.music.lock().await;
+    match music.take_selection(selection_id, user_id) {
+        SelectionTake::Taken(selection) if core.outputs_paused() => {
+            music.restore_selection(selection_id, selection);
+            Err(strings.relay_paused)
+        }
+        SelectionTake::Taken(selection) => Ok(selection),
+        SelectionTake::NotOwner => Err(strings.selection_not_owner),
+        SelectionTake::NotFound => Err(strings.selection_expired),
     }
 }
 

@@ -37,6 +37,14 @@ impl AppCore {
         }
     }
 
+    pub async fn embed_claimed(&self, id: &str) -> bool {
+        self.processed_embed_ids
+            .read()
+            .await
+            .iter()
+            .any(|claimed| claimed == id)
+    }
+
     pub async fn claim_embed(&self, id: String) -> bool {
         let mut processed = self.processed_embed_ids.write().await;
         if processed.contains(&id) {

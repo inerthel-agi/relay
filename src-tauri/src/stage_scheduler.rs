@@ -34,6 +34,18 @@ pub struct StageOrderKey {
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct StageTicket(u64);
 
+/// What became of an item handed to the stage.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Readiness {
+    /// Waits for its turn on screen.
+    Queued,
+    /// Discarded, with the reason for the decision log: outputs paused, or
+    /// pinned messages whose text queue is full.
+    Dropped(&'static str),
+    /// Its ticket was already cancelled.
+    Cancelled,
+}
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QueueItem {
@@ -253,21 +265,30 @@ impl StageScheduler {
         self.inner.paused.load(Ordering::SeqCst)
     }
 
-    pub async fn ready(&self, ticket: StageTicket, event: RelayEvent) {
-        {
+    pub async fn ready(&self, ticket: StageTicket, event: RelayEvent) -> Readiness {
+        let readiness = {
             let mut state = self.inner.state.lock().await;
+            if !state.entries.contains_key(&ticket) {
+                return Readiness::Cancelled;
+            }
             // While paused, content that becomes ready is discarded rather than queued,
             // so resuming does not flood the stream with everything sent meanwhile.
-            let dropped = self.is_paused()
-                || (state.messages_pinned
-                    && matches!(&event, RelayEvent::Notification(_))
-                    && state
-                        .entries
-                        .values()
-                        .filter(|entry| is_text(entry.lane) && entry.event.is_some())
-                        .count()
-                        >= state.message_queue_limit);
-            if dropped {
+            let dropped = if self.is_paused() {
+                Some("outputs_paused")
+            } else if state.messages_pinned
+                && matches!(&event, RelayEvent::Notification(_))
+                && state
+                    .entries
+                    .values()
+                    .filter(|entry| is_text(entry.lane) && entry.event.is_some())
+                    .count()
+                    >= state.message_queue_limit
+            {
+                Some("queue_full")
+            } else {
+                None
+            };
+            if let Some(reason) = dropped {
                 if let Some(entry) = state.entries.remove(&ticket) {
                     if let Some(key) = entry.key {
                         state.ordered.remove(&key);
@@ -275,20 +296,22 @@ impl StageScheduler {
                     // The other parts of the message no longer wait for it.
                     self.reinsert_ready_group_for_key(&mut state, entry.original_key);
                 }
+                Readiness::Dropped(reason)
             } else {
-                let demoted = match state.entries.get_mut(&ticket) {
-                    Some(entry) => {
-                        entry.event = Some(event);
-                        entry.key.is_none()
-                    }
-                    None => return,
-                };
+                let entry = state
+                    .entries
+                    .get_mut(&ticket)
+                    .expect("checked stage ticket");
+                entry.event = Some(event);
+                let demoted = entry.key.is_none();
                 if demoted {
                     self.reinsert_ready_group(&mut state, ticket);
                 }
+                Readiness::Queued
             }
-        }
+        };
         self.try_dispatch().await;
+        readiness
     }
 
     pub async fn cancel(&self, ticket: StageTicket) {
@@ -437,7 +460,9 @@ impl StageScheduler {
     /// Reorder the requested non-active Music tickets while keeping every
     /// non-Music ticket in its existing scheduler slot. A current Music ticket
     /// can already be ready but waiting behind a busy lane, so it remains in
-    /// place when it is not included in `ticket_order`.
+    /// place when it is not included in `ticket_order`. A queued track whose
+    /// reservation was demoted after the ready delay has no slot to swap: its
+    /// reservation is replaced at promotion, so it is accepted as it is.
     pub async fn reorder_music(&self, ticket_order: &[StageTicket]) -> bool {
         let accepted = {
             let mut state = self.inner.state.lock().await;
@@ -451,13 +476,18 @@ impl StageScheduler {
                             && !state.is_active(*ticket)
                             && entry
                                 .key
-                                .is_some_and(|key| state.ordered.get(&key) == Some(ticket))
+                                .is_none_or(|key| state.ordered.get(&key) == Some(ticket))
                     })
                 });
                 if !valid_tickets {
                     false
                 } else {
-                    let mut slot_keys = ticket_order
+                    let slotted = ticket_order
+                        .iter()
+                        .copied()
+                        .filter(|ticket| state.entries.get(ticket).is_some_and(|e| e.key.is_some()))
+                        .collect::<Vec<_>>();
+                    let mut slot_keys = slotted
                         .iter()
                         .map(|ticket| {
                             state
@@ -471,7 +501,7 @@ impl StageScheduler {
                     for key in &slot_keys {
                         state.ordered.remove(key);
                     }
-                    for (key, ticket) in slot_keys.into_iter().zip(ticket_order.iter().copied()) {
+                    for (key, ticket) in slot_keys.into_iter().zip(slotted) {
                         state.ordered.insert(key, ticket);
                         if let Some(entry) = state.entries.get_mut(&ticket) {
                             entry.key = Some(key);

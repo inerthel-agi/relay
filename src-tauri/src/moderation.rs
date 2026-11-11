@@ -500,6 +500,7 @@ pub enum GateDecision {
 pub struct MessageVerdict {
     pub rejected: bool,
     pub hold: Option<&'static str>,
+    /// Staff, trusted roles and trusted users: a privacy review or hold never queues it.
     pub trusted: bool,
     pub author_id: String,
     pub channel_id: String,

@@ -237,10 +237,7 @@ fn concepts_match_explicit_variants_only() {
     for text in [
         "hitler",
         "h1tler",
-        "hitier",
         "h1tl3r",
-        "h3tler",
-        "hiiitler",
         "hi tler",
         "hit ler",
         "austrian painter",
@@ -255,6 +252,20 @@ fn concepts_match_explicit_variants_only() {
             "{text}"
         );
         assert_eq!(action_for(&report, &config), PrivacyAction::Block, "{text}");
+    }
+    // Look-alikes wait for review instead (user's choice, 2026-11-11).
+    for text in ["hitier", "h3tler", "hiiitler"] {
+        let report = classify_text(Some(text), &config);
+        assert_eq!(
+            report.classification,
+            PrivacyClassification::Medium,
+            "{text}"
+        );
+        assert_eq!(
+            action_for(&report, &config),
+            PrivacyAction::Review,
+            "{text}"
+        );
     }
     assert_eq!(
         classify_text(Some("hit"), &config).classification,
@@ -344,7 +355,7 @@ fn regex_filters_block_directly_and_similarity_boosts_score() {
     let strong_similarity = classify_text(Some("hitier"), &config);
     assert_eq!(
         strong_similarity.classification,
-        PrivacyClassification::Sensitive
+        PrivacyClassification::Suspicious
     );
     assert!(strong_similarity.reasons.contains(&"similarity_score"));
 
@@ -659,7 +670,7 @@ fn protection_profiles_and_actions_follow_the_five_level_policy() {
                 score: 100,
                 categories: vec![PrivacyCategory::Financial],
                 reasons: vec!["payment_card"],
-                config_signature: None,
+                ..PrivacyReport::safe()
             },
             &config,
         ),
@@ -684,13 +695,26 @@ fn image_metadata_mime_and_resource_limits_are_classified_locally() {
     );
     assert!(metadata.reasons.contains(&"exif_metadata"));
 
+    // Limits and unknown formats wait for review, they are not blocked
+    // (user's choice, 2026-11-11), even with intermediate review off.
+    let mut no_intermediate_review = config.clone();
+    no_intermediate_review.privacy_review_intermediate = false;
     let mismatch = analyze_image_bytes(b"not an image", None, &config);
-    assert_eq!(mismatch.classification, PrivacyClassification::High);
     assert!(mismatch.reasons.contains(&"mime_mismatch"));
+    assert_eq!(
+        action_for(&mismatch, &no_intermediate_review),
+        PrivacyAction::Review
+    );
 
     let too_large = image_limit_report(None, &config);
-    assert_eq!(too_large.classification, PrivacyClassification::High);
-    assert_eq!(action_for(&too_large, &config), PrivacyAction::Block);
+    assert!(too_large.reasons.contains(&"image_limits"));
+    assert_eq!(
+        action_for(&too_large, &no_intermediate_review),
+        PrivacyAction::Review
+    );
+    // Personal data in the caption still blocks.
+    let with_gps = image_limit_report(Some("gps 48.8566, 2.3522"), &config);
+    assert_eq!(action_for(&with_gps, &config), PrivacyAction::Block);
 }
 
 #[test]
@@ -778,4 +802,270 @@ fn library_gifs_only_need_their_first_frame_scanned() {
     // Every other check still applies.
     let blocked = analyze_image(gif, Some("hitler"), &config, true);
     assert_eq!(action_for(&blocked, &config), PrivacyAction::Block);
+}
+
+#[tokio::test]
+async fn sampled_frames_lift_only_the_unread_frames_review() {
+    let config = config();
+    // No frames (no FFmpeg, timeout, partial sample): the review stays.
+    for frames in [None, Some(Vec::new())] {
+        let held = scan_sampled_frames(frames, &config).await;
+        assert!(held.reasons.contains(&"scan_incomplete"));
+        assert_eq!(action_for(&held, &config), PrivacyAction::Review);
+    }
+    // Any finding in any sampled frame keeps its normal effect.
+    let found = scan_sampled_frames(
+        Some(vec![ONE_PIXEL_PNG.to_vec(), jpeg_with_gps_metadata()]),
+        &config,
+    )
+    .await;
+    assert!(found.reasons.contains(&"gps"));
+    assert_eq!(found.classification, PrivacyClassification::Sensitive);
+    // A clean frame adds nothing, as long as it could be read in full.
+    let (still, unread) = scan_first_frame(ONE_PIXEL_PNG, None, &config);
+    assert!(!unread);
+    let clean = scan_sampled_frames(Some(vec![ONE_PIXEL_PNG.to_vec()]), &config).await;
+    assert_eq!(clean.reasons, still.reasons);
+}
+
+/// Real FFmpeg and Windows OCR: skipped, like the `media_compat` tests, when absent.
+#[cfg(target_os = "windows")]
+#[tokio::test]
+async fn a_clean_animation_is_checked_on_sampled_frames_instead_of_held() {
+    if crate::reaction_trim::ffmpeg_executable().is_none() {
+        eprintln!("FFmpeg not found; skipped");
+        return;
+    }
+    let gif = include_bytes!("../../../outputs/samples/motion.gif");
+    let signals = inspect_image_windows(gif, true).expect("valid animated GIF fixture");
+    assert!(signals.frame_count > 1);
+    if !signals.ocr_available {
+        eprintln!("Windows OCR not available; skipped");
+        return;
+    }
+    let mut config = config();
+    config.privacy_review_intermediate = false;
+    let report = analyze_image_bytes_async(gif, None, &config).await;
+    assert!(!report.reasons.contains(&"scan_incomplete"), "{report:?}");
+    assert_eq!(action_for(&report, &config), PrivacyAction::Allow);
+    // Every other check still applies.
+    let blocked = analyze_image_bytes_async(gif, Some("hitler"), &config).await;
+    assert_eq!(action_for(&blocked, &config), PrivacyAction::Block);
+}
+
+/// The level the user runs: Medium from 25 points, High from 50.
+fn strict_config() -> AppConfig {
+    AppConfig {
+        privacy_protection_level: ProtectionLevel::Strict,
+        ..config()
+    }
+}
+
+fn has_category(text: &str, category: PrivacyCategory) -> bool {
+    classify_text(Some(text), &strict_config())
+        .categories
+        .contains(&category)
+}
+
+#[test]
+fn everyday_counts_are_not_addresses() {
+    let config = strict_config();
+    for text in [
+        "Il y a 3 personnes en live",
+        "Il reste 1 place pour ce soir",
+        "Je joue avec 3 potes chez moi",
+        "J'ai lu 3 bd hier soir",
+        "the 1 way to win",
+        "I live 2 hours away",
+        "chez moi 3 potes",
+        "j'habite 2 rues plus loin",
+    ] {
+        assert!(
+            !has_category(text, PrivacyCategory::PostalAddress),
+            "{text}"
+        );
+    }
+    for text in [
+        "chez moi au 12 Canot Massy",
+        "j'habite 4 Canot Massy",
+        "j'habite 12 Victor Hugo",
+        "j'habite 12 rue Victor Hugo",
+        "j'habite 12 rue victor hugo",
+        "12 place Bellecour",
+        "12 place de la Concorde",
+        "5 Penny Lane",
+        "1 place bellecour 69002 Lyon",
+    ] {
+        let report = classify_text(Some(text), &config);
+        assert!(
+            report.reasons.contains(&"postal_address"),
+            "{text}: {report:?}"
+        );
+        assert_eq!(action_for(&report, &config), PrivacyAction::Block, "{text}");
+    }
+}
+
+#[test]
+fn dates_times_and_amounts_are_not_phone_numbers() {
+    for text in [
+        "Rendez-vous le 11/11/2026 14h",
+        "Rendez-vous le 01/11/2026 20h",
+        "le 01-11-2026 20h",
+        "le 01.11.2026 9h",
+        "2026-11-11 14",
+        "1 000 000 000 de vues",
+        "12 15 20 25 30",
+    ] {
+        assert!(!has_category(text, PrivacyCategory::Phone), "{text}");
+    }
+    for text in [
+        "06 12 34 56 78",
+        "0612345678",
+        "06.12.34.56.78",
+        "06-12-34-56-78",
+        "+33 6 12 34 56 78",
+        "0033 6 12 34 56 78",
+        "0033612345678",
+    ] {
+        assert!(has_category(text, PrivacyCategory::Phone), "{text}");
+    }
+    let config = strict_config();
+    assert_eq!(
+        classify_text(Some("Rendez-vous le 01/11/2026 20h"), &config).classification,
+        PrivacyClassification::Safe
+    );
+}
+
+#[test]
+fn number_pairs_are_coordinates_only_when_shaped_like_them() {
+    let config = strict_config();
+    for text in ["Ping 12.5, 13.75", "Prix 1.5, 2.25"] {
+        assert_eq!(
+            classify_text(Some(text), &config).classification,
+            PrivacyClassification::Safe,
+            "{text}"
+        );
+    }
+    // Three decimals could be a place: reviewed, not blocked.
+    for text in ["10.000 membres et 2.500 en ligne", "Tours 12.345 13.021"] {
+        let report = classify_text(Some(text), &config);
+        assert_eq!(
+            report.classification,
+            PrivacyClassification::Medium,
+            "{text}"
+        );
+        assert_eq!(
+            action_for(&report, &config),
+            PrivacyAction::Review,
+            "{text}"
+        );
+    }
+    for text in [
+        "48.8566, 2.3522",
+        "gps 48.8566, 2.3522",
+        "lat 12.5 lon 13.75",
+    ] {
+        let report = classify_text(Some(text), &config);
+        assert_eq!(report.classification, PrivacyClassification::High, "{text}");
+        assert_eq!(action_for(&report, &config), PrivacyAction::Block, "{text}");
+    }
+}
+
+#[test]
+fn the_same_text_scanned_twice_counts_once() {
+    let config = strict_config();
+    let text = Some("appelle-moi au 06 12 34 56 78");
+    let once = classify_text(text, &config);
+    assert_eq!(once.classification, PrivacyClassification::Medium);
+    // Caption, then image scan, then the final gate: still one phone number.
+    let mut thrice = once.clone();
+    thrice.merge(classify_text(text, &config));
+    thrice.merge(classify_text(text, &config));
+    thrice.apply_score_policy(&config);
+    assert_eq!(thrice.score, once.score);
+    assert_eq!(thrice.classification, PrivacyClassification::Medium);
+    assert_eq!(action_for(&thrice, &config), PrivacyAction::Review);
+    // Distinct findings still add up.
+    let mut both = once.clone();
+    both.merge(classify_text(Some("ecris a moi@example.com"), &config));
+    assert_eq!(both.score, once.score + 15);
+    assert!(both.reasons.contains(&"phone") && both.reasons.contains(&"email"));
+    // So does a finding the image adds to the caption.
+    let mut image = once.clone();
+    image.merge(analyze_image_bytes(
+        &jpeg_with_gps_metadata(),
+        text,
+        &config,
+    ));
+    assert!(image.reasons.contains(&"gps"));
+    assert_eq!(action_for(&image, &config), PrivacyAction::Block);
+}
+
+#[test]
+fn everyday_words_numbers_and_links_are_not_identity_data() {
+    let config = strict_config();
+    for text in [
+        // Documents: everyday words, a Discord link.
+        "date limite pour la carte cadeau 12345678",
+        "carte du jour, date et social https://discord.com/channels/123456789012345678/987654321098765432",
+        // Plates: lowercase words around a number.
+        "ping en 100 ms",
+        // IPv4: version numbers.
+        "Build 1.5.2.1",
+        "Relay 1.5.2.1 est sorti",
+        "Build 2.10.1.0",
+        // Links: hash and ID tokens with long digit runs.
+        "https://cdn.discordapp.com/attachments/1234567890123456789/1234567890123456789/cat.png?ex=6734b2c1&is=67336141&hm=0612345678ab0c0d0e0f&",
+        "https://media.giphy.com/media/abc/giphy.gif?cid=00123456789abcdef&rid=giphy.gif&ct=g",
+        "https://tenor.com/view/cat-dance-gif-25012345",
+        "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=42s",
+        "https://www.twitch.tv/videos/1234567890?t=1h2m3s",
+    ] {
+        let report = classify_text(Some(text), &config);
+        assert_eq!(
+            report.classification,
+            PrivacyClassification::Safe,
+            "{text}: {report:?}"
+        );
+    }
+    for (text, category) in [
+        (
+            "passport number 123456789 date of birth",
+            PrivacyCategory::Document,
+        ),
+        ("AB-123-CD", PrivacyCategory::LicensePlate),
+        ("plaque ab-123-cd", PrivacyCategory::LicensePlate),
+        ("IP: 203.0.113.42", PrivacyCategory::IpAddress),
+        ("Build 2.10.1.0 from 10.0.0.12", PrivacyCategory::IpAddress),
+        (
+            "https://example.com/reset?token=abc123",
+            PrivacyCategory::SensitiveUrl,
+        ),
+        (
+            "https://example.com/call?n=0612345678",
+            PrivacyCategory::SensitiveUrl,
+        ),
+    ] {
+        assert!(has_category(text, category), "{text}");
+    }
+}
+
+#[test]
+fn a_look_alike_word_waits_for_review_at_every_level() {
+    for level in [
+        ProtectionLevel::Balanced,
+        ProtectionLevel::Strict,
+        ProtectionLevel::Paranoid,
+    ] {
+        let config = AppConfig {
+            privacy_protection_level: level,
+            privacy_similarity_boost: 100,
+            ..config()
+        };
+        let look_alike = classify_text(Some("hitier"), &config);
+        assert_eq!(look_alike.classification, PrivacyClassification::Medium);
+        assert_eq!(action_for(&look_alike, &config), PrivacyAction::Review);
+        let exact = classify_text(Some("hitler"), &config);
+        assert_eq!(action_for(&exact, &config), PrivacyAction::Block);
+    }
 }

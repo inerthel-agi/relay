@@ -12,7 +12,7 @@
 1. **Honeypot.** A message in the trap channel triggers a translated DM, then a kick, ban or timeout, and deletion. Roles in `moderation.honeypotExemptRoleIds` only get the message deleted.
 2. **Gate** (`src-tauri/src/moderation.rs`, `ModerationRuntime::evaluate`). It runs on the raw Discord message, before any scan, in this order:
    - ignored members are dropped;
-   - trusted roles or members pass and skip manual review, cooldowns and spam checks; so do the server owner and members whose roles grant Administrator, Manage Server or Manage Messages (read from the Discord cache). Privacy rules still apply to them;
+   - trusted roles or members pass and skip manual review, cooldowns and spam checks; so do the server owner and members whose roles grant Administrator, Manage Server or Manage Messages (read from the Discord cache). Privacy rules still apply to them, but a privacy Review or a hold publishes instead of queuing (`state::skips_review`, server staff since 2026-11-11, trusted roles and members too since the same day), and only a Block stops their message;
    - the per-member cooldown drops media or notifications that come too soon; with **Tell the member** on (default), the bot replies in the channel with a mention and deletes the reply after 10 s (Discord has no ephemeral reply to a plain message), at most once a minute per member and five times a minute in all;
    - notification spam (mentions, capitals, emoji, repeated characters) is dropped;
    - media seen within the repeated media window (`duplicateWindowSeconds`, 5 to 3600 s, 1 minute by default) is dropped as a duplicate;
@@ -22,10 +22,10 @@
 3. **Text rules and privacy scan** (`privacy.rs`). `classify_text` uses custom concepts plus the enabled word lists (`moderation/packs.rs`, minus `packExclusions`) and link rules. Exempt roles and channels outside `filterScopes` skip every text rule. The image scan, OCR and EXIF checks are unchanged.
 4. **Route** (`state.rs`, `review_route`):
    - a Block is dropped and logged;
-   - a Review or a gate hold goes to the queue;
+   - a Review or a gate hold goes to the queue, except for server staff and trusted roles or members, whose media is published;
    - with manual review on, unchecked types are dropped, unless `reviewOnlySelected` lets them pass;
    - with a safety delay, media waits `safetyDelaySeconds` in the queue and publishes itself unless rejected.
-5. **Notifications** flagged for review wait in a separate text queue when `reviewText` is on (the default). Before, they were dropped silently.
+5. **Notifications** flagged for review wait in a separate text queue when `reviewText` is on (the default). Before, they were dropped silently. A text from server staff or a trusted role or member is shown instead, whatever `reviewText` says.
 
 ## Queue
 

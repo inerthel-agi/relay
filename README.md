@@ -16,10 +16,10 @@ Download the installer or portable executable from [Releases](https://github.com
 Run the downloaded installer:
 
 ```powershell
-.\Relay_1.5.2_x64-setup.exe
+.\Relay_1.5.3_x64-setup.exe
 ```
 
-Or run `Relay_1.5.2_x64-portable.exe` directly.
+Or run `Relay_1.5.3_x64-portable.exe` directly.
 
 To build from source with the prerequisites installed:
 
@@ -61,9 +61,10 @@ Edit settings in Relay. Configuration is stored in the application configuration
 - Windows only. OBS must run on the same computer.
 - One bot runs per instance. Extra channels must be in servers where that bot was added. Cleanup, welcome messages, lock, AutoMod and `/relay` commands only apply to the main channels and the Relay channel's server.
 - History is limited to 50 entries and is lost on exit.
-- OCR is limited to available French and English Windows language packs. Animated images require review when OCR has not inspected every frame; videos are not fully frame-scanned.
-- The voice check needs FFmpeg 8 built with Whisper (for example `winget install Gyan.FFmpeg`; the essentials build lacks it) and a 60 MB model. It runs on the processor only. Sounds that take more than about two minutes to transcribe are held for review.
-- Local output access does not isolate other programs running on the same computer.
+- OCR is limited to available French and English Windows language packs. Animated images are scanned on three frames spread over the animation (FFmpeg needed), so text shown only on other frames can be missed; without FFmpeg, or when the frames cannot be read, they require review. GIFs from Tenor, Giphy and Klipy are scanned on their first frame. Videos are not fully frame-scanned.
+- The voice check needs FFmpeg 8 built with Whisper (for example `winget install Gyan.FFmpeg`; the essentials build lacks it) and a 60 MB model. It runs on the processor only. Sounds that take more than about two minutes to transcribe are held for review, except from server staff (see below).
+- Server staff (the server owner and members with Administrator, Manage Server or Manage Messages) and the trusted roles and members never wait for manual review: a privacy review or a hold publishes their message. Personal data that reaches the block threshold still blocks it.
+- Local output access does not isolate other programs running on the same computer. Relay talks to whatever program listens on the OBS WebSocket port. OBS pages use `localhost` because YouTube refuses `127.0.0.1`, while Relay listens on `127.0.0.1` only. Both limits matter only if a hostile program already runs on the PC.
 - YouTube export may download external helpers. These use provider checksums; Relay installers use a separate pinned update signature.
 
 See [SECURITY.md](SECURITY.md) for private vulnerability reporting and [docs/architecture.md](docs/architecture.md) for implementation details.

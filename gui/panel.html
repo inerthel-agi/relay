@@ -162,7 +162,7 @@
               aria-expanded="false"
               aria-controls="update-menu"
             >
-              <span><span class="version__platform">Windows · </span>v<span data-app-version>1.5.2</span></span>
+              <span><span class="version__platform">Windows · </span>v<span data-app-version>1.5.3</span></span>
               <span id="update-available-dot" class="update-available-dot" hidden></span>
               <svg class="update-check__icon" viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M20 6v5h-5M4 18v-5h5M6.1 9a7 7 0 0 1 11.3-2.1L20 11M4 13l2.6 4.1A7 7 0 0 0 17.9 15"/>
@@ -1434,6 +1434,7 @@
                       <span data-i18n="privacyConcepts">Filter words or phrases</span>
                       <input id="privacy-concepts" type="text" autocomplete="off" spellcheck="false" placeholder="fdp, hitler, ...">
                       <small data-i18n="privacyConceptsHelp">Enter comma-separated words or phrases, for example: fdp, hitler. Relay handles case, punctuation and separators, leetspeak, supported homoglyphs, repeated letters, and cautious similarity. Existing aliases and regexes are preserved when the same canonical form remains.</small>
+                      <small id="privacy-concepts-refused" class="save-state field-error" data-state="error" role="status" hidden></small>
                     </label>
                     <label class="field">
                       <span data-i18n="privacySimilarityBoost">Weight of near matches</span>
@@ -2033,7 +2034,7 @@
                       <p id="moderation-ai-key-result" class="save-state" role="status"></p>
                     </div>
                       <small class="ai-step__hint" data-i18n="aiKeysStored">Keys are stored in Windows Credential Manager, never in Relay's files.</small>
-                      <small id="moderation-ai-free-key-hint" class="ai-step__hint" data-i18n="aiFreeKeyHint" hidden>With Anthropic, the OpenAI key is used only for OpenAI's free image filter.</small>
+                      <small id="moderation-ai-free-key-hint" class="ai-step__hint" data-i18n="aiFreeKeyHint" hidden>With Anthropic, the OpenAI key is used only for OpenAI's free image filter. Without it, Anthropic also checks sexual content, violence and self-harm, with paid requests.</small>
                     </section>
                     <section class="ai-step" data-ai-step="3">
                       <h4 class="ai-step__title"><span class="ai-step__number">3</span><span data-i18n="aiStepUse">Choose what the AI does</span></h4>
@@ -2846,7 +2847,7 @@
                 <div>
                   <span class="kicker">Relay</span>
                   <strong>Relay</strong>
-                  <small>Windows · v<span data-app-version>1.5.2</span></small>
+                  <small>Windows · v<span data-app-version>1.5.3</span></small>
                 </div>
               </div>
               <div class="about-card__statement">

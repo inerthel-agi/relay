@@ -353,13 +353,14 @@ const MODERATION_GROUPS: [(&str, &[&str]); 3] = [
     ),
 ];
 
-/// One image through OpenAI's free moderation filter: the groups it flags.
+/// One image through OpenAI's free moderation filter: the groups it flags,
+/// each with whether it is sure (`parse_moderation`).
 /// Nothing is stored or retried; any failure is an error the caller holds on.
 pub async fn moderate_image(
     api_key: &str,
     image: &AiImage,
     deadline: Duration,
-) -> Result<Vec<&'static str>, AiError> {
+) -> Result<Vec<(&'static str, bool)>, AiError> {
     moderate_image_at(OPENAI_BASE_URL, api_key, image, deadline).await
 }
 
@@ -368,7 +369,7 @@ pub(super) async fn moderate_image_at(
     api_key: &str,
     image: &AiImage,
     deadline: Duration,
-) -> Result<Vec<&'static str>, AiError> {
+) -> Result<Vec<(&'static str, bool)>, AiError> {
     let headers = headers(AiProvider::OpenAi, api_key)?;
     let body = serde_json::to_vec(&json!({
         "model": MODERATION_MODEL,
@@ -388,18 +389,34 @@ pub(super) async fn moderate_image_at(
     parse_moderation(&response)
 }
 
-pub(super) fn parse_moderation(response: &Value) -> Result<Vec<&'static str>, AiError> {
-    let categories = response["results"][0]["categories"]
+/// Score from which a flagged group blocks; below it, the image is held for
+/// review (user's choice, 2026-11-10: a doubt waits, it is not deleted). OpenAI
+/// flags from much lower scores, so 0.9 keeps blocks for near-certain cases.
+pub(super) const MODERATION_BLOCK_SCORE: f64 = 0.9;
+
+/// The groups flagged, each with whether one of its flags scored at least
+/// `MODERATION_BLOCK_SCORE`. A flag without a readable score is not sure.
+pub(super) fn parse_moderation(response: &Value) -> Result<Vec<(&'static str, bool)>, AiError> {
+    let result = &response["results"][0];
+    let categories = result["categories"]
         .as_object()
         .ok_or(AiError::InvalidOutput)?;
+    let scores = &result["category_scores"];
     Ok(MODERATION_GROUPS
         .iter()
-        .filter(|(_, flags)| {
-            flags
+        .filter_map(|(group, flags)| {
+            let flagged = flags
                 .iter()
-                .any(|flag| categories.get(*flag).and_then(Value::as_bool) == Some(true))
+                .filter(|flag| categories.get(**flag).and_then(Value::as_bool) == Some(true));
+            let mut flagged = flagged.peekable();
+            flagged.peek()?;
+            let sure = flagged.any(|flag| {
+                scores[*flag]
+                    .as_f64()
+                    .is_some_and(|score| score >= MODERATION_BLOCK_SCORE)
+            });
+            Some((*group, sure))
         })
-        .map(|(group, _)| *group)
         .collect())
 }
 

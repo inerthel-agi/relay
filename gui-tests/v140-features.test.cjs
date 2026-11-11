@@ -44,6 +44,21 @@ test("the bot check names the Relay channel and the former channels awaiting a c
   ]);
 });
 
+test("an unverified channel is neither ready nor a reason to re-invite the bot", () => {
+  const summary = describeDiscordCheck({
+    botConnected: true,
+    messageContentIntent: "enabled",
+    checks: [
+      { feature: "relay", channelName: "relay", status: "unverified", missing: [] },
+      { feature: "music", channelName: "music", status: "ok", missing: [] },
+    ],
+  }, t, format);
+  assert.equal(summary.rows[0].state, "idle");
+  assert.equal(summary.rows[0].text, "checkUnverified");
+  assert.equal(summary.needsInvite, false);
+  assert.equal(summary.message, "checkProblems");
+});
+
 test("a disabled intent is reported even when the bot cannot connect", () => {
   const offline = describeDiscordCheck({ botConnected: false, messageContentIntent: "missing", checks: [] }, t, format);
   assert.equal(offline.state, "error");

@@ -214,6 +214,9 @@ pub struct PrivacyReport {
     /// Signature of the privacy configuration snapshot used for this report.
     /// It is process-local metadata and is never serialized to the UI.
     pub config_signature: Option<u64>,
+    /// Points counted for each reason, so the same text scanned twice for one
+    /// media (caption, then image scan, then final gate) counts once.
+    pub(crate) points: Vec<(&'static str, u8)>,
 }
 
 impl PrivacyReport {
@@ -221,34 +224,43 @@ impl PrivacyReport {
         Self::default()
     }
 
-    pub fn suspicious(reason: &'static str) -> Self {
+    fn single(classification: PrivacyClassification, score: u8, reason: &'static str) -> Self {
         Self {
-            classification: PrivacyClassification::Medium,
-            score: 35,
+            classification,
+            score,
             categories: reason_category(reason).into_iter().collect(),
             reasons: vec![reason],
             config_signature: None,
+            points: vec![(reason, score)],
         }
     }
 
+    pub fn suspicious(reason: &'static str) -> Self {
+        Self::single(PrivacyClassification::Medium, 35, reason)
+    }
+
     pub fn low(reason: &'static str) -> Self {
-        Self {
-            classification: PrivacyClassification::Low,
-            score: 10,
-            categories: reason_category(reason).into_iter().collect(),
-            reasons: vec![reason],
-            config_signature: None,
-        }
+        Self::single(PrivacyClassification::Low, 10, reason)
     }
 
     #[cfg(test)]
     pub fn sensitive(reason: &'static str) -> Self {
-        Self {
-            classification: PrivacyClassification::High,
-            score: 70,
-            categories: reason_category(reason).into_iter().collect(),
-            reasons: vec![reason],
-            config_signature: None,
+        Self::single(PrivacyClassification::High, 70, reason)
+    }
+
+    /// Records `points` for `reason` and returns the points not counted yet:
+    /// a reason already counted only adds what exceeds its earlier points.
+    fn count_points(&mut self, reason: &'static str, points: u8) -> u8 {
+        match self.points.iter_mut().find(|(known, _)| *known == reason) {
+            Some((_, counted)) => {
+                let added = points.saturating_sub(*counted);
+                *counted = (*counted).max(points);
+                added
+            }
+            None => {
+                self.points.push((reason, points));
+                points
+            }
         }
     }
 
@@ -257,7 +269,16 @@ impl PrivacyReport {
         if other.classification.rank() > self.classification.rank() {
             self.classification = other.classification;
         }
-        self.score = self.score.saturating_add(other.score).min(100);
+        // Points not tied to a reason (a combination raised to 100) still add.
+        let counted = other
+            .points
+            .iter()
+            .fold(0_u8, |sum, (_, points)| sum.saturating_add(*points));
+        let mut added = other.score.saturating_sub(counted);
+        for (reason, points) in other.points {
+            added = added.saturating_add(self.count_points(reason, points));
+        }
+        self.score = self.score.saturating_add(added).min(100);
         for category in other.categories {
             if !self.categories.contains(&category) {
                 self.categories.push(category);
@@ -313,7 +334,6 @@ impl PrivacyReport {
                     | "partial_address"
                     | "location_profile"
                     | "address_or_visual_context"
-                    | "image_limits"
             )
         }) {
             PrivacyClassification::High
@@ -322,6 +342,8 @@ impl PrivacyReport {
         };
         self.categories
             .retain(|category| *category != PrivacyCategory::ContentFilter);
+        let reasons = &self.reasons;
+        self.points.retain(|(reason, _)| reasons.contains(reason));
         self.score = match self.classification {
             PrivacyClassification::Safe => 0,
             PrivacyClassification::Low => 15,
@@ -351,7 +373,8 @@ impl PrivacyReport {
         reason: &'static str,
         config: &AppConfig,
     ) {
-        self.score = self.score.saturating_add(points).min(100);
+        let added = self.count_points(reason, points);
+        self.score = self.score.saturating_add(added).min(100);
         if !self.categories.contains(&category) {
             self.categories.push(category);
         }
@@ -397,12 +420,17 @@ fn reason_category(reason: &str) -> Option<PrivacyCategory> {
     })
 }
 
-fn risk_for_score(score: u8, level: ProtectionLevel) -> PrivacyClassification {
-    let (low, medium, high, critical) = match level {
+/// Lowest score of Low, Medium, High and Critical.
+fn risk_thresholds(level: ProtectionLevel) -> (u8, u8, u8, u8) {
+    match level {
         ProtectionLevel::Balanced => (15, 30, 60, 90),
         ProtectionLevel::Strict => (10, 25, 50, 80),
         ProtectionLevel::Paranoid => (5, 20, 40, 70),
-    };
+    }
+}
+
+fn risk_for_score(score: u8, level: ProtectionLevel) -> PrivacyClassification {
+    let (low, medium, high, critical) = risk_thresholds(level);
     if score >= critical {
         PrivacyClassification::Critical
     } else if score >= high {
@@ -489,12 +517,16 @@ pub fn classify_text(text: Option<&str>, config: &AppConfig) -> PrivacyReport {
         );
     }
     if concept_matches.similarities > 0 {
+        // A look-alike word alone asks for review, never a block (user's
+        // choice, 2026-11-11): its points stay below the High threshold.
+        let (_, _, high, _) = risk_thresholds(config.privacy_protection_level);
         report.add_signal(
             PrivacyCategory::ContentFilter,
             config
                 .privacy_similarity_boost
                 .saturating_mul(concept_matches.similarities)
-                .saturating_mul(20),
+                .saturating_mul(20)
+                .min(high - 1),
             PrivacyClassification::Medium,
             if config.privacy_similarity_boost >= 4 {
                 "similarity_score"
@@ -543,12 +575,17 @@ pub fn classify_text(text: Option<&str>, config: &AppConfig) -> PrivacyReport {
         );
     }
     if category_enabled(config, PrivacyCategory::GpsLocation)
-        && coordinate_signal(&masked).is_some()
+        && let Some(class) = coordinate_signal(&masked)
     {
+        let points = if class == PrivacyClassification::Sensitive {
+            70
+        } else {
+            35
+        };
         report.add_signal(
             PrivacyCategory::GpsLocation,
-            70,
-            PrivacyClassification::High,
+            points,
+            class,
             "coordinates",
             config,
         );
@@ -710,15 +747,11 @@ pub async fn analyze_remote_image(
     report
 }
 
+/// A file over the scan limits is held for review, not blocked: its size is
+/// not evidence of personal data (user's choice, 2026-11-11).
 pub fn image_limit_report(text: Option<&str>, config: &AppConfig) -> PrivacyReport {
     let mut report = classify_text(text, config);
-    report.add_signal(
-        PrivacyCategory::MediaSafety,
-        80,
-        PrivacyClassification::High,
-        "image_limits",
-        config,
-    );
+    report.merge(PrivacyReport::low("image_limits"));
     report
 }
 
@@ -730,35 +763,39 @@ pub fn analyze_image_bytes(bytes: &[u8], text: Option<&str>, config: &AppConfig)
     analyze_image(bytes, text, config, false)
 }
 
+/// Scans the image, or only the first frame of an animation, which then
+/// needs review unless it comes from a public GIF library. The app samples
+/// later frames instead (`analyze_image_async`).
+#[cfg(test)]
 fn analyze_image(
     bytes: &[u8],
     text: Option<&str>,
     config: &AppConfig,
     library_gif: bool,
 ) -> PrivacyReport {
+    let (mut report, unread_frames) = scan_first_frame(bytes, text, config);
+    if unread_frames && !library_gif {
+        report.merge(PrivacyReport::low("scan_incomplete"));
+        report.apply_score_policy(config);
+    }
+    report
+}
+
+/// The scan of a still image or of an animation's first frame (OCR reads
+/// frame zero only), and whether later frames were left unread.
+fn scan_first_frame(bytes: &[u8], text: Option<&str>, config: &AppConfig) -> (PrivacyReport, bool) {
     let mut report = classify_text(text, config);
     if !config.privacy_scan_enabled {
-        return report;
+        return (report, false);
     }
+    // Limits and unknown formats are never decoded; they wait for review.
     if bytes.len() > MAX_IMAGE_BYTES {
-        report.add_signal(
-            PrivacyCategory::MediaSafety,
-            80,
-            PrivacyClassification::High,
-            "image_limits",
-            config,
-        );
-        return report;
+        report.merge(PrivacyReport::low("image_limits"));
+        return (report, false);
     }
     if !supported_image_signature(bytes) {
-        report.add_signal(
-            PrivacyCategory::MediaSafety,
-            70,
-            PrivacyClassification::High,
-            "mime_mismatch",
-            config,
-        );
-        return report;
+        report.merge(PrivacyReport::low("mime_mismatch"));
+        return (report, false);
     }
     // Parse GPS independently of the platform decoder so a malformed or
     // unsupported image cannot turn a location-bearing asset into a safe one.
@@ -791,7 +828,7 @@ fn analyze_image(
                 report.merge(PrivacyReport::low("scan_incomplete"));
             }
             report.merge(PrivacyReport::low("image_scan_unavailable"));
-            return report;
+            return (report, false);
         }
     };
     if signals.gps && category_enabled(config, PrivacyCategory::GpsLocation) {
@@ -803,15 +840,10 @@ fn analyze_image(
             config,
         );
     }
-    // OCR inspects only frame zero; later animation frames still need review,
-    // except for GIFs from a public GIF library.
-    if exif.incomplete
-        || signals.exif_incomplete
-        || signals.ocr_truncated
-        || (ocr_requested && signals.frame_count > 1 && !library_gif)
-    {
+    if exif.incomplete || signals.exif_incomplete || signals.ocr_truncated {
         report.merge(PrivacyReport::low("scan_incomplete"));
     }
+    let unread_frames = ocr_requested && signals.frame_count > 1;
     if !signals.dimensions_valid
         || signals.frame_count == 0
         || signals.frame_count > MAX_IMAGE_FRAMES
@@ -820,14 +852,12 @@ fn analyze_image(
             .saturating_mul(u64::from(signals.frame_count))
             > MAX_ANIMATED_PIXELS
     {
-        report.add_signal(
-            PrivacyCategory::MediaSafety,
-            80,
-            PrivacyClassification::High,
-            "image_limits",
-            config,
-        );
-        return report;
+        report.merge(PrivacyReport::low("image_limits"));
+        // Already held: no frame sampling, but the unread frames stay recorded.
+        if unread_frames {
+            report.merge(PrivacyReport::low("scan_incomplete"));
+        }
+        return (report, false);
     }
     if ocr_requested && signals.ocr_available {
         let ocr_report = classify_text(Some(&signals.ocr_text), config);
@@ -841,7 +871,7 @@ fn analyze_image(
         report.merge(PrivacyReport::low("scan_incomplete"));
     }
     report.apply_score_policy(config);
-    report
+    (report, unread_frames)
 }
 
 /// Runs the platform decoder behind a bounded worker pool. The semaphore
@@ -856,7 +886,7 @@ pub async fn analyze_image_bytes_async(
 }
 
 /// Same scan for a GIF served by a public GIF library (Tenor, Giphy, Klipy):
-/// OCR of its first frame is enough, so its later frames do not force a review.
+/// OCR of its first frame is enough, so its later frames are not sampled.
 pub async fn analyze_library_gif_async(
     bytes: &[u8],
     text: Option<&str>,
@@ -874,11 +904,56 @@ async fn analyze_image_async(
     if !config.privacy_scan_enabled {
         return classify_text(text, config);
     }
+    let Some((mut report, unread_frames)) = scan_first_frame_async(bytes, text, config).await
+    else {
+        return PrivacyReport::low("scan_incomplete");
+    };
+    if unread_frames && !library_gif {
+        // Outside the scan pool: FFmpeg never holds a scan worker.
+        let frames = tokio::time::timeout(
+            FRAME_SAMPLE_TIMEOUT,
+            crate::media_compat::frames_from_bytes(bytes.to_vec()),
+        )
+        .await
+        .ok()
+        .flatten();
+        report.merge(scan_sampled_frames(frames, config).await);
+        report.apply_score_policy(config);
+    }
+    report
+}
+
+/// FFmpeg gives up after 30 s; this also bounds the wait for its single slot.
+const FRAME_SAMPLE_TIMEOUT: Duration = Duration::from_secs(45);
+
+/// OCR reads an animation's first frame only, so three frames spread over it
+/// (`media_compat::frames_from_bytes`) are scanned like still images. Accepted
+/// limit (user's choice, 2026-11-10): text only in an unsampled frame is missed.
+/// No frames (no FFmpeg, timeout, partial sample) keeps the review.
+async fn scan_sampled_frames(frames: Option<Vec<Vec<u8>>>, config: &AppConfig) -> PrivacyReport {
+    let Some(frames) = frames.filter(|frames| !frames.is_empty()) else {
+        return PrivacyReport::low("scan_incomplete");
+    };
+    let mut report = PrivacyReport::safe();
+    for frame in frames {
+        match scan_first_frame_async(&frame, None, config).await {
+            Some((frame_report, false)) => report.merge(frame_report),
+            _ => report.merge(PrivacyReport::low("scan_incomplete")),
+        }
+    }
+    report
+}
+
+async fn scan_first_frame_async(
+    bytes: &[u8],
+    text: Option<&str>,
+    config: &AppConfig,
+) -> Option<(PrivacyReport, bool)> {
     let semaphore = scan_semaphore();
     let Ok(Ok(permit)) =
         tokio::time::timeout(IMAGE_SCAN_TIMEOUT, semaphore.clone().acquire_owned()).await
     else {
-        return PrivacyReport::low("scan_incomplete");
+        return None;
     };
     let bytes = bytes.to_vec();
     let text = text.map(str::to_owned);
@@ -887,13 +962,13 @@ async fn analyze_image_async(
         IMAGE_SCAN_TIMEOUT,
         tokio::task::spawn_blocking(move || {
             let _permit = permit;
-            analyze_image(&bytes, text.as_deref(), &config, library_gif)
+            scan_first_frame(&bytes, text.as_deref(), &config)
         }),
     )
     .await
     {
-        Ok(Ok(report)) => report,
-        _ => PrivacyReport::low("scan_incomplete"),
+        Ok(Ok(scan)) => Some(scan),
+        _ => None,
     }
 }
 
@@ -1006,6 +1081,23 @@ struct ExifSignals {
     gps: bool,
     sensitive_metadata: bool,
     incomplete: bool,
+}
+
+/// EXIF fields that name a person or one of their devices (author, owner,
+/// serial numbers, free comment), unlike a camera model or a date.
+pub fn exif_identifies(bytes: &[u8]) -> bool {
+    let Ok(exif) = Reader::new().read_from_container(&mut Cursor::new(bytes)) else {
+        return false;
+    };
+    [
+        Tag::Artist,
+        Tag::CameraOwnerName,
+        Tag::BodySerialNumber,
+        Tag::LensSerialNumber,
+        Tag::UserComment,
+    ]
+    .into_iter()
+    .any(|tag| exif.get_field(tag, In::PRIMARY).is_some())
 }
 
 fn parse_exif(bytes: &[u8]) -> ExifSignals {
@@ -1341,19 +1433,39 @@ fn numeric_candidates(text: &str) -> Vec<(String, String)> {
     candidates
 }
 
+/// A dialable number: international (`+`, `00`) or national (ten digits
+/// starting with 0). Ten digits with separators are not enough: dates, times
+/// and amounts look like that. Link queries are skipped: their tokens hold
+/// long digit runs (`contains_sensitive_url` checks query values). A full
+/// date followed by an hour ("01/11/2026 20h") is not a number either.
 fn contains_phone(text: &str) -> bool {
-    numeric_candidates(text).into_iter().any(|(raw, digits)| {
-        if !(10..=15).contains(&digits.len()) {
-            return false;
-        }
-        let separators = raw
-            .chars()
-            .filter(|character| matches!(character, ' ' | '-' | '.' | '/' | '(' | ')'))
-            .count();
-        let international = raw.trim_start().starts_with('+') || digits.starts_with("00");
-        let national = digits.len() == 10 && digits.starts_with('0');
-        (international || national || (digits.len() == 10 && separators >= 2))
-            && !looks_like_payment_card(&digits)
+    static DATE_AND_HOUR: OnceLock<Regex> = OnceLock::new();
+    let date_and_hour = DATE_AND_HOUR.get_or_init(|| {
+        Regex::new(r"^\d{1,2}[/.-]\d{1,2}[/.-]\d{4} \d{1,2}$").expect("valid date matcher")
+    });
+    let without_queries = url_matcher().replace_all(text, |link: &regex::Captures| {
+        link[0]
+            .split(['?', '#'])
+            .next()
+            .unwrap_or_default()
+            .to_owned()
+    });
+    numeric_candidates(&without_queries)
+        .into_iter()
+        .any(|(raw, digits)| {
+            if !(10..=15).contains(&digits.len()) || date_and_hour.is_match(raw.trim()) {
+                return false;
+            }
+            let international = raw.trim_start().starts_with('+') || digits.starts_with("00");
+            let national = digits.len() == 10 && digits.starts_with('0');
+            (international || national) && !looks_like_payment_card(&digits)
+        })
+}
+
+fn url_matcher() -> &'static Regex {
+    static URL: OnceLock<Regex> = OnceLock::new();
+    URL.get_or_init(|| {
+        Regex::new(r#"(?iu)https?://[^\s<>\"']{1,2048}"#).expect("valid URL matcher")
     })
 }
 
@@ -1371,21 +1483,33 @@ fn postal_address_signal(text: &str, words: &[String]) -> AddressSignal {
         "avenue",
         "av",
         "boulevard",
-        "bd",
         "chemin",
-        "drive",
         "impasse",
-        "lane",
-        "place",
         "quai",
         "road",
-        "route",
         "rue",
-        "square",
         "street",
-        "voie",
-        "way",
     ];
+    // Everyday words too ("il reste 1 place pour ce soir", "3 bd"): they make
+    // a street only next to a capitalized name ("place Bellecour", "Penny
+    // Lane") or before a postcode and city.
+    let generic_street_types = [
+        "bd", "drive", "lane", "place", "route", "square", "voie", "way",
+    ];
+    // `words` holds one entry per whitespace segment with a letter or digit.
+    let raw_words = text
+        .split_whitespace()
+        .filter(|segment| segment.chars().any(char::is_alphanumeric))
+        .collect::<Vec<_>>();
+    let capitalized_name = |position: usize| {
+        raw_words.len() == words.len()
+            && raw_words[position]
+                .chars()
+                .next()
+                .is_some_and(char::is_uppercase)
+            && words[position].chars().count() >= 2
+            && words[position].chars().all(char::is_alphabetic)
+    };
     for (index, word) in words.iter().enumerate() {
         if !(1..=5).contains(&word.len())
             || !word.chars().all(|character| character.is_ascii_digit())
@@ -1393,14 +1517,43 @@ fn postal_address_signal(text: &str, words: &[String]) -> AddressSignal {
             continue;
         }
         let following = words.iter().skip(index + 1).take(5).collect::<Vec<_>>();
+        let tail = words.iter().skip(index + 1).take(12).collect::<Vec<_>>();
+        let has_postcode_city = tail.windows(2).any(|pair| {
+            (4..=6).contains(&pair[0].len())
+                && pair[0].chars().all(|character| character.is_ascii_digit())
+                && pair[1].chars().count() >= 2
+                && pair[1].chars().all(char::is_alphabetic)
+        });
+        let named_generic_type = |offset: usize| {
+            let position = index + 1 + offset;
+            let after = words
+                .iter()
+                .enumerate()
+                .skip(position + 1)
+                .find(|(_, candidate)| {
+                    !matches!(
+                        candidate.as_str(),
+                        "de" | "du" | "des" | "la" | "le" | "of" | "the"
+                    )
+                })
+                .is_some_and(|(name, _)| capitalized_name(name));
+            after || (offset > 0 && capitalized_name(position - 1))
+        };
         let Some(type_index) = following
             .iter()
-            .position(|candidate| street_types.contains(&candidate.as_str()))
+            .enumerate()
+            .position(|(offset, candidate)| {
+                street_types.contains(&candidate.as_str())
+                    || (generic_street_types.contains(&candidate.as_str())
+                        && (has_postcode_city || named_generic_type(offset)))
+            })
         else {
-            if has_address_prefix(text)
+            // A capitalized name, not a count: "I live 2 hours away", "chez moi 3 potes".
+            if has_address_prefix(&words[index.saturating_sub(3)..index])
                 && following.first().is_some_and(|candidate| {
                     candidate.chars().count() >= 3 && candidate.chars().all(char::is_alphabetic)
                 })
+                && capitalized_name(index + 1)
             {
                 return AddressSignal::Probable;
             }
@@ -1420,13 +1573,6 @@ fn postal_address_signal(text: &str, words: &[String]) -> AddressSignal {
         if !has_street_name {
             return AddressSignal::Partial;
         }
-        let tail = words.iter().skip(index + 1).take(12).collect::<Vec<_>>();
-        let has_postcode_city = tail.windows(2).any(|pair| {
-            (4..=6).contains(&pair[0].len())
-                && pair[0].chars().all(|character| character.is_ascii_digit())
-                && pair[1].chars().count() >= 2
-                && pair[1].chars().all(char::is_alphabetic)
-        });
         return if has_postcode_city {
             AddressSignal::Full
         } else {
@@ -1550,17 +1696,16 @@ fn contains_license_plate(text: &str) -> bool {
             "immat" | "immatriculation" | "license" | "plate" | "plaque" | "registration"
         )
     });
-    regex
-        .find_iter(text)
-        .any(|candidate| context || candidate.as_str().contains(['-', ' ']))
+    // Without a plate word, only an uppercase plate counts: "en 100 ms" is not one.
+    regex.find_iter(text).any(|candidate| {
+        context
+            || (candidate.as_str().contains(['-', ' '])
+                && !candidate.as_str().chars().any(char::is_lowercase))
+    })
 }
 
 fn contains_sensitive_url(text: &str) -> bool {
-    static URL: OnceLock<Regex> = OnceLock::new();
-    let regex = URL.get_or_init(|| {
-        Regex::new(r#"(?iu)https?://[^\s<>\"']{1,2048}"#).expect("valid URL matcher")
-    });
-    regex.find_iter(text).any(|candidate| {
+    url_matcher().find_iter(text).any(|candidate| {
         let trimmed = candidate
             .as_str()
             .trim_end_matches([',', '.', ')', ']', '}', ';']);
@@ -1590,7 +1735,12 @@ fn contains_sensitive_url(text: &str) -> bool {
                     | "telephone"
                     | "token"
             ) || contains_email(&value)
-                || contains_phone(&value)
+                // The whole value, not a digit run inside a hash or an ID
+                // token (`hm=` on Discord links, `cid=` on Giphy).
+                || (value.chars().all(|character| {
+                    character.is_ascii_digit()
+                        || matches!(character, '+' | '-' | '.' | ' ' | '(' | ')' | '/')
+                }) && contains_phone(&value))
                 || contains_ip_address(&value)
         })
     })
@@ -1598,34 +1748,35 @@ fn contains_sensitive_url(text: &str) -> bool {
 
 fn contains_document_signal(text: &str) -> bool {
     let normalized = normalize_rule_words(text);
-    let keyword_count = normalized
+    // Everyday words count only next to a word that names an identity paper.
+    let common = |word: &str| matches!(word, "carte" | "date" | "driver" | "license" | "social");
+    let keywords = normalized
         .iter()
         .filter(|word| {
-            matches!(
-                word.as_str(),
-                "administration"
-                    | "birth"
-                    | "carte"
-                    | "date"
-                    | "driver"
-                    | "identity"
-                    | "identite"
-                    | "license"
-                    | "naissance"
-                    | "nationalite"
-                    | "passport"
-                    | "passeport"
-                    | "permis"
-                    | "securite"
-                    | "social"
-                    | "surname"
-            )
+            common(word)
+                || matches!(
+                    word.as_str(),
+                    "administration"
+                        | "birth"
+                        | "identity"
+                        | "identite"
+                        | "naissance"
+                        | "nationalite"
+                        | "passport"
+                        | "passeport"
+                        | "permis"
+                        | "securite"
+                        | "surname"
+                )
         })
-        .count();
+        .collect::<Vec<_>>();
+    let keyword_count = keywords.len();
+    // Identity numbers stay under 16 digits; Discord IDs in links have 17 to 19.
     let long_number = numeric_candidates(text)
         .iter()
-        .any(|(_, digits)| digits.len() >= 8);
-    keyword_count >= 3 || (keyword_count >= 2 && long_number)
+        .any(|(_, digits)| (8..=15).contains(&digits.len()));
+    keywords.iter().any(|word| !common(word))
+        && (keyword_count >= 3 || (keyword_count >= 2 && long_number))
 }
 
 fn custom_pattern_match(words: &[String], patterns: &[String]) -> bool {
@@ -1675,22 +1826,22 @@ fn coordinate_signal(text: &str) -> Option<PrivacyClassification> {
         if !decimal_pair {
             return None;
         }
-        let explicit_hint = has_numeric_comma_pair(text)
-            || coordinate_hint
-                .split(|character: char| !character.is_ascii_alphanumeric())
-                .any(|word| {
-                    matches!(
-                        word,
-                        "gps"
-                            | "lat"
-                            | "latitude"
-                            | "lon"
-                            | "long"
-                            | "longitude"
-                            | "coord"
-                            | "coordinates"
-                    )
-                });
+        // A comma between two numbers is not a hint: "Prix 1.5, 2.25" is a list.
+        let explicit_hint = coordinate_hint
+            .split(|character: char| !character.is_ascii_alphanumeric())
+            .any(|word| {
+                matches!(
+                    word,
+                    "gps"
+                        | "lat"
+                        | "latitude"
+                        | "lon"
+                        | "long"
+                        | "longitude"
+                        | "coord"
+                        | "coordinates"
+                )
+            });
         if explicit_hint || (pair[0].1 >= 4 && pair[1].1 >= 4 && pair[0].0.abs() >= 20.0) {
             Some(PrivacyClassification::Sensitive)
         } else if pair[0].1 >= 3 && pair[1].1 >= 3 {
@@ -1701,30 +1852,28 @@ fn coordinate_signal(text: &str) -> Option<PrivacyClassification> {
     })
 }
 
-fn has_address_prefix(value: &str) -> bool {
-    normalize_rule_words(value)
-        .iter()
-        .rev()
-        .take(4)
-        .any(|word| {
-            matches!(
-                word.as_str(),
-                "address"
-                    | "adresse"
-                    | "domicile"
-                    | "home"
-                    | "house"
-                    | "residence"
-                    | "habite"
-                    | "jhabite"
-                    | "live"
-                    | "lives"
-                    | "living"
-                    | "reside"
-                    | "resides"
-                    | "chez"
-            )
-        })
+/// The few words right before a house number ("j'habite 12", "chez moi au
+/// 12"): a word like "live" later in the message says nothing about it.
+fn has_address_prefix(words: &[String]) -> bool {
+    words.iter().any(|word| {
+        matches!(
+            word.as_str(),
+            "address"
+                | "adresse"
+                | "domicile"
+                | "home"
+                | "house"
+                | "residence"
+                | "habite"
+                | "jhabite"
+                | "live"
+                | "lives"
+                | "living"
+                | "reside"
+                | "resides"
+                | "chez"
+        )
+    })
 }
 
 fn contains_ip_address(text: &str) -> bool {
@@ -1743,12 +1892,16 @@ fn contains_ip_address(text: &str) -> bool {
         {
             return false;
         }
-        !matches!(
-            normalize_rule_words(&text[..candidate.start()])
-                .last()
-                .map(String::as_str),
-            Some("version" | "ver" | "v")
-        ) && candidate.as_str().parse::<Ipv4Addr>().is_ok()
+        // "1.5.2.1" reads as a version number: an address that matters has an
+        // octet of two digits or more.
+        candidate.as_str().split('.').any(|octet| octet.len() > 1)
+            && !matches!(
+                normalize_rule_words(&text[..candidate.start()])
+                    .last()
+                    .map(String::as_str),
+                Some("version" | "ver" | "v" | "build" | "patch" | "release" | "update")
+            )
+            && candidate.as_str().parse::<Ipv4Addr>().is_ok()
     }) || text
         .split(|character: char| !character.is_ascii_hexdigit() && character != ':')
         .any(|candidate| {
@@ -1756,39 +1909,6 @@ fn contains_ip_address(text: &str) -> bool {
                 && candidate.parse::<Ipv6Addr>().is_ok()
                 && candidate.parse::<IpAddr>().is_ok()
         })
-}
-
-fn has_numeric_comma_pair(text: &str) -> bool {
-    let numeric = |value: &str| {
-        !value.is_empty()
-            && value
-                .chars()
-                .all(|character| character.is_ascii_digit() || matches!(character, '.' | '-' | '+'))
-            && value.parse::<f64>().is_ok()
-    };
-    for (index, character) in text.char_indices() {
-        if character != ',' {
-            continue;
-        }
-        let left = text[..index]
-            .trim_end()
-            .rsplit(|character: char| {
-                !(character.is_ascii_digit() || matches!(character, '.' | '-' | '+'))
-            })
-            .next()
-            .unwrap_or_default();
-        let right = text[index + character.len_utf8()..]
-            .trim_start()
-            .split(|character: char| {
-                !(character.is_ascii_digit() || matches!(character, '.' | '-' | '+'))
-            })
-            .next()
-            .unwrap_or_default();
-        if numeric(left) && numeric(right) {
-            return true;
-        }
-    }
-    false
 }
 
 fn decimal_precision(value: &str) -> usize {
@@ -2106,7 +2226,11 @@ pub fn action_for(report: &PrivacyReport, config: &AppConfig) -> PrivacyAction {
         && report.reasons.iter().any(|reason| {
             matches!(
                 *reason,
-                "scan_incomplete" | "image_scan_unavailable" | "image_fetch_unavailable"
+                "scan_incomplete"
+                    | "image_scan_unavailable"
+                    | "image_fetch_unavailable"
+                    | "image_limits"
+                    | "mime_mismatch"
             )
         })
     {

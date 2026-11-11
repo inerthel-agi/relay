@@ -529,18 +529,34 @@ async fn block_and_delete_message_if_needed(
     if !privacy_action_is_blocked(report, config) {
         return false;
     }
-    if should_auto_delete_blocked_message(report, config)
-        && message
+    if should_auto_delete_blocked_message(report, config) {
+        let failed = message
             .channel_id
             .delete_message(http, message.id)
             .await
-            .is_err()
-    {
-        core.bot_status.write().await.error =
-            Some("Privacy deletion failed. Verify Manage Messages in this channel.".into());
+            .is_err();
+        report_action_result(core, failed, PRIVACY_DELETION_FAILED).await;
     }
     follow_up_block(core, http, message, report, config).await;
     true
+}
+
+const PRIVACY_DELETION_FAILED: &str =
+    "Privacy deletion failed. Verify Manage Messages in this channel.";
+const AI_IMAGE_DELETION_FAILED: &str =
+    "AI image deletion failed. Verify Manage Messages in this channel.";
+const AUTOMATIC_TIMEOUT_FAILED: &str =
+    "Automatic timeout failed. Verify Moderate Members and the bot's role position.";
+
+/// Shows a failed Discord action in the panel until the same action succeeds
+/// again. Any other error message is left alone.
+pub(crate) async fn report_action_result(core: &AppCore, failed: bool, error: &'static str) {
+    let mut status = core.bot_status.write().await;
+    if failed {
+        status.error = Some(error.into());
+    } else if status.error.as_deref() == Some(error) {
+        status.error = None;
+    }
 }
 
 /// AI image check of one media of a member, after the local scan. Returns
@@ -578,6 +594,7 @@ async fn ai_image_check(
         config
     };
     let language = core.interface_preferences.read().await.language.clone();
+    let member = message.author.id.to_string();
     let outcome = image_guard::check(
         &config,
         Candidate {
@@ -586,6 +603,7 @@ async fn ai_image_check(
             proxy_url,
             bytes,
             report,
+            member: &member,
         },
         &language,
     )
@@ -604,16 +622,13 @@ async fn ai_image_check(
             false
         }
         Outcome::Block(reason) => {
-            if config.ai.image_guard_delete_message
-                && message
+            if config.ai.image_guard_delete_message {
+                let failed = message
                     .channel_id
                     .delete_message(http, message.id)
                     .await
-                    .is_err()
-            {
-                core.bot_status.write().await.error = Some(
-                    "AI image deletion failed. Verify Manage Messages in this channel.".into(),
-                );
+                    .is_err();
+                report_action_result(core, failed, AI_IMAGE_DELETION_FAILED).await;
             }
             let report = privacy::PrivacyReport::suspicious(reason);
             follow_up_block(core, http, message, &report, &config).await;
@@ -712,17 +727,11 @@ async fn follow_up_block(
         }
     }
     if let (Some(minutes), Some(guild_id)) = (follow_up.timeout_minutes, message.guild_id) {
-        match timeout_member(http, guild_id, message.author.id, minutes).await {
-            Ok(_) => {
-                core.record_moderation(lane, LogAction::TimedOut, "escalation", Some(author_id))
-            }
-            Err(_) => {
-                core.bot_status.write().await.error = Some(
-                    "Automatic timeout failed. Verify Moderate Members and the bot's role position."
-                        .into(),
-                );
-            }
+        let result = timeout_member(http, guild_id, message.author.id, minutes).await;
+        if result.is_ok() {
+            core.record_moderation(lane, LogAction::TimedOut, "escalation", Some(author_id));
         }
+        report_action_result(core, result.is_err(), AUTOMATIC_TIMEOUT_FAILED).await;
     }
 }
 
@@ -936,18 +945,6 @@ async fn relay_channel_message(
     staff: bool,
     plan: &RelayMessagePlan,
 ) {
-    // Only a message that downloads media takes one of the shared slots: a
-    // plain text never waits behind slow media checks.
-    let carries_media = !plan.attachments.is_empty()
-        || !message.sticker_items.is_empty()
-        || !message_gifs(&message.content, &message.embeds).is_empty();
-    let _media_slot = match carries_media {
-        true => match core.media_ingest_slots.acquire().await {
-            Ok(slot) => Some(slot),
-            Err(_) => return,
-        },
-        false => None,
-    };
     let role_config = privacy::scoped_config_for_roles(config, role_ids);
     // The message text is checked with the rules of every output it feeds.
     let message_config =
@@ -995,6 +992,22 @@ async fn relay_channel_message(
         stage_tickets.push(ticket);
         attachment_tickets.push(ticket);
     }
+    // Only a message that downloads media takes one of the shared slots: a
+    // plain text never waits behind slow media checks. Its stage places are
+    // reserved first, so a later message never shows before it.
+    let carries_media = !plan.attachments.is_empty()
+        || !message.sticker_items.is_empty()
+        || !message_gifs(&message.content, &message.embeds).is_empty();
+    let mut _media_slot = match carries_media {
+        true => match core.media_ingest_slots.acquire().await {
+            Ok(slot) => Some(slot),
+            Err(_) => {
+                cancel_stage_tickets(core, &stage_tickets).await;
+                return;
+            }
+        },
+        false => None,
+    };
 
     for (index, sticker) in message.sticker_items.iter().take(3).enumerate() {
         let Some(url) = sticker.image_url() else {
@@ -1023,15 +1036,17 @@ async fn relay_channel_message(
             &current_scoped_config,
         )
         .await
-            || ai_image_check(
-                core,
-                http,
-                message,
-                staff,
-                (MediaKind::Image, &url, &url, bytes.as_deref()),
-                &mut privacy_report,
-            )
-            .await
+            // A Lottie sticker is not an image a provider reads, and it is never shown.
+            || (format != "lottie"
+                && ai_image_check(
+                    core,
+                    http,
+                    message,
+                    staff,
+                    (MediaKind::Image, &url, &url, bytes.as_deref()),
+                    &mut privacy_report,
+                )
+                .await)
         {
             cancel_stage_tickets(core, &stage_tickets).await;
             return;
@@ -1184,6 +1199,13 @@ async fn relay_channel_message(
             .await;
             event.audio_id = Some(id);
         }
+        // An HEVC video can be transcoded for up to two minutes: other messages
+        // use the slot meanwhile, and the stage places keep the Discord order.
+        let transcodable =
+            crate::media_compat::is_mp4_candidate(&event.filename, &event.content_type);
+        if transcodable {
+            drop(_media_slot.take());
+        }
         core.submit_analyzed_media_with_ticket_and_roles(
             stage_ticket,
             event,
@@ -1192,6 +1214,18 @@ async fn relay_channel_message(
             role_ids,
         )
         .await;
+        let media_follows = index + 1 < plan.attachments.len()
+            || !message_gifs(&message.content, &message.embeds).is_empty();
+        if transcodable && media_follows {
+            // Taken again only after the release: never two slots for one message.
+            match core.media_ingest_slots.acquire().await {
+                Ok(slot) => _media_slot = Some(slot),
+                Err(_) => {
+                    cancel_stage_tickets(core, &stage_tickets).await;
+                    return;
+                }
+            }
+        }
     }
 
     if submit_embedded_gifs(core, http, message, staff).await {
@@ -1251,7 +1285,13 @@ async fn former_message_channel(
     if block_and_delete_message_if_needed(core, http, message, &text_report, &scoped_config).await {
         return;
     }
-    if privacy::privacy_rules_enabled(&scoped_config) && !scoped_config.moderation.review_text {
+    // Staff and trusted members never wait for review: only a block stops them.
+    let trusted =
+        crate::state::skips_review(core.moderation_verdict(&message.id.to_string()).as_ref());
+    if !trusted
+        && privacy::privacy_rules_enabled(&scoped_config)
+        && !scoped_config.moderation.review_text
+    {
         let action = privacy::action_for(&text_report, &scoped_config);
         if matches!(action, privacy::PrivacyAction::Review) {
             privacy::log_decision(&text_report, action);
@@ -1264,7 +1304,10 @@ async fn former_message_channel(
             return;
         }
     }
-    let stage_ticket = if !message.content.trim().is_empty() || !message.sticker_items.is_empty() {
+    // Same text as a Relay channel notification: no system message, no typed
+    // command, no GIF link.
+    let text = notification_text(message).unwrap_or_default();
+    let stage_ticket = if !text.is_empty() || !message.sticker_items.is_empty() {
         Some(
             core.register_stage_output(
                 message_timestamp(message),
@@ -1277,8 +1320,6 @@ async fn former_message_channel(
     } else {
         None
     };
-    let author = message_author(message, config);
-    let guild_tag = guild_tag_from_user(&message.author);
     let mut sticker_segments = Vec::new();
     for sticker in message.sticker_items.iter().take(3) {
         let Some(url) = sticker.image_url() else {
@@ -1289,7 +1330,11 @@ async fn former_message_channel(
         let (mut report, _) =
             inspect_sticker(&url, format, Some(&sticker_text), &scoped_config).await;
         let current_config = core.config.read().await.clone();
-        let current_scoped_config = privacy::scoped_config_for_roles(&current_config, role_ids);
+        // Same scope as the report, or its signature never matches.
+        let current_scoped_config = crate::moderation::scope_config(
+            privacy::scoped_config_for_roles(&current_config, role_ids),
+            crate::moderation::Lane::Notifications,
+        );
         report = reclassify_privacy_report(report, &sticker_text, &current_scoped_config);
         if block_and_delete_message_if_needed(core, http, message, &report, &current_scoped_config)
             .await
@@ -1299,7 +1344,7 @@ async fn former_message_channel(
             }
             return;
         }
-        if privacy::privacy_rules_enabled(&current_scoped_config) {
+        if !trusted && privacy::privacy_rules_enabled(&current_scoped_config) {
             let action = privacy::action_for(&report, &current_scoped_config);
             if matches!(action, privacy::PrivacyAction::Review) {
                 privacy::log_decision(&report, action);
@@ -1316,7 +1361,7 @@ async fn former_message_channel(
         ));
     }
     if !sticker_segments.is_empty() {
-        let mut segments = match message.content.trim() {
+        let mut segments = match text.as_str() {
             "" => Vec::new(),
             content => parse_visual_segments(content)
                 .unwrap_or_else(|| plain_text_segments(content.into())),
@@ -1328,9 +1373,9 @@ async fn former_message_channel(
         core.publish_notification_card_if_allowed_with_ticket_and_roles(
             ticket,
             message.id.to_string(),
-            message.content.clone(),
-            author,
-            guild_tag,
+            text,
+            message_author(message, config),
+            guild_tag_from_user(&message.author),
             message_timestamp(message),
             segments,
             role_ids,
@@ -1338,47 +1383,14 @@ async fn former_message_channel(
         .await;
         return;
     }
-    if let Some(segments) = parse_visual_segments(&message.content) {
-        let Some(ticket) = stage_ticket else {
-            return;
-        };
-        core.publish_notification_card_if_allowed_with_ticket_and_roles(
-            ticket,
-            message.id.to_string(),
-            message.content.clone(),
-            author,
-            guild_tag,
-            message_timestamp(message),
-            segments,
-            role_ids,
-        )
-        .await;
-        return;
-    }
-    if let Some(text) =
-        prepare_notification_text(&message.content, config.notification_character_limit)
-    {
-        let Some(ticket) = stage_ticket else {
-            return;
-        };
-        core.publish_notification_card_if_allowed_with_ticket_and_roles(
-            ticket,
-            message.id.to_string(),
-            text.clone(),
-            author,
-            guild_tag,
-            message_timestamp(message),
-            plain_text_segments(text),
-            role_ids,
-        )
-        .await;
-    } else if let Some(ticket) = stage_ticket {
-        core.cancel_stage_output(ticket).await;
+    if let Some(ticket) = stage_ticket {
+        publish_notification(core, message, config, role_ids, ticket, &text).await;
     }
 }
 
 /// Permissions that let a member moderate the server. Such members skip the
-/// spam, cooldown and review checks like trusted members; privacy rules still apply.
+/// spam, cooldown and review checks like trusted members. Privacy blocks still
+/// apply, but a privacy review or hold never sends their messages to manual review.
 const STAFF_PERMISSIONS: Permissions = Permissions::ADMINISTRATOR
     .union(Permissions::MANAGE_GUILD)
     .union(Permissions::MANAGE_MESSAGES);
@@ -1440,10 +1452,12 @@ fn apply_moderation_gate(
             .iter()
             .map(|sticker| format!("s:{}", sticker.id)),
     );
+    // Only the embeds shown as a GIF: a link preview is not media.
     media_keys.extend(
         message
             .embeds
             .iter()
+            .filter(|embed| embedded_gif(embed).is_some())
             .filter_map(|embed| embed.url.as_ref().map(|url| format!("e:{url}"))),
     );
     let mention_count = message.mentions.len()
@@ -1610,7 +1624,9 @@ async fn inspect_sticker(
         Some(bytes) => privacy::analyze_image_bytes_async(bytes, text, config).await,
         None => privacy::classify_text(text, config),
     };
-    if !visual_bytes || bytes.is_none() {
+    // Outputs never draw a Lottie sticker (they show the Relay logo instead),
+    // so its name and the message text are all a viewer sees: both are scanned.
+    if format != "lottie" && (!visual_bytes || bytes.is_none()) {
         report.merge(privacy::PrivacyReport::suspicious("scan_incomplete"));
     }
     report.apply_score_policy(config);
@@ -3116,6 +3132,18 @@ async fn submit_embedded_gifs(
             .and_then(|member| member.joined_at)
             .is_none()
     {
+        // Logged once per message: an edited message can bring many updates.
+        if core
+            .claim_embed(format!("member-age-unknown:{}", message.id))
+            .await
+        {
+            core.record_moderation(
+                Some(crate::moderation::Lane::Media),
+                crate::moderation::log::LogAction::Ignored,
+                "member_age_unknown",
+                Some(message.author.id.to_string()),
+            );
+        }
         return false;
     }
     if !apply_moderation_gate(
@@ -3155,8 +3183,8 @@ async fn submit_embedded_gifs(
 }
 
 /// Returns true when the message was blocked. `source` and `staff` (the
-/// Discord message and whether its author is a moderator) are for the AI
-/// image check.
+/// Discord message and whether its author is a moderator) are for the block
+/// follow-up (log, warning, escalation) and the AI image check.
 async fn submit_deferred_embeds(
     core: &Arc<AppCore>,
     http: &Http,
@@ -3180,30 +3208,33 @@ async fn submit_deferred_embeds(
         std::iter::empty::<&str>(),
         &scoped_config,
     );
-    if privacy_action_is_blocked(&message_report, &scoped_config) {
-        delete_deferred_message_if_needed(core, http, &message, &message_report, &scoped_config)
-            .await;
+    if block_and_delete_message_if_needed(core, http, source, &message_report, &scoped_config).await
+    {
         return true;
     }
     let media_text = message.caption.clone();
-    for (index, embed) in message_gifs(&message.content, &message.embeds)
+    let direct_link = direct_gif_link(&message.content).is_some();
+    for (index, gif) in message_gifs(&message.content, &message.embeds)
         .into_iter()
         .enumerate()
     {
         let event_id = format!("{}-embed-{index}", message.message_id);
-        if !core.claim_embed(event_id.clone()).await {
+        if core.embed_claimed(&event_id).await {
             continue;
         }
-        let downloaded =
-            match artwork::download_bounded(&embed.url, artwork::MAX_EMBED_MEDIA_BYTES).await {
-                Ok(bytes) => Some(bytes),
-                Err(_) if embed.proxy_url != embed.url => {
-                    artwork::download_bounded(&embed.proxy_url, artwork::MAX_EMBED_MEDIA_BYTES)
-                        .await
-                        .ok()
-                }
-                Err(_) => None,
-            };
+        let fallbacks = if direct_link {
+            link_embed_gifs(&gif.url, &message.embeds)
+        } else {
+            Vec::new()
+        };
+        let (embed, downloaded) = download_embedded_gif(gif, fallbacks).await;
+        // Claimed only now, so the embed update can still retry a failed link.
+        if downloaded.is_none() && wait_for_link_embed(direct_link, &message.embeds) {
+            continue;
+        }
+        if !core.claim_embed(event_id).await {
+            continue;
+        }
         let mut content_type = embed.content_type;
         if let Some(bytes) = downloaded.as_deref() {
             content_type = sniff_media_type(bytes, content_type);
@@ -3266,19 +3297,22 @@ async fn submit_deferred_embeds(
             privacy::classify_text(Some(&message.content), &scoped_config)
         };
         let current_config = core.config.read().await.clone();
-        let current_scoped_config =
-            privacy::scoped_config_for_roles(&current_config, &message.role_ids);
+        // Same scope as the report, or its signature never matches.
+        let current_scoped_config = crate::moderation::scope_config(
+            privacy::scoped_config_for_roles(&current_config, &message.role_ids),
+            crate::moderation::Lane::Media,
+        );
         let mut privacy_report =
             reclassify_privacy_report(privacy_report, &message.content, &current_scoped_config);
-        if privacy_action_is_blocked(&privacy_report, &current_scoped_config) {
-            delete_deferred_message_if_needed(
-                core,
-                http,
-                &message,
-                &privacy_report,
-                &current_scoped_config,
-            )
-            .await;
+        if block_and_delete_message_if_needed(
+            core,
+            http,
+            source,
+            &privacy_report,
+            &current_scoped_config,
+        )
+        .await
+        {
             return true;
         }
         if ai_image_check(
@@ -3309,28 +3343,54 @@ async fn submit_deferred_embeds(
     false
 }
 
-async fn delete_deferred_message_if_needed(
-    core: &Arc<AppCore>,
-    http: &Http,
-    message: &DeferredEmbedMessage,
-    report: &privacy::PrivacyReport,
-    config: &AppConfig,
-) {
-    let (Ok(channel_id), Ok(message_id)) = (
-        message.channel_id.parse::<u64>(),
-        message.message_id.parse::<u64>(),
-    ) else {
-        return;
-    };
-    if should_auto_delete_blocked_message(report, config)
-        && ChannelId::new(channel_id)
-            .delete_message(http, MessageId::new(message_id))
-            .await
-            .is_err()
-    {
-        core.bot_status.write().await.error =
-            Some("Privacy deletion failed. Verify Manage Messages in this channel.".into());
+/// Downloads the GIF, then the URLs of the embeds given as fallbacks, and
+/// returns the source that worked (the GIF itself when none did).
+async fn download_embedded_gif(
+    gif: EmbeddedGif,
+    fallbacks: Vec<EmbeddedGif>,
+) -> (EmbeddedGif, Option<Vec<u8>>) {
+    let mut candidates = vec![gif];
+    candidates.extend(fallbacks);
+    for index in 0..candidates.len() {
+        let candidate = &candidates[index];
+        let mut urls = vec![candidate.url.as_str()];
+        if candidate.proxy_url != candidate.url {
+            urls.push(candidate.proxy_url.as_str());
+        }
+        for url in urls {
+            if let Ok(bytes) = artwork::download_bounded(url, artwork::MAX_EMBED_MEDIA_BYTES).await
+            {
+                return (candidates.swap_remove(index), Some(bytes));
+            }
+        }
     }
+    (candidates.swap_remove(0), None)
+}
+
+/// The GIFs of the embeds Discord made for `link`. A pasted Discord CDN link
+/// is signed and expires; its embed carries fresh and proxied URLs.
+fn link_embed_gifs(link: &str, embeds: &[serenity::all::Embed]) -> Vec<EmbeddedGif> {
+    let without_query = |url: &str| {
+        reqwest::Url::parse(url).ok().map(|mut url| {
+            url.set_query(None);
+            url.set_fragment(None);
+            url
+        })
+    };
+    let Some(link) = without_query(link) else {
+        return Vec::new();
+    };
+    embeds
+        .iter()
+        .filter(|embed| embed.url.as_deref().and_then(without_query).as_ref() == Some(&link))
+        .filter_map(embedded_gif)
+        .collect()
+}
+
+/// A typed GIF link that could not be downloaded before Discord attached its
+/// embed: leave it unclaimed so the embed update (fresh messages only) retries.
+fn wait_for_link_embed(direct_link: bool, embeds: &[serenity::all::Embed]) -> bool {
+    direct_link && embeds.is_empty()
 }
 
 fn message_gifs(content: &str, embeds: &[serenity::all::Embed]) -> Vec<EmbeddedGif> {

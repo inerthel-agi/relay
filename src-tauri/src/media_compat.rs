@@ -194,13 +194,11 @@ fn transcribe_file(
     let transcript_path = model_directory.join(TRANSCRIPT_FILE);
     let _ = fs::remove_file(&transcript_path);
 
-    let mut command = ffmpeg_command();
+    let mut command = member_media_command(&input_path);
     crate::hidden_process::hide_window_low_priority(&mut command);
     command
         .current_dir(model_directory)
-        .args(["-loglevel", "error", "-i"])
-        .arg(&input_path)
-        .args(["-vn", "-af"])
+        .args(["-loglevel", "error", "-vn", "-af"])
         .arg(whisper_filter(model_file))
         .args(["-f", "null", "-"])
         // A file, not a pipe: a full pipe would stall FFmpeg until the deadline.
@@ -232,6 +230,16 @@ fn ffmpeg_command() -> Command {
         .stdin(Stdio::null())
         .stdout(Stdio::null());
     crate::hidden_process::hide_window(&mut command);
+    command
+}
+
+/// FFmpeg reading a member's media: local files only, so a playlist or a data
+/// reference inside the media can never make FFmpeg fetch a URL.
+fn member_media_command(input_path: &Path) -> Command {
+    let mut command = ffmpeg_command();
+    command
+        .args(["-protocol_whitelist", "file", "-i"])
+        .arg(input_path);
     command
 }
 
@@ -299,11 +307,13 @@ fn extract_frames(input: Vec<u8>) -> Result<Vec<Vec<u8>>> {
     fs::write(&input_path, input).context("failed to stage local media")?;
 
     // Without an output, FFmpeg only describes the input (and exits with an error).
-    let mut probe = ffmpeg_command();
-    probe.arg("-i").arg(&input_path).stderr(Stdio::piped());
+    let description_path = temporary.path().join("description.txt");
+    let mut probe = member_media_command(&input_path);
+    // A file, not a pipe: a long description would fill the pipe and stall FFmpeg.
+    probe.stderr(fs::File::create(&description_path)?);
     let mut child = probe.spawn().context("failed to start local FFmpeg")?;
     wait_until(&mut child, deadline)?;
-    let description = child.wait_with_output().map(|output| output.stderr)?;
+    let description = fs::read(&description_path).unwrap_or_default();
     let step = parse_duration(&String::from_utf8_lossy(&description))
         .map_or(1.0, |duration| duration / CHECKED_FRAMES as f64);
 
@@ -324,14 +334,73 @@ fn extract_frames(input: Vec<u8>) -> Result<Vec<Vec<u8>>> {
         return Ok(spread);
     }
     // Fewer frames than the sample stand for the media only when it has no
-    // other frame (a still GIF, a two-frame animation). Otherwise the check
-    // would be partial: nothing is returned and the media waits for review.
+    // other frame (a still GIF, a two-frame animation).
     let first = sample(SCALE, "passthrough", "first")?;
-    Ok(if first.len() < CHECKED_FRAMES {
-        first
+    if first.len() < CHECKED_FRAMES {
+        return Ok(first);
+    }
+    // Uneven frame times or an unknown duration: the frames at one and two
+    // thirds of the count stand in for the time spread. Anything short of
+    // three is a partial check: nothing is returned and the media waits for review.
+    let picked = match count_frames(&input_path, deadline).and_then(spread_indexes) {
+        Some([start, third, two_thirds]) => sample(
+            &format!(r"select='eq(n\,{start})+eq(n\,{third})+eq(n\,{two_thirds})',{SCALE}"),
+            "vfr",
+            "index",
+        )?,
+        None => Vec::new(),
+    };
+    Ok(if picked.len() == CHECKED_FRAMES {
+        picked
     } else {
         Vec::new()
     })
+}
+
+/// Frame numbers at the start, one third and two thirds of `count` frames.
+fn spread_indexes(count: usize) -> Option<[usize; CHECKED_FRAMES]> {
+    (count >= CHECKED_FRAMES).then(|| [0, count / 3, count * 2 / 3])
+}
+
+/// Video frames of the media, counted without decoding them.
+fn count_frames(input_path: &Path, deadline: Instant) -> Option<usize> {
+    let mut command = member_media_command(input_path);
+    command
+        .args([
+            "-loglevel",
+            "error",
+            "-map",
+            "0:v:0",
+            "-c",
+            "copy",
+            "-f",
+            "null",
+            "-",
+            "-progress",
+            "pipe:1",
+            "-nostats",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    let mut child = command.spawn().ok()?;
+    wait_until(&mut child, deadline).ok()?;
+    let output = child.wait_with_output().ok()?;
+    output
+        .status
+        .success()
+        .then(|| parse_frame_count(&String::from_utf8_lossy(&output.stdout)))
+        .flatten()
+}
+
+/// The last `frame=` line of FFmpeg's `-progress` report.
+fn parse_frame_count(progress: &str) -> Option<usize> {
+    progress
+        .lines()
+        .filter_map(|line| line.strip_prefix("frame="))
+        .next_back()?
+        .trim()
+        .parse()
+        .ok()
 }
 
 /// Frames wider than this are scaled down before the check.
@@ -344,11 +413,12 @@ fn sample_frames(
     (filter, fps_mode, name): (&str, &str, &str),
     deadline: Instant,
 ) -> Result<Vec<Vec<u8>>> {
-    let mut command = ffmpeg_command();
+    let mut command = member_media_command(input_path);
     command
-        .args(["-loglevel", "error", "-y", "-i"])
-        .arg(input_path)
         .args([
+            "-loglevel",
+            "error",
+            "-y",
             "-map",
             "0:v:0",
             "-an",
@@ -402,7 +472,8 @@ async fn download_video(url: &str, proxy_url: &str) -> Option<Vec<u8>> {
     }
 }
 
-fn is_mp4_candidate(filename: &str, content_type: &str) -> bool {
+/// The only media `make_webview_compatible` may transcode.
+pub(crate) fn is_mp4_candidate(filename: &str, content_type: &str) -> bool {
     let mime = content_type
         .split(';')
         .next()
@@ -444,14 +515,12 @@ fn transcode_to_h264(input: Vec<u8>) -> Result<Vec<u8>> {
     let output_path = temporary.path().join("output.mp4");
     fs::write(&input_path, input).context("failed to stage local video")?;
 
-    // Same lookup as audio trimming: PATH, then a WinGet install that an
-    // already-running Explorer PATH may not show yet.
-    let ffmpeg = crate::reaction_trim::ffmpeg_executable().unwrap_or_else(|| "ffmpeg".into());
-    let mut command = Command::new(ffmpeg);
+    let mut command = member_media_command(&input_path);
     command
-        .args(["-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-i"])
-        .arg(&input_path)
         .args([
+            "-loglevel",
+            "error",
+            "-y",
             "-map",
             "0:v:0",
             "-map",
@@ -482,10 +551,7 @@ fn transcode_to_h264(input: Vec<u8>) -> Result<Vec<u8>> {
         .arg("-fs")
         .arg(MAX_VIDEO_OUTPUT_BYTES.to_string())
         .arg(&output_path)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
         .stderr(Stdio::null());
-    crate::hidden_process::hide_window(&mut command);
     let mut child = command.spawn().context("failed to start local FFmpeg")?;
     let deadline = Instant::now() + TRANSCODE_TIMEOUT;
     let status = loop {

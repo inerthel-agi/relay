@@ -5,7 +5,10 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use serde::Serialize;
-use serenity::all::{ApplicationFlags, Channel, ChannelId, Permissions};
+use serenity::{
+    all::{ApplicationFlags, Channel, ChannelId, Permissions},
+    http::StatusCode,
+};
 
 use crate::{config::AppConfig, config::HoneypotAction, state::AppCore};
 
@@ -24,6 +27,8 @@ pub enum CheckStatus {
     MissingPermissions,
     ChannelNotFound,
     NotConfigured,
+    /// The server or the bot's member is not in the cache yet: nothing to tell.
+    Unverified,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -133,6 +138,36 @@ pub fn missing_permission_names(required: Permissions, granted: Permissions) -> 
         .collect()
 }
 
+/// `granted` is `None` when the cache lacks the server or the bot's member:
+/// the permissions are then unknown, not missing.
+fn channel_permission_status(
+    required: Permissions,
+    granted: Option<Permissions>,
+) -> (CheckStatus, Vec<String>) {
+    let Some(granted) = granted else {
+        return (CheckStatus::Unverified, Vec::new());
+    };
+    let missing = missing_permission_names(required, granted);
+    let status = if missing.is_empty() {
+        CheckStatus::Ok
+    } else {
+        CheckStatus::MissingPermissions
+    };
+    (status, missing)
+}
+
+/// Discord answers 403 for a channel the bot cannot see, 404 for one that does not exist.
+fn unreachable_channel_status(http_status: Option<StatusCode>) -> (CheckStatus, Vec<String>) {
+    if http_status == Some(StatusCode::FORBIDDEN) {
+        (
+            CheckStatus::MissingPermissions,
+            vec!["VIEW_CHANNEL".to_owned()],
+        )
+    } else {
+        (CheckStatus::ChannelNotFound, Vec::new())
+    }
+}
+
 /// A gateway refusal (close code 4014) is the only reliable sign when the bot is offline.
 fn intent_from_error(error: Option<&str>) -> IntentState {
     match error {
@@ -187,29 +222,29 @@ pub async fn check(core: &Arc<AppCore>) -> Result<DiscordSetupReport> {
         };
         let channel = match ChannelId::new(id).to_channel(&http).await {
             Ok(Channel::Guild(channel)) => channel,
-            _ => {
+            lookup => {
+                let refusal = match lookup {
+                    Err(serenity::Error::Http(error)) => error.status_code(),
+                    _ => None,
+                };
+                let (status, missing) = unreachable_channel_status(refusal);
                 checks.push(FeatureCheck {
                     feature,
                     channel_name: None,
-                    status: CheckStatus::ChannelNotFound,
-                    missing: Vec::new(),
+                    status,
+                    missing,
                 });
                 continue;
             }
         };
         #[allow(deprecated)]
-        let granted = channel
-            .permissions_for_user(&cache, bot_id)
-            .unwrap_or(Permissions::empty());
-        let missing = missing_permission_names(required_permissions(feature, &config), granted);
+        let granted = channel.permissions_for_user(&cache, bot_id).ok();
+        let (status, missing) =
+            channel_permission_status(required_permissions(feature, &config), granted);
         checks.push(FeatureCheck {
             feature,
             channel_name: Some(channel.name.clone()),
-            status: if missing.is_empty() {
-                CheckStatus::Ok
-            } else {
-                CheckStatus::MissingPermissions
-            },
+            status,
             missing,
         });
     }
@@ -317,6 +352,43 @@ mod tests {
             vec!["MANAGE_MESSAGES".to_owned()]
         );
         assert!(missing_permission_names(required, Permissions::ADMINISTRATOR).is_empty());
+    }
+
+    /// A cache miss is not a missing permission, and a channel hidden from the
+    /// bot is a missing View Channel, not a channel that does not exist.
+    #[test]
+    fn an_unknown_member_is_unverified_and_a_hidden_channel_needs_view_channel() {
+        let required = Permissions::VIEW_CHANNEL | Permissions::READ_MESSAGE_HISTORY;
+        assert_eq!(
+            channel_permission_status(required, None),
+            (CheckStatus::Unverified, Vec::new())
+        );
+        assert_eq!(
+            channel_permission_status(required, Some(required)),
+            (CheckStatus::Ok, Vec::new())
+        );
+        assert_eq!(
+            channel_permission_status(required, Some(Permissions::VIEW_CHANNEL)),
+            (
+                CheckStatus::MissingPermissions,
+                vec!["READ_MESSAGE_HISTORY".to_owned()]
+            )
+        );
+        assert_eq!(
+            unreachable_channel_status(Some(StatusCode::FORBIDDEN)),
+            (
+                CheckStatus::MissingPermissions,
+                vec!["VIEW_CHANNEL".to_owned()]
+            )
+        );
+        assert_eq!(
+            unreachable_channel_status(Some(StatusCode::NOT_FOUND)),
+            (CheckStatus::ChannelNotFound, Vec::new())
+        );
+        assert_eq!(
+            unreachable_channel_status(None),
+            (CheckStatus::ChannelNotFound, Vec::new())
+        );
     }
 
     #[test]

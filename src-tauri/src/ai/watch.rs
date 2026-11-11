@@ -162,14 +162,16 @@ impl Watched<'_> {
     }
 }
 
-/// The real provider call, with the caps and circuit breaker of every AI request.
+/// The real provider call, with the caps and circuit breaker of every AI
+/// request, counted against the share of the `member` who wrote the text.
 #[cfg_attr(test, allow(dead_code))]
 pub async fn ask(
     settings: &super::AiSettings,
     provider: AiProvider,
     request: AiRequest,
+    member: Option<&str>,
 ) -> AiAdvice {
-    super::advice::ask(settings, provider, &request).await
+    super::advice::ask(settings, provider, &request, member).await
 }
 
 /// Stands in for the provider in tests: what it answers and what it was sent.

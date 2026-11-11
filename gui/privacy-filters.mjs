@@ -22,19 +22,31 @@ export function filterRoleIdsToInput(roleIds) {
     .join(", ");
 }
 
-export function filterRoleIds(value) {
-  const seen = new Set();
-  return String(value || "")
-    .split(/[\r\n,]+/)
-    .map((entry) => entry.trim())
-    .map((entry) => entry.match(/^<@&(\d{17,20})>$/)?.[1] || entry)
-    .reduce((roleIds, entry) => {
-      if (entry && !seen.has(entry)) {
-        seen.add(entry);
-        roleIds.push(entry);
-      }
-      return roleIds;
-    }, []);
+const ID_MENTIONS = { user: /^<@!?(\d+)>$/, role: /^<@&(\d+)>$/ };
+
+/**
+ * A list of Discord IDs typed by the user: raw IDs or mentions of the list's
+ * kind ("user" or "role"), separated by spaces, commas, semicolons or lines.
+ * A token is kept only when it is a whole ID; `invalid` lists the others and
+ * `tooMany` says the list is over `max`. Duplicates are dropped.
+ */
+export function parseDiscordIdList(value, kind, max) {
+  const ids = [];
+  const invalid = [];
+  for (const token of String(value || "").split(/[\s,;]+/).filter(Boolean)) {
+    const id = token.match(ID_MENTIONS[kind])?.[1] ?? token;
+    // Discord IDs are non-zero 64-bit numbers of 17 to 20 digits.
+    const valid = /^\d{17,20}$/.test(id) && BigInt(id) > 0n && BigInt(id) < 2n ** 64n;
+    if (!valid) invalid.push(token);
+    else if (!ids.includes(id)) ids.push(id);
+  }
+  return { ids, invalid, tooMany: ids.length > max };
+}
+
+/** Role IDs of the filter exemption; an invalid list keeps the saved one. */
+export function filterRoleIds(value, saved = []) {
+  const { ids, invalid, tooMany } = parseDiscordIdList(value, "role", 100);
+  return invalid.length || tooMany ? saved : ids;
 }
 
 export function filterWordsToConcepts(value, existingConcepts) {
@@ -68,17 +80,22 @@ export function filterWordsToConcepts(value, existingConcepts) {
   }, []);
 }
 
-export function filterWordsAreSaveable(value) {
+/** Filter words Relay refuses: each needs a letter and 3 to 64 characters once normalized. */
+export function refusedFilterWords(value) {
   return String(value || "")
     .split(/[\r\n,]+/)
     .map((word) => word.trim())
     .filter(Boolean)
-    .every((word) => {
+    .filter((word) => {
       const normalized = filterWordKey(word);
-      return /\p{L}/u.test(word)
-        && normalized.length >= 3
-        && normalized.length <= 64;
+      return !/\p{L}/u.test(word)
+        || normalized.length < 3
+        || normalized.length > 64;
     });
+}
+
+export function filterWordsAreSaveable(value) {
+  return refusedFilterWords(value).length === 0;
 }
 
 export function privacyListToInput(values) {

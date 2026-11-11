@@ -14,7 +14,7 @@ pub mod troubleshoot;
 pub mod watch;
 
 use std::{
-    collections::VecDeque,
+    collections::{HashMap, VecDeque},
     sync::{LazyLock, Mutex, PoisonError},
     time::{Duration, Instant},
 };
@@ -164,6 +164,8 @@ impl AiSettings {
 #[derive(Debug, Default)]
 pub struct AiGate {
     calls: VecDeque<u64>,
+    /// Requests made for each Discord member in the rolling hour.
+    member_calls: HashMap<String, VecDeque<u64>>,
     failures: u8,
     paused_until: u64,
     /// A refused key or a reached spend limit stops that provider until the
@@ -181,6 +183,29 @@ impl AiGate {
         now: u64,
         manual: bool,
     ) -> Result<(), AiError> {
+        self.acquire_for(provider, settings, now, manual, None)
+    }
+
+    /// Same, for a request made on behalf of a Discord `member`: one member
+    /// may use a third of the hourly cap, so one busy member never leaves the
+    /// others without checks. Requests asked from the panel have no member.
+    pub fn acquire_for(
+        &mut self,
+        provider: AiProvider,
+        settings: &AiSettings,
+        now: u64,
+        manual: bool,
+        member: Option<&str>,
+    ) -> Result<(), AiError> {
+        self.member_calls.retain(|_, calls| {
+            while calls
+                .front()
+                .is_some_and(|at| now.saturating_sub(*at) >= HOUR_MS)
+            {
+                calls.pop_front();
+            }
+            !calls.is_empty()
+        });
         while self
             .calls
             .front()
@@ -209,7 +234,22 @@ impl AiGate {
         if self.calls.len() >= usize::from(settings.max_calls_per_day) {
             return Err(AiError::DailyLimit);
         }
+        let member_share = (usize::from(settings.max_calls_per_hour) / 3).max(1);
+        if let Some(member) = member
+            && self
+                .member_calls
+                .get(member)
+                .is_some_and(|calls| calls.len() >= member_share)
+        {
+            return Err(AiError::HourlyLimit);
+        }
         self.calls.push_back(now);
+        if let Some(member) = member {
+            self.member_calls
+                .entry(member.to_owned())
+                .or_default()
+                .push_back(now);
+        }
         Ok(())
     }
 

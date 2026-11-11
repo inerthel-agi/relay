@@ -1,5 +1,7 @@
 // Safety → Moderation: presets, message tester, word lists, advanced words,
 // decision log, held messages, Discord actions and keyboard review.
+import { confirmInline } from "./modules.mjs";
+import { parseDiscordIdList } from "./privacy-filters.mjs";
 
 const wordPackIds = ["hate", "scams", "sexual", "harassment", "doxxing"];
 const OWN_PRESETS_KEY = "relay-moderation-presets";
@@ -36,6 +38,8 @@ const REASON_KEYS = {
   ai_image_unchecked: "reasonAiImageUnchecked",
   ai_image_not_sent: "reasonAiImageNotSent",
   voice_unchecked: "reasonVoiceUnchecked",
+  setting_changed: "reasonSettingChanged", type_not_reviewed: "reasonTypeNotReviewed", outputs_paused: "reasonOutputsPaused",
+  member_age_unknown: "reasonMemberAgeUnknown",
   // Privacy scan reasons reuse the labels of their category.
   email: "privacyCategoryEmail", phone: "privacyCategoryPhone", person_phone_combination: "privacyCategoryPhone",
   ip_address: "privacyCategoryIp", gps: "privacyCategoryGps", coordinates: "privacyCategoryGps",
@@ -86,13 +90,13 @@ const LOG_ACTION_KEYS = {
   messageDeleted: "logMessageDeleted",
 };
 
-/** Discord IDs from raw IDs or mentions (<@id>, <@!id>, <@&id>), deduplicated. */
-export function parseDiscordIds(value) {
-  const ids = [];
-  for (const match of String(value || "").matchAll(/(?:<@[!&]?)?(\d{17,20})>?/g)) {
-    if (!ids.includes(match[1])) ids.push(match[1]);
+/** Why an ID list is not saved, or "" when it can be. */
+export function describeIdListProblem({ invalid, tooMany, ids }, max, formatTranslation) {
+  if (invalid.length) {
+    const shown = invalid.slice(0, 5).map((token) => (token.length > 32 ? `${token.slice(0, 32)}…` : token));
+    return formatTranslation("idListInvalid", { ids: `${shown.join(", ")}${invalid.length > 5 ? ", …" : ""}` });
   }
-  return ids;
+  return tooMany ? formatTranslation("idListTooMany", { count: ids.length, max }) : "";
 }
 
 export function wordsFromInput(value) {
@@ -158,6 +162,7 @@ const AI_CATEGORY_KEYS = {
   harassment: "aiCategoryHarassment", threat: "aiCategoryThreat", hate: "aiCategoryHate", sexual: "aiCategorySexual",
   spam: "aiCategorySpam", evasion: "aiCategoryEvasion", selfHarm: "aiCategorySelfHarm", other: "aiCategoryOther",
   privateConversation: "aiCategoryPrivateConversation", personalData: "aiCategoryPersonalData",
+  violence: "aiGuardViolence",
 };
 const AI_NOT_SENT_KEYS = {
   personalData: "aiAdviceNotSentPersonalData", empty: "aiAdviceNotSentEmpty", notAnImage: "aiAdviceNotSentNotAnImage",
@@ -339,7 +344,7 @@ export function readOwnPresets(readStorage) {
 
 export function initializeModerationUi({
   $, $$, t, formatTranslation, invoke, setSaveState, readStorage, getBootstrap, getLocale,
-  applyConfig, saveModeration, onQueueChanged,
+  applyConfig, saveModeration, onQueueChanged, onActionFailed,
 }) {
   const saveState = $("#moderation-save-state");
   const presetButtons = $$("[data-moderation-preset]");
@@ -387,10 +392,33 @@ export function initializeModerationUi({
     "escalation-timeout": "escalationTimeoutMinutes", "honeypot-timeout": "honeypotTimeoutMinutes",
     "live-port": "liveObsPort", "max-media": "maxMediaSeconds",
   };
-  const idLists = {
-    "trusted-roles": "trustedRoleIds", "trusted-users": "trustedUserIds",
-    "blocked-users": "blockedUserIds", "honeypot-exempt": "honeypotExemptRoleIds",
+  /// ID fields: [saved key, mention kind, limit]. The filter exemption is saved by panel.js.
+  const idFields = {
+    "moderation-trusted-roles": ["trustedRoleIds", "role", 200], "moderation-trusted-users": ["trustedUserIds", "user", 200],
+    "moderation-blocked-users": ["blockedUserIds", "user", 200], "moderation-honeypot-exempt": ["honeypotExemptRoleIds", "role", 200],
+    "privacy-exempt-role-ids": [null, "role", 100],
   };
+
+  /** The IDs of one field, or null with the reason shown under it; an invalid form is not autosaved. */
+  function checkIdField(id) {
+    const [, kind, max] = idFields[id];
+    const input = $(`#${id}`);
+    const list = parseDiscordIdList(input.value, kind, max);
+    const problem = describeIdListProblem(list, max, formatTranslation);
+    let hint = input.parentElement.querySelector(".field-error");
+    if (!hint) {
+      hint = document.createElement("small");
+      hint.className = "save-state field-error";
+      hint.dataset.state = "error";
+      hint.setAttribute("role", "status");
+      input.parentElement.append(hint);
+    }
+    hint.textContent = problem;
+    hint.hidden = !problem;
+    input.setCustomValidity(problem);
+    input.setAttribute("aria-invalid", String(Boolean(problem)));
+    return problem ? null : list.ids;
+  }
 
   function renderPacks(settings) {
     const enabled = new Set(settings.wordPacks || []);
@@ -479,7 +507,8 @@ export function initializeModerationUi({
     const settings = config?.moderation || {};
     for (const [id, key] of Object.entries(switches)) field(id).checked = Boolean(settings[key]);
     for (const [id, key] of Object.entries(numbers)) field(id).value = String(settings[key] ?? 0);
-    for (const [id, key] of Object.entries(idLists)) field(id).value = (settings[key] || []).join(", ");
+    for (const [id, [key]] of Object.entries(idFields)) if (key) $(`#${id}`).value = (settings[key] || []).join(", ");
+    for (const id of Object.keys(idFields)) checkIdField(id);
     field("pack-exclusions").value = (settings.packExclusions || []).join(", ");
     field("scope-media").checked = settings.filterScopes?.media !== false;
     field("scope-notifications").checked = settings.filterScopes?.notifications !== false;
@@ -618,7 +647,8 @@ export function initializeModerationUi({
     const draft = { ...current };
     for (const [id, key] of Object.entries(switches)) draft[key] = field(id).checked;
     for (const [id, key] of Object.entries(numbers)) draft[key] = number(id, current[key] ?? 0);
-    for (const [id, key] of Object.entries(idLists)) draft[key] = parseDiscordIds(field(id).value).slice(0, 200);
+    // An invalid list keeps its saved value: a wrong ID is never trusted or blocked.
+    for (const [id, [key]] of Object.entries(idFields)) if (key) draft[key] = checkIdField(id) ?? current[key] ?? [];
     draft.wordPacks = $$("input[name='moderation-pack']").filter((input) => input.checked).map((input) => input.value);
     if (!packList.childElementCount) draft.wordPacks = current.wordPacks || [];
     draft.packExclusions = wordsFromInput(field("pack-exclusions").value).slice(0, 200);
@@ -788,7 +818,7 @@ export function initializeModerationUi({
         showOnItem(await invoke("ai_review_media", { id: pendingItem.id }));
       } catch (error) {
         showOnItem(undefined);
-        setSaveState(saveState, "error", String(error));
+        onActionFailed(error);
       }
     });
   }
@@ -810,7 +840,7 @@ export function initializeModerationUi({
         await invoke("moderate_pending", { id, action });
         await refresh();
       } catch (error) {
-        setSaveState(saveState, "error", String(error));
+        onActionFailed(error);
       } finally {
         select.value = "";
         select.disabled = false;
@@ -850,7 +880,7 @@ export function initializeModerationUi({
           await invoke(command, { id: pending.id });
           await refresh();
         } catch (error) {
-          setSaveState(saveState, "error", String(error));
+          onActionFailed(error);
           approve.disabled = false;
           reject.disabled = false;
         }
@@ -1094,10 +1124,20 @@ export function initializeModerationUi({
   });
 
   logFilter.addEventListener("input", renderLog);
-  $("#moderation-log-clear").addEventListener("click", async () => {
-    await invoke("clear_moderation_log");
-    await refresh();
+  $("#moderation-log-clear").addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      if (!await confirmInline(button.parentElement, t, "moderationLogClearConfirm", "moderationLogClear")) return;
+      await invoke("clear_moderation_log");
+      await refresh();
+    } catch (error) {
+      onActionFailed(error);
+    } finally {
+      button.disabled = false;
+    }
   });
+  for (const id of Object.keys(idFields)) $(`#${id}`).addEventListener("change", () => checkIdField(id));
 
   $("#moderation-automod-sync").addEventListener("click", async () => {
     setSaveState(automodState, "saving");
@@ -1147,6 +1187,7 @@ export function initializeModerationUi({
       renderAiModel();
       renderAiKeys();
       renderStateBadges();
+      for (const id of Object.keys(idFields)) checkIdField(id);
       const config = getBootstrap()?.config;
       if (config) {
         renderPacks(readDraft(config.moderation || {}));

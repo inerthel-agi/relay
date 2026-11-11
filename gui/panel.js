@@ -1,6 +1,6 @@
 import { initializePresetControls } from "./output-presets.mjs";
-import { initializeModules } from "./modules.mjs";
-import { filterConceptsToLines, filterRoleIds, filterRoleIdsToInput, filterWordsAreSaveable, filterWordsToConcepts, privacyListFromInput, privacyListToInput } from "./privacy-filters.mjs";
+import { initializeModules, confirmInline } from "./modules.mjs";
+import { filterConceptsToLines, filterRoleIds, filterRoleIdsToInput, filterWordsToConcepts, privacyListFromInput, privacyListToInput, refusedFilterWords } from "./privacy-filters.mjs";
 import { appendChangelogMarkdown, changelogBodyForLanguage, parseChangelogReleases } from "./changelog-markdown.mjs";
 import { buildDiagnosticReport, errorCategory } from "./diagnostics.mjs";
 import { initializeCustomCommands } from "./custom-commands.mjs";
@@ -144,6 +144,7 @@ const privacyAllowlistElement = $("#privacy-allowlist");
 const privacyConceptsElement = $("#privacy-concepts");
 const privacySimilarityBoostElement = $("#privacy-similarity-boost");
 const privacyExemptRoleIdsElement = $("#privacy-exempt-role-ids");
+const privacyConceptsRefusedElement = $("#privacy-concepts-refused");
 const moderationSaveStateElement = $("#moderation-save-state");
 const moderationCountElement = $("#moderation-count");
 const moderationListElement = $("#moderation-list");
@@ -310,7 +311,7 @@ const audioPlaybackTargets = new Map();
 let currentAudioPlayback;
 let nowPlayingArtworkRequest = 0;
 const artworkCache = new Map();
-let currentAppVersion = "1.5.2";
+let currentAppVersion = "1.5.3";
 let bundledChangelogMarkdown = "";
 let latestUpdate;
 let updateUiState = { kind: "idle" };
@@ -1756,6 +1757,14 @@ function rememberMedia(mediaEvent) {
   renderHistory();
 }
 
+// The queue lives on the Live page: a failed action shows in the toast, then the
+// queue is reloaded so a row Relay no longer holds disappears.
+function reportQueueError(error) {
+  notify("error", String(error));
+  void refreshRuntimeStatus();
+  void moderationUi?.refresh();
+}
+
 function renderModeration() {
   const pending = bootstrap?.pendingMedia || [];
   const pendingTexts = moderationUi?.pendingTextCount() || 0;
@@ -1801,7 +1810,7 @@ function renderModeration() {
         bootstrap.pendingMedia = bootstrap.pendingMedia.filter(({ id }) => id !== pendingItem.id);
         renderModeration();
       } catch (error) {
-        setSaveState(moderationSaveStateElement, "error", String(error));
+        reportQueueError(error);
         approveButton.disabled = false;
         rejectButton.disabled = false;
       }
@@ -1982,7 +1991,7 @@ function readConfigDraft(form, filterOnly = false) {
       privacyScanEnabled: privacyScanEnabledElement.checked,
       voiceScanEnabled: voiceScanEnabledElement.checked,
       privacyConcepts: moderationUi.applyAdvancedEdits(filterWordsToConcepts(privacyConceptsElement.value, bootstrap.config.privacyConcepts)),
-      privacyFilterExemptRoleIds: filterRoleIds(privacyExemptRoleIdsElement.value),
+      privacyFilterExemptRoleIds: filterRoleIds(privacyExemptRoleIdsElement.value, bootstrap.config.privacyFilterExemptRoleIds),
       privacyProtectionLevel: privacyProtectionLevelElement.value,
       privacyEnabledCategories: privacyCategoryElements.filter((input) => input.checked).map((input) => input.value),
       privacyBlockThreshold: privacyBlockThresholdElement.value,
@@ -2081,10 +2090,20 @@ function schedulePrivacyFilterSave() {
   }, 750);
 }
 
+/** Says, under the filter words, which ones Relay refuses; nothing is saved until they are fixed. */
+function renderRefusedFilterWords(value) {
+  const refused = refusedFilterWords(value);
+  privacyConceptsRefusedElement.textContent = refused.length
+    ? formatTranslation("filterWordsRefused", { words: refused.slice(0, 5).join(", ") })
+    : "";
+  privacyConceptsRefusedElement.hidden = !refused.length;
+  return refused.length === 0;
+}
+
 async function savePrivacyFiltersAutomatically(generation) {
   if (generation !== privacyFilterSaveGeneration
     || !bootstrap?.config
-    || !filterWordsAreSaveable(privacyFilterDraft)) {
+    || !renderRefusedFilterWords(privacyFilterDraft)) {
     return;
   }
 
@@ -2507,6 +2526,9 @@ moderationForm.addEventListener("submit", async (event) => {
 });
 
 privacyConceptsElement.addEventListener("input", schedulePrivacyFilterSave);
+window.addEventListener("relay-language-change", () => {
+  if (!privacyConceptsRefusedElement.hidden) renderRefusedFilterWords(privacyConceptsElement.value);
+});
 
 initializeAutosave({
   forms: [botPresenceForm, routingForm, systemForm, mediaForm, messagesForm, moderationForm, commandsForm],
@@ -2546,6 +2568,7 @@ const moderationUi = initializeModerationUi({
   applyConfig,
   saveModeration: () => saveConfig(moderationSaveStateElement, moderationForm),
   onQueueChanged: () => renderModeration(),
+  onActionFailed: reportQueueError,
 });
 const streamStyleUi = initializeStreamStyle({
   $, $$, t, formatTranslation, readStorage,
@@ -2578,12 +2601,15 @@ const customCommandsUi = initializeCustomCommands({
 });
 
 clearPendingMediaButton.addEventListener("click", async () => {
+  clearPendingMediaButton.disabled = true;
   try {
+    if (!await confirmInline(clearPendingMediaButton.parentElement, t, "clearPendingConfirm", "clearPending")) return;
     await invoke("clear_pending_media");
     bootstrap.pendingMedia = [];
-    renderModeration();
   } catch (error) {
-    setSaveState(moderationSaveStateElement, "error", String(error));
+    reportQueueError(error);
+  } finally {
+    renderModeration();
   }
 });
 

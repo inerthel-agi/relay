@@ -172,6 +172,22 @@ fn repeated_searches_reuse_cached_results_until_they_expire() {
     assert!(cache.entries.is_empty(), "expired entries are dropped");
 }
 
+/// The music handler asks the cache first: a hit sends no search.list.
+#[test]
+fn a_cached_search_is_found_without_a_request() {
+    let query = "relay cached search test 7b";
+    assert!(cached_search(query).is_none());
+    cache().insert(
+        SearchCache::key(query),
+        vec![track("cached")],
+        Instant::now(),
+    );
+    assert_eq!(
+        cached_search("Relay  CACHED search test 7b").unwrap()[0].video_id,
+        "cached"
+    );
+}
+
 #[test]
 fn search_cache_keeps_the_most_recent_queries_only() {
     let mut cache = SearchCache::default();

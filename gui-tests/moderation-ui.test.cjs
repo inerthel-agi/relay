@@ -5,8 +5,9 @@ const vm = require("node:vm");
 
 const {
   applyAdvancedEdits, capturePresetFields, changedPresetFields, describePresetChanges, describeTestResult, explainReason, filterLogEntries,
-  AI_MODELS, describeAiAdvice, describeAiTest, describeSettingsAnswer, describeTroubleshootAnswer, logActionLabel, mergePresetFields, parseDiscordIds, queueReasonLabel, readOwnPresets, reasonLabel, wordsFromInput,
+  AI_MODELS, describeAiAdvice, describeAiTest, describeIdListProblem, describeSettingsAnswer, describeTroubleshootAnswer, logActionLabel, mergePresetFields, queueReasonLabel, readOwnPresets, reasonLabel, wordsFromInput,
 } = require("../gui/moderation-ui.mjs");
+const { parseDiscordIdList } = require("../gui/privacy-filters.mjs");
 const { translations } = require("../gui/translations.mjs");
 
 const t = (key) => key;
@@ -15,10 +16,44 @@ const panelHtml = fs.readFileSync(__dirname + "/../gui/panel.html", "utf8");
 
 test("member IDs are read from raw IDs and mentions without duplicates", () => {
   assert.deepEqual(
-    parseDiscordIds("<@123456789012345678>, <@!223456789012345678> 123456789012345678\n<@&323456789012345678> 12"),
-    ["123456789012345678", "223456789012345678", "323456789012345678"],
+    parseDiscordIdList("<@123456789012345678>, <@!223456789012345678> 123456789012345678\n323456789012345678;", "user", 200),
+    { ids: ["123456789012345678", "223456789012345678", "323456789012345678"], invalid: [], tooMany: false },
   );
+  assert.deepEqual(parseDiscordIdList("<@&323456789012345678>", "role", 200).ids, ["323456789012345678"]);
   assert.deepEqual(wordsFromInput("free nitro, , porn\nfree nitro"), ["free nitro", "porn"]);
+});
+
+test("an ID list with a token that is not a whole ID of its kind is refused, never cut", () => {
+  const first = "123456789012345678";
+  const second = "223456789012345678";
+  // Two IDs pasted together would have saved a different account (the first 20 digits).
+  const glued = parseDiscordIdList(`${first}${second}`, "user", 200);
+  assert.deepEqual(glued.ids, []);
+  assert.deepEqual(glued.invalid, [`${first}${second}`]);
+  // A typo, a role mention in a member list and a zero ID are shown, not dropped.
+  assert.deepEqual(
+    parseDiscordIdList(`${first}, 1234567890123456, <@&${second}>, 00000000000000000, 99999999999999999999`, "user", 200).invalid,
+    ["1234567890123456", `<@&${second}>`, "00000000000000000", "99999999999999999999"],
+  );
+  assert.deepEqual(parseDiscordIdList(`<@${first}>`, "role", 200).invalid, [`<@${first}>`]);
+  const tooMany = parseDiscordIdList(`${first} ${second} 323456789012345678`, "role", 2);
+  assert.equal(tooMany.tooMany, true);
+  assert.equal(tooMany.ids.length, 3);
+  assert.equal(describeIdListProblem(glued, 200, format), 'idListInvalid:{"ids":"12345678901234567822345678901234…"}');
+  assert.equal(describeIdListProblem(tooMany, 2, format), 'idListTooMany:{"count":3,"max":2}');
+  assert.equal(describeIdListProblem(parseDiscordIdList(first, "user", 200), 200, format), "");
+});
+
+test("an invalid ID list keeps its saved value and blocks the autosave with its reason", () => {
+  const ui = fs.readFileSync(__dirname + "/../gui/moderation-ui.mjs", "utf8");
+  assert.match(ui, /draft\[key\] = checkIdField\(id\) \?\? current\[key\] \?\? \[\];/);
+  assert.match(ui, /input\.setCustomValidity\(problem\);/);
+  for (const id of ["moderation-trusted-roles", "moderation-trusted-users", "moderation-blocked-users", "moderation-honeypot-exempt", "privacy-exempt-role-ids"]) {
+    assert.match(ui, new RegExp(`"${id}": \\[`));
+  }
+  const { filterRoleIds } = require("../gui/privacy-filters.mjs");
+  assert.deepEqual(filterRoleIds("123456789012345678 12", ["223456789012345678"]), ["223456789012345678"]);
+  assert.deepEqual(filterRoleIds("<@&123456789012345678>", []), ["123456789012345678"]);
 });
 
 test("preset changes and tester results are explained in plain words", () => {
@@ -199,7 +234,10 @@ test("AI advice reads as a hint for every verdict, category and state Relay can 
   const verdicts = variants("AiVerdict");
   const categories = variants("AiCategory");
   assert.deepEqual(verdicts, ["clearProblem", "ambiguous", "noIssueSeen"]);
-  assert.equal(categories.length, 10);
+  assert.equal(categories.length, 11);
+  for (const category of categories) {
+    assert.match(describeAiAdvice({ state: "done", verdict: "ambiguous", categories: [category], reason: "" }, t), /\(\w+\)/, category);
+  }
   for (const [language, dictionary] of Object.entries(translations)) {
     const translate = (key) => dictionary[key];
     for (const verdict of verdicts) {
@@ -403,6 +441,18 @@ test("images held or blocked by the AI say why and name the switch", () => {
   assert.equal(describeTroubleshootAnswer({ state: "failed", cause: "helpCooldown" }, t).join(" ").includes("aiHelpPaceRefused"), true);
 });
 
+test("items Relay drops without a filter have a translated reason in every language", () => {
+  const rust = ["state.rs", "state/moderation_queue.rs", "stage_scheduler.rs", "bot.rs"]
+    .map((file) => fs.readFileSync(`${__dirname}/../src-tauri/src/${file}`, "utf8")).join("\n");
+  for (const reason of ["setting_changed", "type_not_reviewed", "outputs_paused", "member_age_unknown"]) {
+    assert.ok(rust.includes(`"${reason}"`), reason);
+    const key = reasonLabel(reason, (name) => name);
+    for (const [language, dictionary] of Object.entries(translations)) {
+      assert.ok(dictionary[key], `${language}.${reason}`);
+    }
+  }
+});
+
 test("held media show a translated reason, with the scan's risk level when there is one", () => {
   assert.equal(queueReasonLabel({}, t), "reasonManual");
   assert.equal(queueReasonLabel({ privacyClassification: "low", privacyReason: "manual_review" }, t), "low · reasonManual");
@@ -470,4 +520,107 @@ test("the repeated media window is a number next to its switch, explained with i
   assert.match(rust, /\n\s+pub duplicate_window_seconds: u16,/);
   assert.match(rust, /duplicate_window_seconds: 60,/);
   assert.match(explainReason("duplicate", { duplicateWindowSeconds: 45 }, t, format), /^whyDuplicate:\{.*"window":45/);
+});
+
+test("a failed review queue action is shown where it was taken and reloads the queue", async () => {
+  const ui = fs.readFileSync(__dirname + "/../gui/moderation-ui.mjs", "utf8");
+  const panel = fs.readFileSync(__dirname + "/../gui/panel.js", "utf8");
+  // The Moderation page's save state is not visible from the Live page, where the queue is.
+  const queueCode = ui.slice(ui.indexOf("function decorateQueueItem"), ui.indexOf("function selectItem"));
+  assert.doesNotMatch(queueCode, /setSaveState\(saveState/);
+  assert.equal(queueCode.match(/onActionFailed\(error\);/g).length, 3);
+  const renderQueue = panel.slice(panel.indexOf("function renderModeration"), panel.indexOf("function populateChannels"));
+  const rejectAll = panel.slice(panel.indexOf("clearPendingMediaButton.addEventListener"), panel.indexOf("async function copyValue"));
+  for (const code of [renderQueue, rejectAll]) {
+    assert.doesNotMatch(code, /moderationSaveStateElement/);
+    assert.match(code, /reportQueueError\(error\);/);
+  }
+  assert.match(panel, /onActionFailed: reportQueueError,/);
+
+  // The "more actions" menu: a failure is reported and the menu is usable again.
+  const more = ui.slice(ui.indexOf("  function wireMoreActions"), ui.indexOf("  /** Held notification messages"));
+  const failures = [];
+  let onChange;
+  const select = { value: "ban", disabled: false, options: [], setAttribute() {}, addEventListener: (_, handler) => { onChange = handler; } };
+  const context = vm.createContext({
+    t, failures, invoke: async () => { throw Error("gone"); }, refresh: async () => {}, onActionFailed: (error) => failures.push(String(error)),
+  });
+  vm.runInContext(`${more}\nglobalThis.wire = wireMoreActions;`, context);
+  context.wire(select, 7);
+  await onChange();
+  assert.deepEqual(failures, ["Error: gone"]);
+  assert.equal(select.disabled, false);
+
+  // The panel's handler: a toast, then both halves of the queue are reloaded.
+  const reported = [];
+  const reportContext = vm.createContext({
+    notify: (state, message) => reported.push([state, message]),
+    refreshRuntimeStatus: async () => reported.push("status"),
+    moderationUi: { refresh: async () => reported.push("texts") },
+  });
+  vm.runInContext(panel.slice(panel.indexOf("function reportQueueError"), panel.indexOf("function renderModeration")), reportContext);
+  reportContext.reportQueueError(Error("gone"));
+  assert.deepEqual(reported, [["error", "Error: gone"], "status", "texts"]);
+});
+
+test("rejecting the whole review queue asks first", async () => {
+  const panel = fs.readFileSync(__dirname + "/../gui/panel.js", "utf8");
+  assert.match(panel, /import \{ initializeModules, confirmInline \} from "\.\/modules\.mjs";/);
+  const handler = panel.slice(panel.indexOf("clearPendingMediaButton.addEventListener"), panel.indexOf("async function copyValue"));
+  const calls = [];
+  const answers = [false, true];
+  let onClick;
+  const button = { disabled: false, parentElement: {}, addEventListener: (_, listener) => { onClick = listener; } };
+  const context = vm.createContext({
+    t, clearPendingMediaButton: button, bootstrap: { pendingMedia: [{}] },
+    confirmInline: async (container, _t, question, confirm) => {
+      assert.equal(container, button.parentElement);
+      assert.equal(button.disabled, true);
+      calls.push(`ask:${question}:${confirm}`);
+      return answers.shift();
+    },
+    invoke: async (command) => calls.push(command),
+    renderModeration: () => { calls.push("render"); button.disabled = false; },
+    reportQueueError: (error) => calls.push(`failed:${error}`),
+  });
+  vm.runInContext(handler, context);
+  await onClick();
+  assert.deepEqual(calls, ["ask:clearPendingConfirm:clearPending", "render"]);
+  assert.equal(context.bootstrap.pendingMedia.length, 1);
+  await onClick();
+  assert.deepEqual(calls.slice(2), ["ask:clearPendingConfirm:clearPending", "clear_pending_media", "render"]);
+  assert.equal(context.bootstrap.pendingMedia.length, 0);
+  for (const [language, dictionary] of Object.entries(translations)) assert.ok(dictionary.clearPendingConfirm, language);
+});
+
+test("clearing the decision log asks first and reports a failure", async () => {
+  const ui = fs.readFileSync(__dirname + "/../gui/moderation-ui.mjs", "utf8");
+  const handler = ui.slice(ui.indexOf('  $("#moderation-log-clear")'), ui.indexOf('  $("#moderation-automod-sync")'));
+  const calls = [];
+  const answers = [false, true, true];
+  let onClick;
+  const button = { disabled: false, parentElement: {}, addEventListener: (_, listener) => { onClick = listener; } };
+  const context = vm.createContext({
+    t, idFields: {},
+    $: () => button,
+    confirmInline: async (container, _t, question, confirm) => {
+      assert.equal(container, button.parentElement);
+      calls.push(`ask:${question}:${confirm}`);
+      return answers.shift();
+    },
+    invoke: async (command) => {
+      calls.push(command);
+      if (calls.filter((call) => call === command).length > 1) throw Error("disk full");
+    },
+    refresh: async () => calls.push("refresh"),
+    onActionFailed: (error) => calls.push(`failed:${error.message}`),
+  });
+  vm.runInContext(handler, context);
+  await onClick({ currentTarget: button });
+  assert.deepEqual(calls, ["ask:moderationLogClearConfirm:moderationLogClear"]);
+  await onClick({ currentTarget: button });
+  assert.deepEqual(calls.slice(1), ["ask:moderationLogClearConfirm:moderationLogClear", "clear_moderation_log", "refresh"]);
+  await onClick({ currentTarget: button });
+  assert.deepEqual(calls.slice(4), ["ask:moderationLogClearConfirm:moderationLogClear", "clear_moderation_log", "failed:disk full"]);
+  assert.equal(button.disabled, false);
 });

@@ -547,6 +547,9 @@ async fn the_free_filter_sends_the_image_as_data_and_reads_three_groups() {
     let flagged = json!({ "results": [{ "flagged": true, "categories": {
         "sexual": false, "sexual/minors": false, "violence": false, "violence/graphic": true,
         "self-harm": false, "self-harm/intent": true, "harassment": true, "hate": true,
+    }, "category_scores": {
+        "sexual": 0.95, "violence": 0.2, "violence/graphic": 0.97,
+        "self-harm": 0.1, "self-harm/intent": 0.6, "harassment": 0.99, "hate": 0.99,
     } }] });
     let (base_url, mock_server) = mock(vec![reply(200, flagged)]).await;
     let image = AiImage {
@@ -556,8 +559,9 @@ async fn the_free_filter_sends_the_image_as_data_and_reads_three_groups() {
     let groups = moderate_image_at(&base_url, KEY, &image, Duration::from_secs(5))
         .await
         .unwrap();
-    // Text-only flags (harassment, hate) are not read for images.
-    assert_eq!(groups, vec!["violence", "self_harm"]);
+    // Text-only flags (harassment, hate) are not read for images. A score is
+    // read only for a flagged category (`sexual` scores high but is not flagged).
+    assert_eq!(groups, vec![("violence", true), ("self_harm", false)]);
     let seen = mock_server.seen();
     assert_eq!(seen.len(), 1);
     assert_eq!(seen[0].0, "/v1/moderations");
@@ -589,5 +593,36 @@ async fn the_free_filter_reports_failures_and_odd_answers_as_errors() {
     assert_eq!(
         parse_moderation(&json!({ "results": [{ "categories": {} }] })),
         Ok(vec![])
+    );
+}
+
+#[test]
+fn a_flagged_group_is_sure_only_from_the_block_score() {
+    let answer = |score: Value| {
+        json!({ "results": [{
+            "categories": { "sexual": true },
+            "category_scores": { "sexual": score },
+        }] })
+    };
+    assert_eq!(
+        parse_moderation(&answer(json!(MODERATION_BLOCK_SCORE))),
+        Ok(vec![("sexual", true)])
+    );
+    assert_eq!(
+        parse_moderation(&answer(json!(0.97))),
+        Ok(vec![("sexual", true)])
+    );
+    assert_eq!(
+        parse_moderation(&answer(json!(0.4))),
+        Ok(vec![("sexual", false)])
+    );
+    // A missing or unreadable score never makes a flag sure, nor lets it pass.
+    assert_eq!(
+        parse_moderation(&answer(json!("high"))),
+        Ok(vec![("sexual", false)])
+    );
+    assert_eq!(
+        parse_moderation(&json!({ "results": [{ "categories": { "sexual": true } }] })),
+        Ok(vec![("sexual", false)])
     );
 }
