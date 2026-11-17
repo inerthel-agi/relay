@@ -319,43 +319,7 @@ pub async fn start_server(core: Arc<AppCore>) -> Result<()> {
         music_clock: Arc::new(Mutex::new(MusicClockState::default())),
         music_players: Arc::new(Mutex::new(MusicPlayers::default())),
     };
-    // Keep musicBusy on the stage clock in sync with the server jukebox so
-    // lagged overlay/notification sockets cannot strand musicActive=true.
-    let music_clock_state = state.clone();
-    let mut music_events = core.relay_tx.subscribe();
-    tokio::spawn(async move {
-        loop {
-            match music_events.recv().await {
-                Ok(RelayEvent::MusicPlay(playback)) => {
-                    let started_at_ms = mark_music_clock(&music_clock_state, &playback.playback_id);
-                    watch_music_end(&music_clock_state, playback, started_at_ms);
-                    set_stage_music_busy(&music_clock_state, true);
-                    sync_stage_scheduler(&music_clock_state).await;
-                }
-                Ok(RelayEvent::MusicIdle) | Ok(RelayEvent::Clear) => {
-                    set_stage_music_busy(&music_clock_state, false);
-                    sync_stage_scheduler(&music_clock_state).await;
-                }
-                Ok(RelayEvent::MusicStop(_)) => {
-                    // Next event is MusicPlay (still busy) or MusicIdle/Clear.
-                }
-                Ok(_) => {}
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                    let current = music_clock_state.core.current_music().await;
-                    // A missed MusicPlay still gets its watch once it is on the clock.
-                    if let Some(playback) = current.clone()
-                        && let Some(started_at_ms) =
-                            current_music_clock(&music_clock_state, &playback.playback_id)
-                    {
-                        watch_music_end(&music_clock_state, playback, started_at_ms);
-                    }
-                    set_stage_music_busy(&music_clock_state, current.is_some());
-                    sync_stage_scheduler(&music_clock_state).await;
-                }
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-            }
-        }
-    });
+    follow_music_events(state.clone());
     let router = Router::new()
         .route("/", get(root))
         .route("/reactions", get(reaction_routes::page))
@@ -1125,6 +1089,45 @@ fn current_music_anchor(clock: &MusicClockState, playback_id: &str) -> Option<u6
         .iter()
         .find(|(known_id, _)| known_id == playback_id)
         .map(|(_, started_at_ms)| *started_at_ms)
+}
+
+fn follow_music_events(music_clock_state: RelayServerState) {
+    // Keep musicBusy on the stage clock in sync with the server jukebox so
+    // lagged overlay/notification sockets cannot strand musicActive=true.
+    let mut music_events = music_clock_state.core.relay_tx.subscribe();
+    tokio::spawn(async move {
+        loop {
+            match music_events.recv().await {
+                Ok(RelayEvent::MusicPlay(playback)) => {
+                    let started_at_ms = mark_music_clock(&music_clock_state, &playback.playback_id);
+                    watch_music_end(&music_clock_state, playback, started_at_ms);
+                    set_stage_music_busy(&music_clock_state, true);
+                    sync_stage_scheduler(&music_clock_state).await;
+                }
+                Ok(RelayEvent::MusicIdle) | Ok(RelayEvent::Clear) => {
+                    set_stage_music_busy(&music_clock_state, false);
+                    sync_stage_scheduler(&music_clock_state).await;
+                }
+                Ok(RelayEvent::MusicStop(_)) => {
+                    // Next event is MusicPlay (still busy) or MusicIdle/Clear.
+                }
+                Ok(_) => {}
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                    let current = music_clock_state.core.current_music().await;
+                    // A missed MusicPlay still gets its watch once it is on the clock.
+                    if let Some(playback) = current.clone()
+                        && let Some(started_at_ms) =
+                            current_music_clock(&music_clock_state, &playback.playback_id)
+                    {
+                        watch_music_end(&music_clock_state, playback, started_at_ms);
+                    }
+                    set_stage_music_busy(&music_clock_state, current.is_some());
+                    sync_stage_scheduler(&music_clock_state).await;
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    });
 }
 
 /// Ends a track no output reported as ended (see `AppCore::end_unreported_music`).

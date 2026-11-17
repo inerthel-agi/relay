@@ -501,3 +501,70 @@ test("reaction play distinguishes immediate playback, FIFO position and queue-fu
     assert.equal(root.querySelector('[role="status"]').textContent, "modErrorQueueFull");
   } finally { harness.cleanup(); }
 });
+
+test("queue polling preserves rows and moves focus after removal", async () => {
+  const fs = require("node:fs"), vm = require("node:vm");
+  const panel = fs.readFileSync(__dirname + "/../gui/panel.js", "utf8");
+  const list = new FakeElement("ol"), state = new FakeElement("p"), errors = [];
+  const doc = { querySelector: (id) => id === "#queue-list" ? list : state, createElement(tag) {
+    const el = new FakeElement(tag);
+    Object.defineProperties(el, {
+      firstElementChild: { get: () => el.children[0] }, lastElementChild: { get: () => el.children.at(-1) },
+    });
+    el.focus = () => { doc.activeElement = el; };
+    const remove = el.remove.bind(el);
+    el.remove = () => { if (el.children.includes(doc.activeElement)) doc.activeElement = null; remove(); };
+    return el;
+  } };
+  list.insertBefore = (row, next) => {
+    row.remove(); const i = next ? list.children.indexOf(next) : list.children.length;
+    list.children.splice(i, 0, row); row.parentElement = list;
+  };
+  const ctx = vm.createContext({ document: doc, language: "en", t: (key) => key,
+    notify: (...args) => errors.push(args), invoke: async () => { throw Error("gone"); } });
+  vm.runInContext(panel.slice(panel.indexOf("let queueSignature"), panel.indexOf("function renderOutputReadiness")), ctx);
+  const item = (id) => ({ id, title: id, ready: true });
+  ctx.renderQueue([item("a"), item("b")]);
+  const first = list.children[0], second = list.children[1];
+  first.lastElementChild.focus();
+  ctx.renderQueue([{ ...item("a"), title: "new" }, item("b")]);
+  assert.equal(list.children[0], first);
+  await first.lastElementChild.click();
+  assert.equal(state.textContent, "2");
+  assert.equal(errors.length, 1);
+  ctx.renderQueue([item("b")]);
+  assert.equal(doc.activeElement, second.lastElementChild);
+  ctx.renderQueue(["a", "b", "c", "d"].map(item));
+  second.lastElementChild.focus();
+  ctx.renderQueue(["c", "d"].map(item));
+  assert.equal(doc.activeElement, list.children[0].lastElementChild);
+});
+
+test("Escape cancels the named inline confirmation", async () => {
+  const previous = global.document;
+  global.document = { createElement: (tag) => new FakeElement(tag) };
+  try {
+    const root = new FakeElement("section");
+    const pending = require("../gui/modules.mjs").confirmInline(root, (key) => key, "Delete this item?", "Delete");
+    const group = root.firstChild;
+    assert.equal(group.attributes.get("aria-label"), "Delete this item?");
+    await group.dispatch("keydown", { key: "Escape", preventDefault() {}, stopPropagation() {} });
+    assert.equal(root.children.length, 0);
+    assert.equal(await pending, false);
+  } finally { global.document = previous; }
+});
+
+test("module polling reads only visible pages and pauses while hidden", async () => {
+  const ui = createHarness();
+  try {
+    await flush();
+    for (const [id, root] of ui.roots) root.closest = () => ({ hidden: id !== "music-queue-module" });
+    ui.calls.length = 0;
+    await ui.controls.refresh();
+    assert.deepEqual(ui.calls.map((call) => call.name), ["get_music_queue"]);
+    global.document.hidden = true;
+    ui.calls.length = 0;
+    await ui.controls.refresh();
+    assert.deepEqual(ui.calls, []);
+  } finally { ui.cleanup(); }
+});

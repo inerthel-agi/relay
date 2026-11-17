@@ -65,6 +65,11 @@ try {
     Write-Host $installer
     Write-Host $signature
     Write-Host $portable
+    Write-Host "SHA-256:"
+    foreach ($artifact in @($installer, $signature, $portable)) {
+        $digest = Get-FileHash -Algorithm SHA256 -LiteralPath $artifact
+        "{0}  {1}" -f $digest.Hash.ToLowerInvariant(), [IO.Path]::GetFileName($artifact)
+    }
 }
 finally {
     if ($locationPushed) {

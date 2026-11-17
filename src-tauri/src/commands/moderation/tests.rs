@@ -33,3 +33,16 @@ async fn only_names_relay_could_find_are_shown() {
     let names = author_names(&core, &[entry("42"), entry("7"), entry("9"), entry("42")]).await;
     assert_eq!(names, HashMap::from([("42".to_owned(), "Alt".to_owned())]));
 }
+
+#[tokio::test]
+async fn names_disappear_from_the_cache_when_their_log_entries_expire() {
+    let directory = tempfile::tempdir().unwrap();
+    let core = AppCore::load(directory.path().join("config.json")).unwrap();
+    remember_name(&core, "41", Some("Old".into()));
+    remember_name(&core, "42", None);
+    author_names(&core, &[entry("42")]).await;
+    assert_eq!(
+        *core.author_names.lock().unwrap(),
+        HashMap::from([("42".to_owned(), None)])
+    );
+}

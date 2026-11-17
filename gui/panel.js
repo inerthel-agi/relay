@@ -2,7 +2,7 @@ import { initializePresetControls } from "./output-presets.mjs";
 import { initializeModules, confirmInline } from "./modules.mjs";
 import { filterConceptsToLines, filterRoleIds, filterRoleIdsToInput, filterWordsToConcepts, privacyListFromInput, privacyListToInput, refusedFilterWords } from "./privacy-filters.mjs";
 import { appendChangelogMarkdown, changelogBodyForLanguage, parseChangelogReleases } from "./changelog-markdown.mjs";
-import { buildDiagnosticReport, errorCategory } from "./diagnostics.mjs";
+import { buildDiagnosticReport, translatedError } from "./diagnostics.mjs";
 import { initializeCustomCommands } from "./custom-commands.mjs";
 import { initializeOverview, readStorage } from "./overview.mjs";
 import { initializeSettingsSearch } from "./settings-search.mjs";
@@ -311,7 +311,7 @@ const audioPlaybackTargets = new Map();
 let currentAudioPlayback;
 let nowPlayingArtworkRequest = 0;
 const artworkCache = new Map();
-let currentAppVersion = "1.5.3";
+let currentAppVersion = "1.5.4";
 let bundledChangelogMarkdown = "";
 let latestUpdate;
 let updateUiState = { kind: "idle" };
@@ -395,7 +395,7 @@ function renderUpdateStatus() {
     available: () => formatTranslation("updateAvailable", { version }),
     current: () => formatTranslation("upToDate", { version: currentAppVersion }),
     installing: () => formatTranslation("downloadingUpdate", { version }),
-    error: () => `${t(updateUiState.errorKey)} ${updateUiState.error}`,
+    error: () => `${t(updateUiState.errorKey)} ${translatedError(updateUiState.error, t)}`,
   };
   updateStatusElement.textContent = (messages[updateUiState.kind] || messages.idle)();
   const busy = updateUiState.kind === "checking" || updateUiState.kind === "installing";
@@ -909,7 +909,7 @@ async function persistOutputGeometry(target) {
     applyOutputGeometryTarget(config, target, true);
     state.textContent = t("geometrySaved");
   } catch (error) {
-    state.textContent = String(error);
+    state.textContent = translatedError(error, t);
   }
 }
 
@@ -993,7 +993,7 @@ function syncInterfacePreferences() {
       });
       personalizationStateElement.textContent = t("personalizationSaved");
     } catch (error) {
-      personalizationStateElement.textContent = String(error);
+      personalizationStateElement.textContent = translatedError(error, t);
     }
   }, 120);
 }
@@ -1052,6 +1052,7 @@ function showPage(page, { recordHistory = true, moveFocus = false } = {}) {
   if (page === "history") {
     window.requestAnimationFrame(loadHistoryVideoThumbnails);
   }
+  void moduleControls?.refresh();
   if (page === "discord") discordCheck?.runIfStale();
   updatePageHeading();
   updateNavigationControls();
@@ -1069,7 +1070,7 @@ function navigateHistory(offset) {
 
 function setBotStatus(status) {
   botStatusElement.classList.toggle("is-online", status.connected);
-  botLabelElement.textContent = status.connected ? status.username : status.error || t("botOffline");
+  botLabelElement.textContent = status.connected ? status.username : status.error ? translatedError(status.error, t) : t("botOffline");
   botAvatarElement.hidden = !status.displayAvatarUrl;
   if (status.displayAvatarUrl) {
     botAvatarElement.src = status.displayAvatarUrl;
@@ -1101,19 +1102,48 @@ function renderQueue(items = []) {
   const list = document.querySelector("#queue-list");
   const state = document.querySelector("#queue-state");
   state.textContent = items.length ? String(items.length) : t("queueEmpty");
-  list.replaceChildren(...items.map((item) => {
-    const row = document.createElement("li");
-    const label = document.createElement("span");
-    label.textContent = [item.ready ? item.title : t("queuePreparing"), item.author, item.kind].filter(Boolean).join(" · ");
-    const button = document.createElement("button");
-    button.type = "button"; button.className = "button button--quiet"; button.textContent = t("removeQueue"); button.disabled = !item.ready;
-    button.addEventListener("click", async () => {
-      button.disabled = true;
-      try { await invoke("remove_queued_media", { id: item.id }); queueSignature = undefined; await refreshRuntimeStatus(); }
-      catch (error) { state.textContent = String(error); button.disabled = false; }
-    });
-    row.append(label, button); return row;
-  }));
+  const previous = [...list.children];
+  const focused = document.activeElement;
+  const focusIndex = previous.findIndex((row) => row.lastElementChild === focused);
+  const rows = new Map(previous.map((row) => [row.dataset.id, row]));
+  for (const [index, item] of items.entries()) {
+    let row = rows.get(item.id);
+    if (!row) {
+      row = document.createElement("li");
+      row.dataset.id = item.id;
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "button button--quiet";
+      button.addEventListener("click", async () => {
+        if (button.ariaBusy === "true") return;
+        button.ariaBusy = "true";
+        try {
+          await invoke("remove_queued_media", { id: item.id });
+          await refreshRuntimeStatus();
+        } catch (error) {
+          notify("error", String(error));
+        } finally {
+          button.ariaBusy = null;
+        }
+      });
+      row.append(document.createElement("span"), button);
+    }
+    rows.delete(item.id);
+    row.firstElementChild.textContent = [item.ready ? item.title : t("queuePreparing"), item.author, item.kind].filter(Boolean).join(" · ");
+    row.lastElementChild.textContent = t("removeQueue");
+    row.lastElementChild.disabled = !item.ready;
+    if (list.children[index] !== row) list.insertBefore(row, list.children[index] || null);
+  }
+  for (const row of rows.values()) row.remove();
+  if (focusIndex >= 0 && (document.activeElement !== focused || focused.disabled)) {
+    const buttons = [...list.children].map((row) => row.lastElementChild);
+    const enabled = buttons.filter((button) => !button.disabled);
+    const oldButtons = previous.map((row) => row.lastElementChild);
+    const target = oldButtons.slice(focusIndex).find((button) => enabled.includes(button))
+      || oldButtons.slice(0, focusIndex).reverse().find((button) => enabled.includes(button))
+      || enabled[0] || state;
+    target.focus();
+  }
 }
 
 function renderOutputReadiness(status = {}) {
@@ -1160,7 +1190,7 @@ function renderOutputReadiness(status = {}) {
 
 function setServerStatus(status) {
   serverStatusElement.classList.toggle("is-online", status.connected);
-  serverLabelElement.textContent = status.connected ? t("serverOnline") : status.error || t("serverOffline");
+  serverLabelElement.textContent = status.connected ? t("serverOnline") : status.error ? translatedError(status.error, t) : t("serverOffline");
   clientCountElement.textContent = String(status.overlayClients || 0);
   renderOutputReadiness(status);
   updateSampleTestButton();
@@ -1193,13 +1223,6 @@ function notify(state, message = t(state)) {
 // Last errors shown in the panel, kept for the diagnostic report.
 const recentErrors = [];
 
-// Backend errors are English; other languages get a translated summary and keep the original as a tooltip.
-function describeError(message) {
-  if (language === "en") return message;
-  const key = errorCategory(message);
-  return key ? t(key) : message;
-}
-
 function setSaveState(element, state, message = t(state)) {
   if (!element) return;
   element.dataset.state = state;
@@ -1207,7 +1230,7 @@ function setSaveState(element, state, message = t(state)) {
     const original = String(message ?? "");
     recentErrors.push({ at: Date.now(), message: original });
     if (recentErrors.length > 10) recentErrors.shift();
-    element.textContent = describeError(original);
+    element.textContent = translatedError(original, t);
     element.title = original;
     return;
   }
@@ -1225,7 +1248,9 @@ function captureFormDraft(form) {
 }
 
 function restoreFormDraft(draft) {
-  for (const { element, value, checked, option } of draft) {
+  for (const { element: original, value, checked, option } of draft) {
+    const element = original.id ? document.getElementById(original.id) : original;
+    if (!element) continue;
     if (option && ![...element.options].some((item) => item.value === value)) {
       element.append(option);
     }
@@ -1436,7 +1461,7 @@ function updateSkipShortcutDisplay(shortcut) {
 function shortcutTokenFromEvent(event) {
   const modifierCodes = new Set(["ControlLeft", "ControlRight", "AltLeft", "AltRight", "ShiftLeft", "ShiftRight", "MetaLeft", "MetaRight"]);
   if (modifierCodes.has(event.code)) return "";
-  const supportedCode = /^(Key[A-Z]|Digit\d|F(?:[1-9]|1\d|2[0-4])|Arrow(?:Up|Down|Left|Right)|Numpad(?:\d|Add|Subtract|Multiply|Divide|Decimal|Enter|Equal)|(?:Backquote|Backslash|BracketLeft|BracketRight|Comma|Equal|Minus|Period|Quote|Semicolon|Slash|Backspace|CapsLock|Delete|End|Enter|Escape|Home|Insert|PageDown|PageUp|Pause|PrintScreen|ScrollLock|Space|Tab))$/;
+  const supportedCode = /^(Key[A-Z]|Digit\d|F(?:[1-9]|1\d|2[0-4])|Arrow(?:Up|Down|Left|Right)|Numpad(?:\d|Add|Subtract|Multiply|Divide|Decimal|Enter|Equal)|(?:Backquote|Backslash|BracketLeft|BracketRight|Comma|Equal|Minus|Period|Quote|Semicolon|Slash|Backspace|CapsLock|Delete|End|Enter|Escape|Home|Insert|PageDown|PageUp|Pause|PrintScreen|ScrollLock|Space))$/;
   return supportedCode.test(event.code) ? event.code : "";
 }
 
@@ -1782,7 +1807,7 @@ function renderModeration() {
         ? "privacyReviewQueueEmpty"
         : "moderationDisabled",
   );
-  clearPendingMediaButton.disabled = pending.length + pendingTexts === 0;
+  clearPendingMediaButton.disabled = clearPendingMediaButton.ariaBusy === "true" || pending.length + pendingTexts === 0;
 
   for (const pendingItem of pending) {
     const mediaEvent = pendingItem.media;
@@ -1921,6 +1946,10 @@ function applyBootstrap(nextBootstrap, reconnect = false) {
   setWidgetState(bootstrap.widget);
   setNotificationWidgetState(bootstrap.notificationWidget);
   applyConfig(bootstrap.config);
+  if (bootstrap.unavailableShortcuts?.length) {
+    const names = bootstrap.unavailableShortcuts.map((key) => t(key)).join(", ");
+    setSaveState(mediaSaveStateElement, "error", names + " — " + t("shortcutInvalid"));
+  }
   replaceHistory(bootstrap.history);
   renderModeration();
   overlayUrlElement.value = bootstrap.overlayUrl;
@@ -2136,14 +2165,14 @@ function applyNotificationSoundConfig(config) {
 }
 
 async function refreshRuntimeStatus() {
-  if (statusRefreshInFlight) {
+  if (document.hidden || statusRefreshInFlight) {
     return;
   }
   statusRefreshInFlight = true;
   try {
     const status = await invoke("get_runtime_status");
-    void moduleControls?.refresh();
     bootstrap.bot = status.bot;
+    void moduleControls?.refresh();
     bootstrap.server = status.server;
     bootstrap.widget = status.widget;
     bootstrap.notificationWidget = status.notificationWidget;
@@ -2455,7 +2484,7 @@ cleanupPreviewButton.addEventListener("click", async () => {
       + (preview.limitReached ? " " + t("musicCleanupLimit") : "");
     musicCleanupConfirmation.hidden = preview.count === 0;
   } catch (error) {
-    musicCleanupStatus.textContent = String(error);
+    musicCleanupStatus.textContent = translatedError(error, t);
   } finally { cleanupPreviewButton.disabled = false; }
 });
 cleanupConfirmButton.addEventListener("click", async () => {
@@ -2469,7 +2498,7 @@ cleanupConfirmButton.addEventListener("click", async () => {
     musicCleanupStatus.textContent = t("musicCleanupDone")
       .replace("{deleted}", result.deleted).replace("{failed}", result.failed).replace("{skipped}", result.skipped);
   } catch (error) {
-    musicCleanupStatus.textContent = String(error);
+    musicCleanupStatus.textContent = translatedError(error, t);
   } finally {
     cleanupPreviewButton.disabled = false;
     cleanupConfirmButton.disabled = false;
@@ -2601,14 +2630,16 @@ const customCommandsUi = initializeCustomCommands({
 });
 
 clearPendingMediaButton.addEventListener("click", async () => {
+  clearPendingMediaButton.ariaBusy = "true";
   clearPendingMediaButton.disabled = true;
   try {
-    if (!await confirmInline(clearPendingMediaButton.parentElement, t, "clearPendingConfirm", "clearPending")) return;
+    if (!await confirmInline(clearPendingMediaButton.parentElement, t, "clearPendingConfirm", "clearPending", clearPendingMediaButton)) return;
     await invoke("clear_pending_media");
     bootstrap.pendingMedia = [];
   } catch (error) {
     reportQueueError(error);
   } finally {
+    clearPendingMediaButton.ariaBusy = null;
     renderModeration();
   }
 });
@@ -2736,7 +2767,7 @@ $("#ai-help-ask").addEventListener("click", async (event) => {
       report.hidden = false;
     }
   } catch (error) {
-    show([String(error)]);
+    show([translatedError(error, t)]);
   } finally {
     await helpUi.refresh();
   }
@@ -2788,7 +2819,7 @@ notificationSoundEnabledElement.addEventListener("change", async () => {
     applyNotificationSoundConfig(config);
   } catch (error) {
     notificationSoundEnabledElement.checked = !notificationSoundEnabledElement.checked;
-    notificationSoundStateElement.textContent = String(error);
+    notificationSoundStateElement.textContent = translatedError(error, t);
   }
 });
 
@@ -2801,7 +2832,7 @@ notificationSoundObsElement.addEventListener("change", async () => {
     applyNotificationSoundConfig(config);
   } catch (error) {
     notificationSoundObsElement.checked = !notificationSoundObsElement.checked;
-    notificationSoundStateElement.textContent = String(error);
+    notificationSoundStateElement.textContent = translatedError(error, t);
   }
 });
 
@@ -2833,7 +2864,7 @@ downloadVoiceModelButton.addEventListener("click", async () => {
     voiceScanStatus = await invoke("download_voice_model");
     renderVoiceScanStatus();
   } catch (error) {
-    voiceScanStateElement.textContent = String(error);
+    voiceScanStateElement.textContent = translatedError(error, t);
   } finally {
     downloadVoiceModelButton.disabled = false;
   }
@@ -2847,7 +2878,7 @@ notificationSoundChoiceElement.addEventListener("change", async () => {
     applyNotificationSoundConfig(config);
   } catch (error) {
     applyNotificationSoundConfig(bootstrap.config);
-    notificationSoundStateElement.textContent = String(error);
+    notificationSoundStateElement.textContent = translatedError(error, t);
   }
 });
 
@@ -2865,7 +2896,7 @@ previewNotificationSoundButton.addEventListener("click", async () => {
     source.connect(gain).connect(notificationSoundPreview.destination);
     source.start();
   } catch (error) {
-    notificationSoundStateElement.textContent = String(error);
+    notificationSoundStateElement.textContent = translatedError(error, t);
   } finally {
     previewNotificationSoundButton.disabled = false;
   }
@@ -2880,7 +2911,7 @@ pickNotificationSoundButton.addEventListener("click", async () => {
       applyNotificationSoundConfig(config);
     }
   } catch (error) {
-    notificationSoundStateElement.textContent = String(error);
+    notificationSoundStateElement.textContent = translatedError(error, t);
   } finally {
     pickNotificationSoundButton.disabled = false;
   }
@@ -2892,7 +2923,7 @@ clearNotificationSoundButton.addEventListener("click", async () => {
     bootstrap.config = config;
     applyNotificationSoundConfig(config);
   } catch (error) {
-    notificationSoundStateElement.textContent = String(error);
+    notificationSoundStateElement.textContent = translatedError(error, t);
   }
 });
 
@@ -2907,12 +2938,24 @@ skipMediaButton.addEventListener("click", async () => {
 
 skipShortcutCaptureButton.addEventListener("click", () => beginShortcutCapture("skip"));
 panicShortcutCaptureButton.addEventListener("click", () => beginShortcutCapture("panic"));
+for (const { button } of Object.values(shortcutTargets)) {
+  button.addEventListener("blur", () => {
+    if (shortcutCaptureActive) cancelShortcutCapture();
+  });
+}
+window.addEventListener("pointerdown", (event) => {
+  if (shortcutCaptureActive && !shortcutTargets[shortcutCaptureTarget].button.contains(event.target)) cancelShortcutCapture();
+}, true);
 // No browser menu (Back, Refresh, Print…) on right click; text fields keep Copy and Paste.
 window.addEventListener("contextmenu", (event) => {
   if (!event.target?.closest?.("input, textarea, [contenteditable='true']")) event.preventDefault();
 });
 window.addEventListener("keydown", (event) => {
   if (!shortcutCaptureActive) return;
+  if (event.key === "Tab") {
+    cancelShortcutCapture();
+    return;
+  }
   event.preventDefault();
   event.stopPropagation();
   if (event.key === "Escape") {
@@ -2927,6 +2970,10 @@ window.addEventListener("keydown", (event) => {
   if (event.altKey) modifiers.push("alt");
   if (event.shiftKey) modifiers.push("shift");
   if (event.metaKey) modifiers.push("super");
+  if (!modifiers.length && !/^F\d+$/.test(token)) {
+    setSaveState(mediaSaveStateElement, "error", t("shortcutInvalid"));
+    return;
+  }
   void saveCapturedShortcut([...modifiers, token].join("+"));
 });
 
@@ -2982,7 +3029,7 @@ document.querySelector("#send-preview-sample").addEventListener("click", async (
   const button = event.currentTarget; button.disabled = true;
   const state = document.querySelector("#preview-sample-state");
   try { await invoke("preview_output_sample", { sample: document.querySelector("#preview-sample").value }); state.textContent = t("outputTestSent"); markSetupTested(); }
-  catch (error) { state.textContent = String(error); }
+  catch (error) { state.textContent = translatedError(error, t); }
   finally { updateSampleTestButton(); }
 });
 document.querySelector("#history-search").addEventListener("input", renderHistory);
@@ -3008,6 +3055,9 @@ try {
   if (setupComplete && lastPage && pageMetadata[lastPage] && lastPage !== currentPage) showPage(lastPage);
   moduleControls = initializeModules({ invoke, t, getBootstrap: () => bootstrap });
   connectPanelSocket();
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) void refreshRuntimeStatus();
+  });
   statusTimer = window.setInterval(refreshRuntimeStatus, 1500);
 } catch (error) {
   setSaveState(saveStateElement, "error", String(error));

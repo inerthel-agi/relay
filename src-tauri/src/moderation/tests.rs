@@ -410,6 +410,7 @@ fn decision_log_keeps_seven_days_and_summarises_the_last_day() {
     assert_eq!(summary.approved, 1);
     assert_eq!(summary.flagged_members, 1);
     // Reopening reads the saved file; the log never contains message text.
+    drop(log);
     let reopened = ModerationLog::open(path.clone(), now);
     assert_eq!(reopened.entries().len(), 3);
     let saved = std::fs::read_to_string(path).unwrap();
@@ -548,13 +549,16 @@ fn the_cooldown_notice_says_the_delay_in_the_interface_language() {
         messages::cooldown_notice("fr", 10),
         "Doucement : un texte et un média toutes les 10 s au maximum. Les messages envoyés plus vite ne sont pas affichés sur le stream."
     );
-    // Languages without a translation of the bot messages use English. The
-    // delay is kept per output: a text and a media each pass once per delay.
-    assert!(
-        messages::cooldown_notice("pl", 3)
-            .starts_with("Slow down: one text and one media every 3 s")
-    );
-    assert!(!messages::cooldown_notice("ja", 5).contains("{seconds}"));
+    for code in [
+        "fr", "es", "de", "ru", "zh", "ko", "ja", "id", "it", "pt", "pl", "tr",
+    ] {
+        let notice = messages::cooldown_notice(code, 17);
+        assert_ne!(notice, messages::cooldown_notice("en", 17), "{code}");
+        assert!(
+            notice.contains("17") && !notice.contains("{seconds}"),
+            "{code}"
+        );
+    }
     assert!(ModerationSettings::default().cooldown_notice);
 }
 
@@ -606,4 +610,56 @@ fn settings_saved_before_the_window_existed_get_one_minute() {
     assert!(old.block_duplicates);
     assert_eq!(old.duplicate_window_seconds, 60);
     assert!(old.validate().is_ok());
+}
+
+#[test]
+fn rapid_log_decisions_are_atomically_saved_on_exit() {
+    use std::io::Read;
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("moderation-log.json");
+    std::fs::write(&path, b"[]").unwrap();
+    let mut previous = std::fs::File::open(&path).unwrap();
+    let mut log = ModerationLog::open(path.clone(), 0);
+    for at in 0..550 {
+        log.record(LogEntry {
+            at,
+            lane: None,
+            action: LogAction::Ignored,
+            reason: "cooldown".into(),
+            author_id: None,
+        });
+    }
+    drop(log);
+    let saved: Vec<LogEntry> = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    assert_eq!(
+        saved.iter().map(|entry| entry.at).collect::<Vec<_>>(),
+        (50..550).collect::<Vec<_>>()
+    );
+    let mut old = String::new();
+    previous.read_to_string(&mut old).unwrap();
+    assert_eq!(old, "[]");
+}
+
+#[test]
+fn pruning_cooldowns_keeps_the_recently_accepted_member() {
+    let mut runtime = ModerationRuntime::default();
+    let settings = ModerationSettings {
+        user_cooldown_seconds: 60,
+        ..Default::default()
+    };
+    for user in 0..RUNTIME_ENTRY_LIMIT as u64 {
+        runtime.last_accepted.insert((Lane::Media, user), user);
+    }
+    let now = RUNTIME_ENTRY_LIMIT as u64 + 1;
+    let recent = input(Lane::Media, "hello", now);
+    assert_eq!(
+        runtime.evaluate(&recent, &settings),
+        GateDecision::Pass { trusted: false }
+    );
+    assert_eq!(
+        runtime.evaluate(&recent, &settings),
+        GateDecision::Drop("cooldown")
+    );
+    assert!(!runtime.last_accepted.contains_key(&(Lane::Media, 0)));
+    assert_eq!(runtime.last_accepted.len(), RUNTIME_ENTRY_LIMIT);
 }

@@ -13,7 +13,7 @@
 
 | Area | Result |
 |---|---|
-| Panel localization | Dictionaries moved from panel.js to translations.mjs; regional overrides retained. |
+| Panel localization | One complete dictionary per language in `gui/locales/`. The `gui/translations.mjs` entry point also exports regional overrides. |
 | Presets | Validation, bounded storage and controls isolated in output-presets.mjs. |
 | Fonts | Font declarations isolated in panel-fonts.css. |
 | Output positioning | Dependency-free layout calculations in outputs/layout.js; native CSS handles notification alignment. |

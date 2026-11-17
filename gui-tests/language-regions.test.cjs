@@ -9,6 +9,7 @@ const locales = [
   "en-US", "fr-FR", "de-DE", "es-ES", "it-IT", "pt-BR", "pl-PL", "tr-TR",
   "ru-RU", "zh-CN", "ko-KR", "ja-JP", "id-ID",
 ];
+const { translations } = require("../gui/translations.mjs");
 const flags = ["us", "fr", "de", "es", "it", "br", "pl", "tr", "ru", "cn", "kr", "jp", "id"];
 
 test("the language picker exposes every supported regional locale", () => {
@@ -50,6 +51,6 @@ test("merged regional variants keep the user's language and every language has a
     ["it-IT", "it"], ["pt-BR", "pt"], ["pl-PL", "pl"], ["tr-TR", "tr"],
   ]) {
     assert.match(panelSource, new RegExp(`locale: "${locale}", language: "${language}"`), locale);
-    assert.match(panelSource, new RegExp(`translations\\.${language} =`), language);
+    assert.ok(Object.hasOwn(translations, language), language);
   }
 });

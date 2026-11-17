@@ -442,7 +442,7 @@ test("images held or blocked by the AI say why and name the switch", () => {
 });
 
 test("items Relay drops without a filter have a translated reason in every language", () => {
-  const rust = ["state.rs", "state/moderation_queue.rs", "stage_scheduler.rs", "bot.rs"]
+  const rust = ["state.rs", "state/moderation_queue.rs", "stage_scheduler.rs", "bot/deferred_embeds.rs"]
     .map((file) => fs.readFileSync(`${__dirname}/../src-tauri/src/${file}`, "utf8")).join("\n");
   for (const reason of ["setting_changed", "type_not_reviewed", "outputs_paused", "member_age_unknown"]) {
     assert.ok(rust.includes(`"${reason}"`), reason);
@@ -622,5 +622,25 @@ test("clearing the decision log asks first and reports a failure", async () => {
   assert.deepEqual(calls.slice(1), ["ask:moderationLogClearConfirm:moderationLogClear", "clear_moderation_log", "refresh"]);
   await onClick({ currentTarget: button });
   assert.deepEqual(calls.slice(4), ["ask:moderationLogClearConfirm:moderationLogClear", "clear_moderation_log", "failed:disk full"]);
+  assert.equal(button.disabled, false);
+});
+
+test("polling keeps Reject all disabled until the answer arrives", async () => {
+  const panel = fs.readFileSync(__dirname + "/../gui/panel.js", "utf8");
+  let click, answer;
+  const button = { addEventListener(_, fn) { click = fn; } };
+  const context = vm.createContext({
+    t, clearPendingMediaButton: button, bootstrap: { pendingMedia: [] },
+    moderationItemTemplate: {}, moderationUi: { pendingTextCount: () => 1, renderTexts() {} },
+    moderationListElement: { replaceChildren() {} }, moderationCountElement: {}, moderationEmptyElement: {},
+    confirmInline: () => new Promise((resolve) => { answer = resolve; }),
+  });
+  vm.runInContext(panel.slice(panel.indexOf("function renderModeration"), panel.indexOf("function populateChannels"))
+    + panel.slice(panel.indexOf("clearPendingMediaButton.addEventListener"), panel.indexOf("async function copyValue")), context);
+  const pending = click();
+  context.renderModeration();
+  assert.equal(button.disabled, true);
+  answer(false);
+  await pending;
   assert.equal(button.disabled, false);
 });

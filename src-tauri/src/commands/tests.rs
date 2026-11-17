@@ -206,3 +206,12 @@ async fn the_runtime_status_counts_held_texts_for_the_tray() {
     assert_eq!(json["pendingTextCount"], 1);
     assert!(!json.to_string().contains("held"));
 }
+
+#[test]
+fn new_global_shortcuts_require_a_modifier_except_function_keys() {
+    assert!(new_shortcut("KeyP").is_err());
+    assert!(new_shortcut("control+Tab").is_err());
+    assert!(new_shortcut("control+KeyP").is_ok());
+    assert!(new_shortcut("F1").is_ok());
+    assert!(new_shortcut("F24").is_ok());
+}

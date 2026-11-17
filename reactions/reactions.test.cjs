@@ -118,3 +118,26 @@ test("reconnects back off and a moved server is probed before navigating", () =>
   probe.emit("open");
   assert.deepEqual(replaced, ["http://localhost:4600/reactions"]);
 });
+
+test("unloading a reaction page prevents a reconnect after close", () => {
+  const events = {};
+  const sockets = [];
+  const timers = [];
+  class Socket {
+    constructor() { sockets.push(this); this.handlers = {}; }
+    addEventListener(type, fn) { this.handlers[type] = fn; }
+    close() { this.handlers.close(); }
+  }
+  const element = { addEventListener() {}, pause() {}, load() {}, removeAttribute() {} };
+  const location = { host: "localhost:4590", search: "?secret=test" };
+  const window = {
+    location, addEventListener(type, fn) { events[type] = fn; },
+    setTimeout(fn) { timers.push(fn); return timers.length; }, clearTimeout() {},
+  };
+  const context = vm.createContext({ document: { querySelector: () => element }, location, URL, URLSearchParams,
+    window, WebSocket: Socket, clearTimeout() {} });
+  vm.runInContext(source + "\nconnect();", context);
+  events.beforeunload();
+  assert.equal(sockets.length, 1);
+  assert.equal(timers.length, 0);
+});

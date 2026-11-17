@@ -52,6 +52,22 @@ const moveLabels = {
   pl: "Przesuń nakładkę",
   tr: "Katmanı taşı",
 };
+const playbackLabels = {
+  en: { nowPlaying: "Now playing", discordAudio: "Discord audio" },
+  fr: { nowPlaying: "En lecture", discordAudio: "Audio Discord" },
+  es: { nowPlaying: "En reproducción", discordAudio: "Audio de Discord" },
+  de: { nowPlaying: "Aktuelle Wiedergabe", discordAudio: "Discord-Audio" },
+  it: { nowPlaying: "In riproduzione", discordAudio: "Audio di Discord" },
+  pt: { nowPlaying: "Tocando agora", discordAudio: "Áudio do Discord" },
+  pl: { nowPlaying: "Teraz odtwarzane", discordAudio: "Dźwięk z Discorda" },
+  tr: { nowPlaying: "Şimdi çalıyor", discordAudio: "Discord sesi" },
+  ru: { nowPlaying: "Сейчас играет", discordAudio: "Аудио из Discord" },
+  zh: { nowPlaying: "正在播放", discordAudio: "Discord 音频" },
+  ko: { nowPlaying: "재생 중", discordAudio: "Discord 오디오" },
+  ja: { nowPlaying: "再生中", discordAudio: "Discord の音声" },
+  id: { nowPlaying: "Sedang diputar", discordAudio: "Audio Discord" },
+};
+function playbackLabel(key) { return (playbackLabels[interfaceLanguage] || playbackLabels.en)[key]; }
 const previewLabels = {
   en: "Live preview",
   fr: "Aperçu en direct",
@@ -130,11 +146,7 @@ let displayTimer;
 let fadeTimer;
 let mediaWatchdog;
 let playbackGeneration = 0;
-let reconnectTimer;
-let reconnectDelayMs = 1000;
 let socket;
-let pendingPort;
-let isUnloading = false;
 let widgetPlaybackVisible = true;
 let lastAudioPlaybackReport = "";
 let stageClockReady = true;
@@ -203,20 +215,39 @@ function loadYoutubeApi() {
   if (youtubeApiPromise) return youtubeApiPromise;
 
   youtubeApiPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
     const previousReady = window.onYouTubeIframeAPIReady;
-    window.onYouTubeIframeAPIReady = () => {
+    const timeout = window.setTimeout(failed, 10_000);
+    function cleanup() {
+      window.clearTimeout(timeout);
+      script.removeEventListener("error", failed);
+      if (window.onYouTubeIframeAPIReady === ready) window.onYouTubeIframeAPIReady = previousReady;
+    }
+    function failed() {
+      cleanup();
+      script.remove();
+      reject(new Error("YouTube player API failed to load"));
+    }
+    function ready() {
       try {
         if (typeof previousReady === "function") previousReady();
       } finally {
-        if (window.YT?.Player) resolve(window.YT);
-        else reject(new Error("YouTube player API did not initialize"));
+        if (window.YT?.Player) {
+          cleanup();
+          resolve(window.YT);
+        } else {
+          failed();
+        }
       }
-    };
-    const script = document.createElement("script");
+    }
+    window.onYouTubeIframeAPIReady = ready;
     script.src = "https://www.youtube.com/iframe_api";
     script.async = true;
-    script.addEventListener("error", () => reject(new Error("YouTube player API failed to load")), { once: true });
+    script.addEventListener("error", failed);
     document.head.appendChild(script);
+  }).catch((error) => {
+    youtubeApiPromise = undefined;
+    throw error;
   });
   return youtubeApiPromise;
 }
@@ -265,7 +296,6 @@ function showYoutubeCredit(payload = {}) {
   }
   updateYoutubeCreditAuthor();
   if (isWidgetWindow) {
-    if (youtubeCreditLabelElement) youtubeCreditLabelElement.textContent = "Now playing";
     if (youtubeCreditSourceElement) {
       youtubeCreditSourceElement.textContent = channel;
       youtubeCreditSourceElement.hidden = !channel;
@@ -759,9 +789,7 @@ function beginYoutubeMusic(payload = {}) {
       loadYoutubePendingPlayback();
     })
     .catch(() => {
-      youtubeApiPromise = undefined;
-      finishYoutubePlayback(playbackId, generation, false);
-      playDeferredYoutubeOrNextMedia();
+      if (finishYoutubePlayback(playbackId, generation, false)) playDeferredYoutubeOrNextMedia();
     });
 }
 
@@ -960,7 +988,7 @@ function showPreview() {
   if (sample === "music" && youtubeCreditElement) {
     // Panel preview of the OBS YouTube video and "Now playing" card (Size and crop).
     youtubePlayerElement?.classList.add("youtube-player--obs", "youtube-player--sample");
-    if (youtubeCreditChannelElement) youtubeCreditChannelElement.textContent = "Relay — Now playing preview";
+    if (youtubeCreditChannelElement) youtubeCreditChannelElement.textContent = `Relay — ${playbackLabel("nowPlaying")}`;
     youtubeCreditRequester = "Relay";
     updateYoutubeCreditAuthor();
     youtubeCreditElement.hidden = false;
@@ -1470,7 +1498,7 @@ function startCurrentMedia(generation = playbackGeneration) {
   ) {
     loadPlayback(currentMedia, videoElement, videoElement, generation);
   } else if (currentMedia.kind === "audio") {
-    audioTitleElement.textContent = currentMedia.title || currentMedia.filename || "Discord audio";
+    audioTitleElement.textContent = currentMedia.title || currentMedia.filename || playbackLabel("discordAudio");
     audioArtistElement.textContent = currentMedia.artist || "";
     audioArtistElement.hidden = !currentMedia.artist;
     setAudioArtwork(currentMedia);
@@ -1621,16 +1649,7 @@ function handleMessage(event) {
     config = { ...config, ...message.payload };
     applyOutputGeometry();
     positionMediaText();
-    const configuredPort = Number(message.payload?.port);
-    if (
-      Number.isInteger(configuredPort)
-      && configuredPort > 0
-      && configuredPort <= 65535
-    ) {
-      pendingPort = String(configuredPort) !== window.location.port
-        ? configuredPort
-        : undefined;
-    }
+    reconnect.setPort(Number(message.payload?.port));
     const volume = Math.min(1, Math.max(0, config.mediaVolume / 100));
     const widgetMuted = isWidgetWindow && !config.widgetSoundEnabled;
     videoElement.muted = widgetMuted || currentMedia?.kind === "gif";
@@ -1717,6 +1736,12 @@ function applyAppearance(preferences = {}) {
     ? preferences.language
     : interfaceLanguage;
   document.documentElement.lang = interfaceLanguage;
+  const audioLabel = document.querySelector("#audio-card-label");
+  if (audioLabel) audioLabel.textContent = playbackLabel("nowPlaying");
+  if (youtubeCreditLabelElement) youtubeCreditLabelElement.textContent = playbackLabel("nowPlaying");
+  if (currentMedia?.kind === "audio" && !currentMedia.title && !currentMedia.filename) {
+    audioTitleElement.textContent = playbackLabel("discordAudio");
+  }
   document.documentElement.dataset.theme = preferences.theme || "dark";
   const rgb = Array.isArray(preferences.accentRgb) ? preferences.accentRgb : [88, 185, 137];
   document.documentElement.style.setProperty("--accent", `rgb(${rgb.join(" ")})`);
@@ -1730,26 +1755,13 @@ function applyAppearance(preferences = {}) {
 applyAppearance({ language: interfaceLanguage, fontScale: 100, accentRgb: [88, 185, 137] });
 applyOutputGeometry();
 
-function scheduleReconnect() {
-  if (isUnloading || reconnectTimer || (isWidgetWindow && !widgetPlaybackVisible)) {
-    return;
-  }
-  reconnectTimer = window.setTimeout(() => {
-    reconnectTimer = undefined;
-    connect();
-  }, reconnectDelayMs);
-  reconnectDelayMs = Math.min(reconnectDelayMs * 2, 10000);
-}
-
-function moveToPendingPort() {
-  RelayConnection.moveToPort(pendingPort, (host) => outputSocketUrl(host, "probe", "ws:"), () => isUnloading);
-}
+const reconnect = RelayConnection.reconnect(connect, (host) => outputSocketUrl(host, "probe", "ws:"), () => !isWidgetWindow || widgetPlaybackVisible);
 
 function connect() {
   const nextSocket = new WebSocket(outputSocketUrl(window.location.host));
   socket = nextSocket;
   nextSocket.addEventListener("open", () => {
-    reconnectDelayMs = 1000;
+    reconnect.opened();
     showNextMedia();
   });
   nextSocket.addEventListener("message", handleMessage);
@@ -1771,11 +1783,7 @@ function connect() {
     mediaBusy = false;
     musicBusy = false;
     mediaClockReady = !coordinatesSplitOutputs;
-    if (pendingPort) {
-      moveToPendingPort();
-      return;
-    }
-    scheduleReconnect();
+    reconnect.closed();
   });
   nextSocket.addEventListener("error", () => nextSocket.close());
 }
@@ -1796,8 +1804,7 @@ window.setWidgetVisible = (visible) => {
     playbackGeneration += 1;
     resetElements();
     stageClockReady = isPreview;
-    window.clearTimeout(reconnectTimer);
-    reconnectTimer = undefined;
+    reconnect.cancel();
     socket?.close();
     return;
   }
@@ -1816,10 +1823,9 @@ window.addEventListener("resize", positionMediaText);
 // Widget windows are not web pages: no browser menu on right click.
 window.addEventListener("contextmenu", (event) => event.preventDefault());
 window.addEventListener("beforeunload", () => {
-  isUnloading = true;
+  reconnect.unload();
   stopYoutubePlayback();
   clearOverlay();
-  window.clearTimeout(reconnectTimer);
   socket?.close();
 });
 

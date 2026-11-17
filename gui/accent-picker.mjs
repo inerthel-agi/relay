@@ -83,7 +83,9 @@ export function initializeAccentPicker({ t, doc = document, win = window }) {
       const on = swatch.dataset.accentHex === hex;
       preset ||= on;
       swatch.setAttribute("aria-checked", String(on));
+      swatch.tabIndex = on ? 0 : -1;
     }
+    if (!preset && swatches.length) swatches[0].tabIndex = 0;
     custom.toggleAttribute("data-active", !preset);
   }
 
@@ -112,7 +114,17 @@ export function initializeAccentPicker({ t, doc = document, win = window }) {
     }
   }
 
-  for (const swatch of swatches) swatch.addEventListener("click", () => setAccent(swatch.dataset.accentHex));
+  for (const [index, swatch] of swatches.entries()) {
+    swatch.addEventListener("click", () => setAccent(swatch.dataset.accentHex));
+    swatch.addEventListener("keydown", (event) => {
+      const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
+      if (!step) return;
+      event.preventDefault();
+      const next = swatches[(index + step + swatches.length) % swatches.length];
+      next.focus();
+      setAccent(next.dataset.accentHex);
+    });
+  }
   custom.addEventListener("click", () => openPopover(popover.hidden));
   doc.addEventListener("pointerdown", (event) => {
     if (!popover.hidden && !custom.parentElement.contains(event.target)) openPopover(false);

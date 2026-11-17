@@ -179,7 +179,12 @@ pub async fn ask(
 #[derive(Debug, Default)]
 pub struct WatchStub {
     pub answer: Option<AiAdvice>,
-    pub sent: Vec<String>,
+    pub sent: Vec<(Option<String>, String)>,
+}
+
+#[cfg(test)]
+tokio::task_local! {
+    pub(crate) static TEST_PROVIDER: std::sync::Arc<std::sync::Mutex<WatchStub>>;
 }
 
 #[cfg(test)]

@@ -479,6 +479,17 @@ pub(super) async fn ask(
     request: &AiRequest,
     member: Option<&str>,
 ) -> AiAdvice {
+    #[cfg(test)]
+    if let Ok(answer) = super::watch::TEST_PROVIDER.try_with(|stub| {
+        let mut stub = stub.lock().unwrap();
+        stub.sent
+            .push((member.map(str::to_owned), request.user_text.clone()));
+        stub.answer.clone().unwrap_or(AiAdvice::Failed {
+            cause: AiError::NoKey,
+        })
+    }) {
+        return answer;
+    }
     match call(settings, provider, request, ADVICE_DEADLINE, member)
         .await
         .and_then(|value| parse_advice(&value))

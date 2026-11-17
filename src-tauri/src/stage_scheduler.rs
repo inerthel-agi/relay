@@ -350,13 +350,15 @@ impl StageScheduler {
             let mut state = self.inner.state.lock().await;
             let mut original_keys = Vec::with_capacity(tickets.len());
             for ticket in tickets {
+                if state.is_active(*ticket) {
+                    continue;
+                }
                 if let Some(entry) = state.entries.remove(ticket) {
                     if let Some(key) = entry.key {
                         state.ordered.remove(&key);
                     }
                     original_keys.push(entry.original_key);
                 }
-                state.active.retain(|active| active.ticket != *ticket);
             }
             for key in original_keys {
                 self.reinsert_ready_group_for_key(&mut state, key);

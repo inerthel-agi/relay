@@ -5,13 +5,7 @@ const vm = require("node:vm");
 
 const panelHtml = fs.readFileSync(__dirname + "/../gui/panel.html", "utf8");
 const panelSource = require("./test-source.cjs").panelSource();
-const dictionarySource = panelSource.slice(
-  panelSource.indexOf("const translations ="),
-  panelSource.indexOf("const pageMetadata ="),
-);
-const dictionaryContext = vm.createContext({});
-vm.runInContext(`${dictionarySource}\nglobalThis.translationsForTest = translations;`, dictionaryContext);
-const translations = dictionaryContext.translationsForTest;
+const { translations } = require("../gui/translations.mjs");
 
 function setup() {
   const elements = new Map();

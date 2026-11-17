@@ -134,6 +134,9 @@ async fn author_names(core: &Arc<AppCore>, entries: &[LogEntry]) -> HashMap<Stri
         .collect();
     let mut names = HashMap::new();
     let mut unknown = Vec::new();
+    if let Ok(mut cached) = core.author_names.lock() {
+        cached.retain(|id, _| ids.contains(id.as_str()));
+    }
     for id in ids {
         let known = core
             .author_names

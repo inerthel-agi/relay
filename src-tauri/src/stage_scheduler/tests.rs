@@ -543,3 +543,20 @@ async fn a_late_part_does_not_strand_the_part_already_on_stage() {
     scheduler.stage_state(false, false, false).await;
     assert!(matches!(rx.try_recv(), Ok(RelayEvent::Media(_))));
 }
+
+#[tokio::test]
+async fn cancelling_tickets_keeps_the_active_place_and_withdraws_its_siblings() {
+    let (tx, mut rx) = broadcast::channel(16);
+    let scheduler = StageScheduler::new(tx);
+    let active = scheduler.reserve(10, "1", 0, StageLane::Media).await;
+    let sibling = scheduler.reserve(10, "1", 1, StageLane::Media).await;
+    let next = scheduler.reserve(11, "2", 0, StageLane::Media).await;
+    scheduler.ready(active, media(10, "1")).await;
+    scheduler.ready(sibling, media(10, "1")).await;
+    scheduler.ready(next, media(11, "2")).await;
+    assert!(matches!(rx.try_recv(), Ok(RelayEvent::Media(event)) if event.message_id == "1"));
+    scheduler.cancel_many(&[active, sibling]).await;
+    assert!(rx.try_recv().is_err());
+    scheduler.skip_active().await;
+    assert!(matches!(rx.try_recv(), Ok(RelayEvent::Media(event)) if event.message_id == "2"));
+}

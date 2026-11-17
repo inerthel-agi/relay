@@ -120,3 +120,19 @@ test("the tray skips media with the panel command and reads its version", () => 
   assert.match(panelSource, /rememberShortcutLabel\("panic", /);
   assert.match(traySource, /localStorage\.getItem\("relay-shortcut-labels"\)/);
 });
+
+test("accent radio arrows move focus and select the next preset", async () => {
+  const { initializeAccentPicker } = await load("accent-picker.mjs");
+  const elements = new Map();
+  const make = () => ({ dataset: {}, style: { setProperty() {} }, value: "#58b989", listeners: {},
+    querySelector: () => make(), addEventListener(key, fn) { this.listeners[key] = fn; },
+    setAttribute(key, value) { this[key] = value; }, toggleAttribute() {}, dispatchEvent() {}, focus() { this.focused = true; } });
+  const swatches = ["#58b989", "#3b82f6"].map((hex) => Object.assign(make(), { dataset: { accentHex: hex } }));
+  const doc = { querySelector(id) { if (!elements.has(id)) elements.set(id, make()); return elements.get(id); },
+    querySelectorAll: () => swatches, addEventListener() {} };
+  initializeAccentPicker({ doc, win: {}, t: (key) => key });
+  swatches[0].listeners.keydown({ key: "ArrowLeft", preventDefault() {} });
+  assert.equal(swatches[1].focused, true);
+  assert.equal(swatches[1]["aria-checked"], "true");
+  assert.deepEqual(swatches.map((s) => s.tabIndex), [-1, 0]);
+});

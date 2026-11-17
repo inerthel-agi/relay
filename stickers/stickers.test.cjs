@@ -28,6 +28,7 @@ function createHarness() {
     },
   };
   const sockets = [];
+  const delays = [];
   class MockWebSocket {
     constructor(url) {
       this.url = url;
@@ -50,7 +51,7 @@ function createHarness() {
     addEventListener() {},
     clearTimeout() {},
     requestAnimationFrame(callback) { callback(); },
-    setTimeout() { return 1; },
+    setTimeout(_, delay) { delays.push(delay); return delays.length; },
   };
   const context = vm.createContext({
     URL,
@@ -62,7 +63,7 @@ function createHarness() {
   });
   vm.runInContext(fs.readFileSync(__dirname + "/../outputs/connection.js", "utf8"), context);
   vm.runInContext(fs.readFileSync(__dirname + "/stickers.js", "utf8"), context);
-  return { elements, socket: sockets[0] };
+  return { elements, socket: sockets[0], sockets, delays };
 }
 
 test("sticker output identifies itself and accepts isolated tests", () => {
@@ -119,7 +120,7 @@ test("the sticker and its fallback share the centred cell and a hidden fallback 
 });
 
 test("sticker reconnect keeps pending work and probes a moved server", () => {
-  const source = fs.readFileSync(__dirname + "/stickers.js", "utf8");
+  const source = fs.readFileSync(__dirname + "/../outputs/connection.js", "utf8") + fs.readFileSync(__dirname + "/stickers.js", "utf8");
   assert.match(
     source,
     /function interruptStickerPlayback\(\)\s*\{(?![^}]*queue\.length\s*=\s*0)[^}]*currentSticker\s*=\s*undefined/s,
@@ -133,4 +134,12 @@ test("sticker reconnect keeps pending work and probes a moved server", () => {
     source,
     /configuredPort[\s\S]*Number\.isInteger\(configuredPort\)[\s\S]*configuredPort <= 65535/,
   );
+});
+
+test("returning to the current sticker port cancels a pending move", () => {
+  const { socket, sockets, delays } = createHarness();
+  for (const port of [4600, 4590]) socket.emit("message", JSON.stringify({ type: "config", payload: { port } }));
+  socket.emit("close");
+  assert.equal(sockets.length, 1);
+  assert.deepEqual(delays, [1000]);
 });

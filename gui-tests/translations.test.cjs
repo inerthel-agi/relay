@@ -1,19 +1,10 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const test = require("node:test");
-const vm = require("node:vm");
+const { translations, regionalTranslations } = require("../gui/translations.mjs");
 
 const panelSource = require("./test-source.cjs").panelSource();
 const panelHtml = fs.readFileSync(__dirname + "/../gui/panel.html", "utf8");
-const dictionarySource = panelSource.slice(
-  panelSource.indexOf("const translations ="),
-  panelSource.indexOf("const pageMetadata ="),
-);
-const context = vm.createContext({});
-vm.runInContext(`${dictionarySource}\nglobalThis.translationsForTest = translations;\nglobalThis.regionalTranslationsForTest = regionalTranslations;`, context);
-const translations = context.translationsForTest;
-const regionalTranslations = context.regionalTranslationsForTest;
-
 test("every supported language provides every interface translation key", () => {
   const expectedKeys = Object.keys(translations.en).sort();
   for (const language of ["fr", "es", "de", "it", "pt", "pl", "tr", "ru", "zh", "ko", "ja", "id"]) {

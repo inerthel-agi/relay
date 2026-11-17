@@ -1,3 +1,4 @@
+import { translatedError } from "./diagnostics.mjs";
 // Safety → Moderation: presets, message tester, word lists, advanced words,
 // decision log, held messages, Discord actions and keyboard review.
 import { confirmInline } from "./modules.mjs";
@@ -39,6 +40,7 @@ const REASON_KEYS = {
   ai_image_not_sent: "reasonAiImageNotSent",
   voice_unchecked: "reasonVoiceUnchecked",
   setting_changed: "reasonSettingChanged", type_not_reviewed: "reasonTypeNotReviewed", outputs_paused: "reasonOutputsPaused",
+  gif_embed_missing: "reasonGifEmbedMissing",
   member_age_unknown: "reasonMemberAgeUnknown",
   // Privacy scan reasons reuse the labels of their category.
   email: "privacyCategoryEmail", phone: "privacyCategoryPhone", person_phone_combination: "privacyCategoryPhone",
@@ -429,6 +431,7 @@ export function initializeModerationUi({
       const input = document.createElement("input");
       input.type = "checkbox";
       input.name = "moderation-pack";
+      input.id = `moderation-pack-${id}`;
       input.value = id;
       input.checked = enabled.has(id);
       const name = document.createElement("span");
@@ -467,6 +470,7 @@ export function initializeModerationUi({
       const title = document.createElement("strong");
       title.textContent = concept.canonical;
       const aliases = document.createElement("textarea");
+      aliases.id = `moderation-aliases-${encodeURIComponent(row.dataset.canonical)}`;
       aliases.rows = 2;
       aliases.spellcheck = false;
       aliases.dataset.advanced = "aliases";
@@ -474,6 +478,7 @@ export function initializeModerationUi({
       aliases.placeholder = t("advancedAliases");
       aliases.value = (concept.aliases || []).join("\n");
       const regexes = document.createElement("textarea");
+      regexes.id = `moderation-regexes-${encodeURIComponent(row.dataset.canonical)}`;
       regexes.rows = 2;
       regexes.spellcheck = false;
       regexes.dataset.advanced = "regexes";
@@ -1006,7 +1011,7 @@ export function initializeModerationUi({
       testResult.dataset.action = result.action;
       testResult.textContent = describeTestResult(result, t, formatTranslation);
     } catch (error) {
-      testResult.textContent = String(error);
+      testResult.textContent = translatedError(error, t);
     }
   });
 
@@ -1055,7 +1060,7 @@ export function initializeModerationUi({
     } catch (error) {
       result.hidden = false;
       result.dataset.verdict = "failed";
-      result.textContent = String(error);
+      result.textContent = translatedError(error, t);
     } finally {
       button.disabled = false;
     }
@@ -1100,7 +1105,7 @@ export function initializeModerationUi({
         show(answer?.state || "failed", describeSettingsAnswer(answer, t, formatTranslation));
       }
     } catch (error) {
-      if (request === suggestRequest) show("failed", String(error));
+      if (request === suggestRequest) show("failed", translatedError(error, t));
     } finally {
       button.disabled = false;
     }
@@ -1128,7 +1133,7 @@ export function initializeModerationUi({
     const button = event.currentTarget;
     button.disabled = true;
     try {
-      if (!await confirmInline(button.parentElement, t, "moderationLogClearConfirm", "moderationLogClear")) return;
+      if (!await confirmInline(button.parentElement, t, "moderationLogClearConfirm", "moderationLogClear", button)) return;
       await invoke("clear_moderation_log");
       await refresh();
     } catch (error) {

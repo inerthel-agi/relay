@@ -4,7 +4,6 @@ use crate::music::SearchRefusal;
 const MUSIC_MOVE_UP_PREFIX: &str = "relay:music:up:";
 const MUSIC_MOVE_DOWN_PREFIX: &str = "relay:music:down:";
 const MUSIC_REMOVE_PREFIX: &str = "relay:music:remove:";
-const QUOTA_EXCEEDED: &str = "YouTube API quota exceeded for today. Try again after the daily reset, or raise the quota in Google Cloud.";
 
 pub(super) async fn music_notice(
     core: &Arc<AppCore>,
@@ -81,7 +80,7 @@ pub(super) async fn handle_music_message(
                     .admit_search(user_id, Instant::now(), cached.is_some());
             match (admitted, cached) {
                 (Err(SearchRefusal::Daily), _) => {
-                    music_notice(core, http, message.channel_id, QUOTA_EXCEEDED).await;
+                    music_notice(core, http, message.channel_id, strings.quota_exceeded).await;
                     return;
                 }
                 (Err(SearchRefusal::Member(wait)), _) => {
@@ -102,7 +101,7 @@ pub(super) async fn handle_music_message(
             let detail = error.to_string();
             core.bot_status.write().await.error = Some(detail.clone());
             let reply = if detail.to_ascii_lowercase().contains("quota") {
-                QUOTA_EXCEEDED
+                strings.quota_exceeded
             } else {
                 strings.search_unavailable
             };

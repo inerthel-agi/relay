@@ -1,6 +1,6 @@
 [package]
 name = "relay"
-version = "1.5.3"
+version = "1.5.4"
 description = "Local Discord media relay for OBS"
 authors = ["inerthel <contact@inerthel.com>"]
 edition = "2024"
@@ -37,6 +37,7 @@ tauri-plugin-single-instance = "2.4.2"
 tokio = { version = "1.49.0", features = ["macros", "net", "rt-multi-thread", "sync", "time"] }
 tokio-tungstenite = "0.29.0"
 tower-http = { version = "0.6.8", features = ["set-header"] }
+unicode-segmentation = "=1.13.3"
 windows = { version = "0.61.3", features = ["Globalization", "Graphics_Imaging", "Media_Ocr", "Storage_Streams", "Win32_Foundation", "Win32_Graphics_Dwm", "Win32_System_WinRT", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 windows-native-keyring-store = { version = "1.1.0", default-features = false }
 

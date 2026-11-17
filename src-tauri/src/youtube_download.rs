@@ -24,9 +24,7 @@ const NODE_URL: &str = "https://nodejs.org/download/release/v24.21.0/win-x64/nod
 const NODE_SUMS_URL: &str = "https://nodejs.org/download/release/v24.21.0/SHASUMS256.txt";
 const NODE_SUMS_NAME: &str = "win-x64/node.exe";
 const FFMPEG_ASSET: &str = "ffmpeg-release-essentials.zip";
-const FFMPEG_URL: &str = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip";
-const FFMPEG_SUMS_URL: &str =
-    "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip.sha256";
+const FFMPEG_RELEASE_URL: &str = "https://api.github.com/repos/GyanD/codexffmpeg/releases/latest";
 const CHECKSUM_LIMIT: usize = 64 * 1024;
 const YTDLP_LIMIT: usize = 32 * 1024 * 1024;
 const NODE_LIMIT: usize = 128 * 1024 * 1024;
@@ -271,7 +269,7 @@ async fn resolve_ffmpeg(tool_dir: &Path) -> Result<Option<PathBuf>, String> {
         return Ok(Some(path));
     }
     let archive =
-        download_verified_asset(FFMPEG_URL, FFMPEG_SUMS_URL, FFMPEG_ASSET, FFMPEG_LIMIT).await?;
+        download_from_metadata(FFMPEG_RELEASE_URL, FFMPEG_LIMIT, ffmpeg_release_asset).await?;
     let archive_directory = TemporaryDirectory::create("relay-ffmpeg-archive")?;
     let archive_path = archive_directory.path().join(FFMPEG_ASSET);
     tokio::task::spawn_blocking({
@@ -312,15 +310,12 @@ async fn extract_archive(archive: &Path, destination: &Path) -> Result<(), Strin
 }
 
 fn expand_archive(archive: &Path, destination: &Path) -> Result<(), String> {
-    let script = format!(
-        "Expand-Archive -LiteralPath {} -DestinationPath {} -Force",
-        powershell_literal(archive),
-        powershell_literal(destination)
-    );
     let mut command = Command::new("powershell.exe");
     command
-        .args(["-NoProfile", "-NonInteractive", "-Command"])
-        .arg(script)
+        .env("RELAY_ARCHIVE_PATH", archive)
+        .env("RELAY_EXTRACT_DIR", destination)
+        .args(["-NoProfile", "-NonInteractive", "-Command",
+            "Expand-Archive -LiteralPath $env:RELAY_ARCHIVE_PATH -DestinationPath $env:RELAY_EXTRACT_DIR -Force -ErrorAction Stop"])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
@@ -350,10 +345,6 @@ fn expand_archive(archive: &Path, destination: &Path) -> Result<(), String> {
         }
         thread::sleep(Duration::from_millis(100));
     }
-}
-
-fn powershell_literal(path: &Path) -> String {
-    format!("'{}'", path.to_string_lossy().replace('\'', "''"))
 }
 
 fn find_file_named(directory: &Path, name: &str) -> Option<PathBuf> {
@@ -481,6 +472,36 @@ async fn download_verified_asset(
     asset_name: &str,
     limit: usize,
 ) -> Result<Vec<u8>, String> {
+    download_from_metadata(sums_url, limit, |bytes| {
+        Some((asset_url.to_owned(), checksum_for_asset(bytes, asset_name)?))
+    })
+    .await
+}
+
+fn ffmpeg_release_asset(bytes: &[u8]) -> Option<(String, [u8; 32])> {
+    let release: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+    let tag = release["tag_name"].as_str()?;
+    if !tag
+        .split('.')
+        .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
+    {
+        return None;
+    }
+    let name = format!("ffmpeg-{tag}-essentials_build.zip");
+    let url = format!("https://github.com/GyanD/codexffmpeg/releases/download/{tag}/{name}");
+    let asset = release["assets"].as_array()?.iter().find(|asset| {
+        asset["name"].as_str() == Some(&name)
+            && asset["browser_download_url"].as_str() == Some(&url)
+    })?;
+    let digest = asset["digest"].as_str()?.strip_prefix("sha256:")?;
+    Some((url, decode_hex(digest)?))
+}
+
+async fn download_from_metadata(
+    metadata_url: &str,
+    limit: usize,
+    resolve_asset: impl FnOnce(&[u8]) -> Option<(String, [u8; 32])>,
+) -> Result<Vec<u8>, String> {
     let client = Client::builder()
         .connect_timeout(Duration::from_secs(15))
         .timeout(HELPER_TIMEOUT)
@@ -488,15 +509,15 @@ async fn download_verified_asset(
         .build()
         .map_err(|_| "Unable to initialize the YouTube helper download.".to_string())?;
     let sums_response = client
-        .get(sums_url)
+        .get(metadata_url)
         .send()
         .await
         .map_err(|_| "Unable to download the helper checksum.".to_string())?
         .error_for_status()
         .map_err(|_| "The helper checksum was rejected.".to_string())?;
     let sums = read_response_bounded(sums_response, CHECKSUM_LIMIT).await?;
-    let expected = checksum_for_asset(&sums, asset_name)
-        .ok_or_else(|| "The helper checksum is unavailable.".to_string())?;
+    let (asset_url, expected) =
+        resolve_asset(&sums).ok_or_else(|| "The helper checksum is unavailable.".to_string())?;
     let asset_response = client
         .get(asset_url)
         .send()
@@ -541,8 +562,8 @@ fn checksum_for_asset(bytes: &[u8], asset_name: &str) -> Option<[u8; 32]> {
     std::str::from_utf8(bytes).ok()?.lines().find_map(|line| {
         let mut fields = line.split_whitespace();
         let hash = fields.next()?;
-        let name = fields.next().map(|name| name.trim_start_matches('*'));
-        (name.is_none() || name == Some(asset_name))
+        let name = fields.next()?;
+        (name.strip_prefix('*').unwrap_or(name) == asset_name && fields.next().is_none())
             .then(|| decode_hex(hash))
             .flatten()
     })
@@ -896,15 +917,65 @@ mod tests {
         let sums = b"deadbeef  other.exe\n0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef *yt-dlp.exe\n";
         assert_eq!(checksum_for_asset(sums, "yt-dlp.exe").unwrap()[0], 0x01);
         assert!(checksum_for_asset(sums, "node.exe").is_none());
-        assert_eq!(
-            checksum_for_asset(
-                b"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n",
-                "ffmpeg-release-essentials.zip"
-            )
-            .unwrap()[0],
-            0x01
-        );
         assert!(decode_hex(&"é".repeat(32)).is_none());
+    }
+
+    #[test]
+    fn unnamed_checksums_do_not_match_helper_assets() {
+        let hash = "12".repeat(32);
+        assert!(checksum_for_asset(hash.as_bytes(), "tool.exe").is_none());
+        let sums = format!("{hash}\n{} *tool.exe\n", "34".repeat(32));
+        assert_eq!(
+            checksum_for_asset(sums.as_bytes(), "tool.exe"),
+            Some([0x34; 32])
+        );
+    }
+
+    #[test]
+    fn ffmpeg_digest_belongs_to_the_named_release_archive() {
+        let name = "ffmpeg-9.0.2-essentials_build.zip";
+        let url = format!("https://github.com/GyanD/codexffmpeg/releases/download/9.0.2/{name}");
+        let mut release = serde_json::json!({
+            "tag_name": "9.0.2",
+            "assets": [
+                {"name":"other.zip", "browser_download_url": &url, "digest":format!("sha256:{}", "12".repeat(32))},
+                {"name":name, "browser_download_url": &url, "digest":format!("sha256:{}", "34".repeat(32))}
+            ]
+        });
+        let resolve = |r: &serde_json::Value| ffmpeg_release_asset(&serde_json::to_vec(r).unwrap());
+        assert_eq!(resolve(&release), Some((url, [0x34; 32])));
+        release["assets"][1]["digest"] = serde_json::Value::Null;
+        assert!(resolve(&release).is_none());
+        release["assets"][1]["digest"] = serde_json::json!(format!("sha256:{}", "34".repeat(32)));
+        release["assets"][1]["browser_download_url"] =
+            serde_json::json!("https://relay.invalid/other.zip");
+        assert!(resolve(&release).is_none());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn archive_paths_with_curly_apostrophes_are_literal() {
+        let directory = tempfile::tempdir().unwrap();
+        let file = directory.path().join("sample.txt");
+        let archive = directory.path().join("Sam’s archive.zip");
+        let destination = directory.path().join("Sam’s output");
+        fs::write(&file, b"fixture").unwrap();
+        let mut zip = Command::new("powershell.exe");
+        crate::hidden_process::hide_window(&mut zip);
+        let result = zip.env("RELAY_ZIP_INPUT", &file).env("RELAY_ZIP_OUTPUT", &archive)
+            .args(["-NoProfile", "-NonInteractive", "-Command",
+                "Compress-Archive -LiteralPath $env:RELAY_ZIP_INPUT -DestinationPath $env:RELAY_ZIP_OUTPUT -ErrorAction Stop"])
+            .output().unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        expand_archive(&archive, &destination).unwrap();
+        assert_eq!(
+            fs::read(destination.join("sample.txt")).unwrap(),
+            b"fixture"
+        );
     }
 
     #[test]
@@ -966,7 +1037,7 @@ mod tests {
             let archive_path = archive_directory.path().join(FFMPEG_ASSET);
             fs::write(
                 &archive_path,
-                download_verified_asset(FFMPEG_URL, FFMPEG_SUMS_URL, FFMPEG_ASSET, FFMPEG_LIMIT)
+                download_from_metadata(FFMPEG_RELEASE_URL, FFMPEG_LIMIT, ffmpeg_release_asset)
                     .await
                     .unwrap(),
             )

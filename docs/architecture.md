@@ -1,16 +1,16 @@
 # Relay architecture
 
-Relay is a Windows desktop application that relays Discord media to authenticated local OBS Browser Sources and optional Windows widgets. Its desktop shell is Tauri 2, its core is Rust, and its interface is static HTML, CSS, and JavaScript.
+Relay is a Windows desktop application that relays Discord media to local OBS Browser Sources and optional Windows widgets. Its desktop shell is Tauri 2, its core is Rust, and its interface is static HTML, CSS, and JavaScript.
 
 ## Runtime components
 
 | Component | Location | Responsibility |
 |---|---|---|
 | Desktop shell | `src-tauri/src/lib.rs` | Tauri lifecycle, system tray, windows, shortcuts, command registration, startup migration |
-| Discord gateway | `src-tauri/src/bot.rs` | Serenity client, channel events, Discord commands, media classification and deletion requests |
+| Discord gateway | `src-tauri/src/bot.rs`, `src-tauri/src/bot/` | Serenity client, channel events, Discord commands, media classification and deletion requests |
 | Application state | `src-tauri/src/state.rs` | Configuration updates, privacy gate, queues, history, replay, caches and relay events |
 | Privacy scanner | `src-tauri/src/privacy.rs` | Local text, EXIF, GPS and OCR analysis with risk classification and sanitized decisions |
-| Local server | `src-tauri/src/server.rs` | Authenticated localhost HTTP and WebSocket output routes |
+| Local server | `src-tauri/src/server.rs` | Local output pages, protected media and WebSocket routes |
 | Output clients | `overlay/`, `notifications/`, `stickers/`, `reactions/`, `outputs/` | OBS Browser Sources and widget-facing playback clients; `outputs/layout.js` holds shared placement; `outputs/theme.css` and `outputs/theme.js` hold the shared stream style |
 | Sound reactions | `src-tauri/src/reactions.rs`, `src-tauri/src/reaction_*.rs` | Reaction library, trimming, access rules and playback leases |
 | Panic button | `src-tauri/src/panic.rs`, `src-tauri/src/stage_scheduler.rs` | Clears every output and pauses the scheduler; paused content is dropped, reactions and music requests are refused |
@@ -21,7 +21,7 @@ Relay is a Windows desktop application that relays Discord media to authenticate
 ## Media path
 
 1. Serenity receives a Discord message in the Relay channel or an extra Relay channel (`extra_relay_channel_ids`, usually in another server of the same bot; it feeds exactly like the Relay channel). Music and the security trap use their own channels, each with optional extra ones (`AppConfig::is_music_channel`, `is_honeypot_channel`); the trap action applies in the server of the channel posted in. Two different former media and message channels keep their single role until the user chooses one (`AppConfig::channel_feeds`). Cleanup, the welcome message, lock, AutoMod and `/relay` commands only use the Relay channel and its server.
-2. Relay splits the message (`RelayMessagePlan` in `bot.rs`): text for one notification, unless it is a typed slash command, a system message or only GIF links; supported attachments, stickers and Discord GIF embeds as media. The moderation gate checks every lane the message feeds.
+2. Relay splits the message (`RelayMessagePlan` in `bot/relay_channel.rs`): text for one notification, unless it is a typed slash command, a system message or only GIF links; supported attachments, stickers and Discord GIF embeds as media. The moderation gate checks every lane the message feeds.
 3. The privacy scanner checks message text with the word filter of every output the message feeds, then attachment names and applicable local image metadata or OCR signals. With the voice check on (`voice_scan.rs`), audio and video attachments are transcribed on this PC by FFmpeg's whisper filter (`media_compat::transcribe`: processor only, low priority, one at a time, 120 s at most) and the text goes through the same scan; a sound that cannot be checked holds the message (`voice_unchecked`), except for server staff and trusted roles or members, whose holds and privacy reviews publish (`state::skips_review`); only a block stops them. With the AI message watch on, a member's transcript that passed the local scan is read by the chosen provider (`ai::watch::transcript_hold_advice`, personal data included), which can only hold it (`ai_flagged`). When the user turned them on and chose a provider, the AI image check and the personal-data relay (`ai/image_guard.rs`) then look at each image, or three FFmpeg frames of a GIF or video (attachments, stickers, GIF links and embeds), of a member who is not a moderator or trusted; library GIFs (Tenor, Giphy, Klipy) skip the personal-data relay: a block deletes the message and cancels all its parts, a hold sends the rest of the message to review. The notification is released after every media check, so a blocked part keeps the whole message off stream.
 4. `AppCore` applies the current privacy policy before a media item reaches history, cache, moderation approval, WebSocket, OBS, or a widget.
 5. Allowed media enters the relevant local FIFO queue. Medium-risk items can enter the existing local moderation queue. Blocked items remain out of public Relay outputs.
@@ -31,7 +31,7 @@ Relay is a Windows desktop application that relays Discord media to authenticate
 
 - Discord is external. Relay receives messages, attachments, stickers, and gateway events through Discord.
 - Relay's local HTTP and WebSocket server binds to `127.0.0.1` only.
-- Output pages require Relay's local authorization mechanism. They cannot use the control-panel command surface.
+- Short OBS pages load without authentication on loopback. Relay supplies the output secret in an HTML meta tag and expires the legacy cookie. Output clients use the secret for protected media and WebSocket requests. The control panel uses a separate session token.
 - Credentials and Relay's local secret use Windows Credential Manager. The persisted application configuration does not contain the Discord token.
 - Media downloads are bounded. Direct media and redirect targets are restricted to approved HTTPS host families.
 - Privacy logs store classifications, category codes, and actions. They do not reproduce detected text, coordinates, OCR output, metadata values, or configured private strings.
@@ -45,13 +45,13 @@ Relay is a Windows desktop application that relays Discord media to authenticate
 
 ## Local output routes
 
-The local server exposes authenticated routes for the `/obs/visual` and `/obs/audio` composites, visual media, audio, notifications, stickers, reactions, cached media, and a WebSocket event stream. Message notifications are visual only; Relay has no speech synthesis. Relay displays the exact private Browser Source URLs in the application; contributors must not invent, publish, or log them.
+The local server serves the OBS composites and their output pages. Access to cached media and the WebSocket event stream requires authorization. Message notifications are visual only; Relay has no speech synthesis. Relay displays the exact private Browser Source URLs in the application; contributors must not invent, publish, or log them.
 
 ## Source map for contributors
 
 | Change | Primary files |
 |---|---|
-| Discord message handling | `src-tauri/src/bot.rs`, `src-tauri/src/model.rs` |
+| Discord message handling | `src-tauri/src/bot.rs`, `src-tauri/src/bot/`, `src-tauri/src/model.rs` |
 | Moderation and privacy | `src-tauri/src/privacy.rs`, `src-tauri/src/state.rs`, `gui/panel.js` |
 | Config migration and validation | `src-tauri/src/config.rs`, `src-tauri/src/commands.rs` |
 | Custom Discord actions | `src-tauri/src/custom_commands.rs`, `src-tauri/src/bot.rs` |

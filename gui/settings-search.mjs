@@ -108,6 +108,9 @@ export function initializeSettingsSearch({ $, $$, t, pageMetadata, showPage, get
     }
   }
 
+  settingsSearchControl.addEventListener("focusout", (event) => {
+    if (!settingsSearchControl.contains(event.relatedTarget)) closeSettingsSearch();
+  });
   settingsSearchElement.addEventListener("input", renderSettingsSearchResults);
   settingsSearchElement.addEventListener("focus", () => {
     buildSettingsSearchIndex();
@@ -152,8 +155,8 @@ export function initializeSettingsSearch({ $, $$, t, pageMetadata, showPage, get
     },
     closeAndFocus() {
       if (settingsSearchResultsElement.hidden) return;
-      closeSettingsSearch();
       settingsSearchElement.focus();
+      closeSettingsSearch();
     },
     focus() {
       settingsSearchElement.focus();

@@ -25,6 +25,7 @@ pub struct MusicStrings {
     pub search_unavailable: &'static str,
     pub search_cooldown: &'static str,
     pub search_hourly_limit: &'static str,
+    pub quota_exceeded: &'static str,
     pub no_results: &'static str,
     pub nothing_selected: &'static str,
     pub search_not_owner: &'static str,
@@ -44,6 +45,7 @@ pub struct MusicStrings {
 }
 
 const EN: MusicStrings = MusicStrings {
+    quota_exceeded: "YouTube API quota exceeded for today. Try again after the daily reset, or raise the quota in Google Cloud.",
     results_title: "YouTube results",
     choose_title: "Pick a track for “{query}”.",
     choose_placeholder: "Choose a track",
@@ -86,6 +88,7 @@ const EN: MusicStrings = MusicStrings {
 };
 
 const FR: MusicStrings = MusicStrings {
+    quota_exceeded: "Quota quotidien de l’API YouTube atteint. Réessayez après sa réinitialisation ou augmentez le quota dans Google Cloud.",
     results_title: "Résultats YouTube",
     choose_title: "Choisis un titre pour « {query} ».",
     choose_placeholder: "Choisir un titre",
@@ -128,6 +131,7 @@ const FR: MusicStrings = MusicStrings {
 };
 
 const ES: MusicStrings = MusicStrings {
+    quota_exceeded: "Se ha agotado la cuota diaria de la API de YouTube. Inténtalo después del reinicio diario o aumenta la cuota en Google Cloud.",
     results_title: "Resultados de YouTube",
     choose_title: "Elige un título para “{query}”.",
     choose_placeholder: "Elegir un título",
@@ -170,6 +174,7 @@ const ES: MusicStrings = MusicStrings {
 };
 
 const DE: MusicStrings = MusicStrings {
+    quota_exceeded: "Das Tageskontingent der YouTube-API ist aufgebraucht. Versuche es nach dem täglichen Zurücksetzen erneut oder erhöhe das Kontingent in Google Cloud.",
     results_title: "YouTube-Ergebnisse",
     choose_title: "Wähle einen Titel für „{query}“.",
     choose_placeholder: "Titel wählen",
@@ -212,6 +217,7 @@ const DE: MusicStrings = MusicStrings {
 };
 
 const RU: MusicStrings = MusicStrings {
+    quota_exceeded: "Дневная квота API YouTube исчерпана. Попробуйте после её обновления или увеличьте квоту в Google Cloud.",
     results_title: "Результаты YouTube",
     choose_title: "Выберите трек для «{query}».",
     choose_placeholder: "Выбрать трек",
@@ -254,6 +260,7 @@ const RU: MusicStrings = MusicStrings {
 };
 
 const ZH: MusicStrings = MusicStrings {
+    quota_exceeded: "YouTube API 今日配额已用完。请在每日配额重置后再试，或在 Google Cloud 中提高配额。",
     results_title: "YouTube 结果",
     choose_title: "为“{query}”选择曲目。",
     choose_placeholder: "选择曲目",
@@ -296,6 +303,7 @@ const ZH: MusicStrings = MusicStrings {
 };
 
 const KO: MusicStrings = MusicStrings {
+    quota_exceeded: "오늘의 YouTube API 할당량을 모두 사용했습니다. 일일 할당량이 초기화된 후 다시 시도하거나 Google Cloud에서 할당량을 늘리세요.",
     results_title: "YouTube 결과",
     choose_title: "“{query}”에 대한 곡을 선택하세요.",
     choose_placeholder: "곡 선택",
@@ -338,6 +346,7 @@ const KO: MusicStrings = MusicStrings {
 };
 
 const JA: MusicStrings = MusicStrings {
+    quota_exceeded: "YouTube API の本日の割り当て量に達しました。翌日のリセット後に再試行するか、Google Cloud で割り当て量を増やしてください。",
     results_title: "YouTube の結果",
     choose_title: "「{query}」の曲を選んでください。",
     choose_placeholder: "曲を選ぶ",
@@ -380,6 +389,7 @@ const JA: MusicStrings = MusicStrings {
 };
 
 const ID: MusicStrings = MusicStrings {
+    quota_exceeded: "Kuota harian API YouTube sudah habis. Coba lagi setelah kuota direset atau naikkan kuota di Google Cloud.",
     results_title: "Hasil YouTube",
     choose_title: "Pilih lagu untuk “{query}”.",
     choose_placeholder: "Pilih lagu",
@@ -421,6 +431,178 @@ const ID: MusicStrings = MusicStrings {
     playback_stopped: "⏹ Pemutaran dihentikan.",
 };
 
+const IT: MusicStrings = MusicStrings {
+    quota_exceeded: "Quota giornaliera dell’API YouTube esaurita. Riprova dopo il ripristino giornaliero o aumenta la quota in Google Cloud.",
+    results_title: "Risultati di YouTube",
+    choose_title: "Scegli un brano per «{query}».",
+    choose_placeholder: "Scegli un brano",
+    choose_mode: "Scegli la modalità di riproduzione.",
+    preview_bullet: "• Anteprima: inizio → {end} (estratto)",
+    full_bullet: "• Intero: inizio → {end} (brano completo)",
+    custom_bullet: "• Personalizzato: scegli inizio e fine (massimo 60 secondi)",
+    owner_only_action: "Solo chi ha avviato la ricerca può usare questo comando.",
+    preview_button: "▶ 0:00–{end}",
+    full_button: "▶ Intero {duration}",
+    custom_button: "Personalizzato",
+    custom_modal_title: "Estratto personalizzato",
+    custom_start_label: "Inizio (secondi o m:ss)",
+    custom_end_label: "Fine (secondi o m:ss)",
+    custom_start_placeholder: "es. 50 o 0:50",
+    custom_end_placeholder: "es. 110 o 1:50",
+    custom_invalid: "Intervallo non valido. L’inizio deve precedere la fine. L’estratto deve rientrare nel brano e durare al massimo 60 secondi.",
+    cancel: "Annulla",
+    skip: "⏭ Salta",
+    not_configured: "YouTube non è configurato in Relay.",
+    search_unavailable: "La ricerca su YouTube è temporaneamente non disponibile.",
+    search_cooldown: "Attendi {seconds} s prima di ripetere la ricerca.",
+    search_hourly_limit: "Hai raggiunto il limite orario di ricerche. Riprova tra {minutes} min.",
+    no_results: "Nessun risultato YouTube di durata pari o inferiore a 3 minuti.",
+    nothing_selected: "Nessun brano selezionato.",
+    search_not_owner: "Questa ricerca appartiene a un’altra persona.",
+    search_expired: "La ricerca è scaduta o il brano non è più disponibile.",
+    selection_cancelled: "Selezione annullata.",
+    selection_not_owner: "Questa selezione appartiene a un’altra persona.",
+    selection_expired: "La selezione è scaduta.",
+    relay_paused: "Lo streamer ha messo Relay in pausa. Riprova più tardi.",
+    now_playing: "▶ {title} — {channel} ({range}) · aggiunto da {user}",
+    playback_started: "Riproduzione avviata: {title} ({range}) · aggiunto da {user}.",
+    playback_queued: "In coda: {title} (n. {position}) · aggiunto da {user}.",
+    queue_full: "La coda di YouTube è piena. Attendi la fine di un brano e riprova.",
+    user_queue_full: "Hai già {limit} brani in coda.",
+    duplicate_pending: "Questo brano è già in coda.",
+    skip_not_owner: "Richiesta rifiutata. Solo chi ha avviato il brano può interromperlo.",
+    playback_stopped: "⏹ Riproduzione interrotta.",
+};
+
+const PT: MusicStrings = MusicStrings {
+    quota_exceeded: "A cota diária da API do YouTube foi esgotada. Tente novamente após a renovação diária ou aumente a cota no Google Cloud.",
+    results_title: "Resultados do YouTube",
+    choose_title: "Escolha uma faixa para “{query}”.",
+    choose_placeholder: "Escolha uma faixa",
+    choose_mode: "Escolha o modo de reprodução.",
+    preview_bullet: "• Prévia: início → {end} (trecho)",
+    full_bullet: "• Inteira: início → {end} (faixa completa)",
+    custom_bullet: "• Personalizado: escolha o início e o fim (até 60 segundos)",
+    owner_only_action: "Só quem iniciou a busca pode usar este comando.",
+    preview_button: "▶ 0:00–{end}",
+    full_button: "▶ Inteira {duration}",
+    custom_button: "Personalizado",
+    custom_modal_title: "Trecho personalizado",
+    custom_start_label: "Início (segundos ou m:ss)",
+    custom_end_label: "Fim (segundos ou m:ss)",
+    custom_start_placeholder: "ex.: 50 ou 0:50",
+    custom_end_placeholder: "ex.: 110 ou 1:50",
+    custom_invalid: "Intervalo inválido. O início deve vir antes do fim. O trecho deve estar dentro da faixa e durar até 60 segundos.",
+    cancel: "Cancelar",
+    skip: "⏭ Pular",
+    not_configured: "O YouTube não está configurado no Relay.",
+    search_unavailable: "A busca no YouTube está temporariamente indisponível.",
+    search_cooldown: "Aguarde {seconds} s antes de buscar novamente.",
+    search_hourly_limit: "Você atingiu o limite de buscas desta hora. Tente novamente em {minutes} min.",
+    no_results: "Nenhum resultado do YouTube com até 3 minutos.",
+    nothing_selected: "Nenhuma faixa selecionada.",
+    search_not_owner: "Esta busca pertence a outra pessoa.",
+    search_expired: "Esta busca expirou ou a faixa não está mais disponível.",
+    selection_cancelled: "Seleção cancelada.",
+    selection_not_owner: "Esta seleção pertence a outra pessoa.",
+    selection_expired: "Esta seleção expirou.",
+    relay_paused: "O streamer pausou o Relay. Tente novamente mais tarde.",
+    now_playing: "▶ {title} — {channel} ({range}) · pedido de {user}",
+    playback_started: "Reprodução iniciada: {title} ({range}) · pedido de {user}.",
+    playback_queued: "Na fila: {title} (posição {position}) · pedido de {user}.",
+    queue_full: "A fila do YouTube está cheia. Aguarde o fim de uma faixa e tente novamente.",
+    user_queue_full: "Você já tem {limit} faixas na fila.",
+    duplicate_pending: "Esta faixa já está na fila.",
+    skip_not_owner: "Pedido recusado. Só quem iniciou a faixa pode interrompê-la.",
+    playback_stopped: "⏹ Reprodução interrompida.",
+};
+
+const PL: MusicStrings = MusicStrings {
+    quota_exceeded: "Wyczerpano dzienny limit interfejsu API YouTube. Spróbuj po odnowieniu limitu lub zwiększ go w Google Cloud.",
+    results_title: "Wyniki z YouTube",
+    choose_title: "Wybierz utwór dla zapytania „{query}”.",
+    choose_placeholder: "Wybierz utwór",
+    choose_mode: "Wybierz tryb odtwarzania.",
+    preview_bullet: "• Podgląd: od początku do {end} (fragment)",
+    full_bullet: "• Całość: od początku do {end} (cały utwór)",
+    custom_bullet: "• Własny fragment: wybierz początek i koniec (do 60 sekund)",
+    owner_only_action: "Tylko osoba, która rozpoczęła wyszukiwanie, może użyć tej opcji.",
+    preview_button: "▶ 0:00–{end}",
+    full_button: "▶ Całość {duration}",
+    custom_button: "Własny fragment",
+    custom_modal_title: "Własny fragment utworu",
+    custom_start_label: "Początek (sekundy lub m:ss)",
+    custom_end_label: "Koniec (sekundy lub m:ss)",
+    custom_start_placeholder: "np. 50 lub 0:50",
+    custom_end_placeholder: "np. 110 lub 1:50",
+    custom_invalid: "Nieprawidłowy zakres. Początek musi poprzedzać koniec. Fragment musi mieścić się w utworze i trwać najwyżej 60 sekund.",
+    cancel: "Anuluj",
+    skip: "⏭ Pomiń",
+    not_configured: "YouTube nie jest skonfigurowany w Relay.",
+    search_unavailable: "Wyszukiwanie w YouTube jest chwilowo niedostępne.",
+    search_cooldown: "Odczekaj {seconds} s przed kolejnym wyszukiwaniem.",
+    search_hourly_limit: "Osiągnięto godzinowy limit wyszukiwań. Spróbuj ponownie za {minutes} min.",
+    no_results: "Nie znaleziono wyników z YouTube o długości do 3 minut.",
+    nothing_selected: "Nie wybrano utworu.",
+    search_not_owner: "To wyszukiwanie należy do innej osoby.",
+    search_expired: "Wyszukiwanie wygasło lub utwór jest już niedostępny.",
+    selection_cancelled: "Anulowano wybór.",
+    selection_not_owner: "Ten wybór należy do innej osoby.",
+    selection_expired: "Czas na wybór minął.",
+    relay_paused: "Streamer wstrzymał Relay. Spróbuj ponownie później.",
+    now_playing: "▶ {title} — {channel} ({range}) · na życzenie: {user}",
+    playback_started: "Rozpoczęto odtwarzanie: {title} ({range}) · na życzenie: {user}.",
+    playback_queued: "W kolejce: {title} (pozycja {position}) · na życzenie: {user}.",
+    queue_full: "Kolejka YouTube jest pełna. Poczekaj na zakończenie utworu i spróbuj ponownie.",
+    user_queue_full: "W kolejce czeka już {limit} Twoich utworów.",
+    duplicate_pending: "Ten utwór już czeka w kolejce.",
+    skip_not_owner: "Odmowa. Tylko osoba, która uruchomiła utwór, może go zatrzymać.",
+    playback_stopped: "⏹ Zatrzymano odtwarzanie.",
+};
+
+const TR: MusicStrings = MusicStrings {
+    quota_exceeded: "Günlük YouTube API kotası doldu. Günlük sıfırlamadan sonra tekrar deneyin veya Google Cloud’da kotayı artırın.",
+    results_title: "YouTube sonuçları",
+    choose_title: "“{query}” için bir parça seçin.",
+    choose_placeholder: "Bir parça seçin",
+    choose_mode: "Oynatma modunu seçin.",
+    preview_bullet: "• Önizleme: başlangıç → {end} (kesit)",
+    full_bullet: "• Tamamı: başlangıç → {end} (tüm parça)",
+    custom_bullet: "• Özel: başlangıç ve bitişi seçin (en fazla 60 saniye)",
+    owner_only_action: "Bu işlemi yalnızca aramayı başlatan kişi yapabilir.",
+    preview_button: "▶ 0:00–{end}",
+    full_button: "▶ Tamamı {duration}",
+    custom_button: "Özel",
+    custom_modal_title: "Özel kesit",
+    custom_start_label: "Başlangıç (saniye veya m:ss)",
+    custom_end_label: "Bitiş (saniye veya m:ss)",
+    custom_start_placeholder: "örn. 50 veya 0:50",
+    custom_end_placeholder: "örn. 110 veya 1:50",
+    custom_invalid: "Geçersiz aralık. Başlangıç bitişten önce olmalıdır. Kesit parça sınırları içinde kalmalı ve en fazla 60 saniye sürmelidir.",
+    cancel: "İptal",
+    skip: "⏭ Atla",
+    not_configured: "Relay’de YouTube yapılandırılmamış.",
+    search_unavailable: "YouTube araması geçici olarak kullanılamıyor.",
+    search_cooldown: "Tekrar arama yapmadan önce {seconds} saniye bekleyin.",
+    search_hourly_limit: "Saatlik arama sınırına ulaştınız. {minutes} dakika sonra tekrar deneyin.",
+    no_results: "YouTube’da en fazla 3 dakika süren bir sonuç bulunamadı.",
+    nothing_selected: "Parça seçilmedi.",
+    search_not_owner: "Bu arama başka birine ait.",
+    search_expired: "Aramanın süresi doldu veya parça artık kullanılamıyor.",
+    selection_cancelled: "Seçim iptal edildi.",
+    selection_not_owner: "Bu seçim başka birine ait.",
+    selection_expired: "Seçim süresi doldu.",
+    relay_paused: "Yayıncı Relay’i duraklattı. Daha sonra tekrar deneyin.",
+    now_playing: "▶ {title} — {channel} ({range}) · isteyen: {user}",
+    playback_started: "Oynatma başladı: {title} ({range}) · isteyen: {user}.",
+    playback_queued: "Sıraya eklendi: {title} (sıra: {position}) · isteyen: {user}.",
+    queue_full: "YouTube sırası dolu. Bir parçanın bitmesini bekleyip tekrar deneyin.",
+    user_queue_full: "Sırada zaten {limit} parçanız var.",
+    duplicate_pending: "Bu parça zaten sırada.",
+    skip_not_owner: "İstek reddedildi. Parçayı yalnızca başlatan kişi durdurabilir.",
+    playback_stopped: "⏹ Oynatma durduruldu.",
+};
+
 pub fn music_strings_for_language(language: &str) -> MusicStrings {
     let primary = language
         .split(['-', '_'])
@@ -436,6 +618,10 @@ pub fn music_strings_for_language(language: &str) -> MusicStrings {
         "ko" => KO,
         "ja" => JA,
         "id" => ID,
+        "it" => IT,
+        "pt" => PT,
+        "pl" => PL,
+        "tr" => TR,
         _ => EN,
     }
 }

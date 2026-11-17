@@ -2000,3 +2000,45 @@ test("the OBS YouTube card uses its own size and anchor, not the media settings"
   }));
   assert.equal(widget.cssProperties["--credit-scale"], undefined);
 });
+
+test("a stalled YouTube API releases the stage and the next track can retry", async () => {
+  const page = createHarness("?secret=private", "youtube");
+  const { document, window } = page.context;
+  const api = window.YT;
+  delete window.YT;
+  const scripts = [];
+  document.createElement = () => ({ ...element(), remove() { this.removed = true; } });
+  document.head = { appendChild(script) { scripts.push(script); } };
+  const timers = new Map();
+  window.setTimeout = (callback, delay) => { timers.set(callback, delay); return callback; };
+  window.clearTimeout = (id) => timers.delete(id);
+  const play = (playbackId) => page.socket.emit("message", JSON.stringify({
+    type: "musicPlay", payload: { playbackId, videoId: "dQw4w9WgXcQ" },
+  }));
+  play("stalled");
+  const timeout = [...timers].find(([, delay]) => delay === 10_000);
+  assert.ok(timeout);
+  timeout[0]();
+  await new Promise(setImmediate);
+  assert.deepEqual(page.socket.sent.filter((m) => m.type === "musicEnded").map((m) => m.payload),
+    [{ playbackId: "stalled", completed: false }]);
+  assert.equal(vm.runInContext("mediaStageOccupied()", page.context), false);
+  assert.equal(scripts[0].removed, true);
+
+  play("retry");
+  assert.equal(scripts.length, 2);
+  window.YT = api;
+  window.onYouTubeIframeAPIReady();
+  await new Promise(setImmediate);
+  assert.equal([...timers.values()].includes(10_000), false);
+  assert.equal(page.youtubePlayers.length, 1);
+});
+
+test("output playback labels follow live language changes", () => {
+  const page = createHarness();
+  vm.runInContext('currentMedia = { kind: "audio" }; applyAppearance({ language: "fr" })', page.context);
+  assert.equal(page.elements["#youtube-credit-label"].textContent, "En lecture");
+  assert.equal(page.elements["#audio-title"].textContent, "Audio Discord");
+  vm.runInContext('applyAppearance({ language: "pl" })', page.context);
+  assert.equal(page.elements["#audio-title"].textContent, "Dźwięk z Discorda");
+});

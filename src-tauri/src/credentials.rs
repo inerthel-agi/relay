@@ -4,9 +4,12 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
+#[cfg(test)]
+use keyring_core::mock::Store;
 use keyring_core::{Entry, Error as KeyringError, set_default_store};
 use rand::{RngCore, rng};
 use serde::{Deserialize, Serialize};
+#[cfg(not(test))]
 use windows_native_keyring_store::Store;
 
 use crate::ai::AiProvider;
