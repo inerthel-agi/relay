@@ -321,7 +321,7 @@ fn rejects_invalid_config() {
         skip_shortcut: "Control+Shift".into(),
         ..AppConfig::default()
     };
-    assert!(invalid_skip_shortcut.validate().is_err());
+    assert!(invalid_skip_shortcut.validate().is_ok());
 
     let invalid_activity = AppConfig {
         bot_activity_type: "streaming".into(),

@@ -1,7 +1,6 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const test = require("node:test");
-const vm = require("node:vm");
 
 const panelSource = require("./test-source.cjs").panelSource().replace(/\r\n/g, "\n");
 const panelHtml = fs.readFileSync(__dirname + "/../gui/panel.html", "utf8");
@@ -28,16 +27,7 @@ test("the Overlay media widget card remains the single size control", () => {
 });
 
 test("music overlay copy distinguishes media and notification widgets in every locale", () => {
-  const dictionarySource = panelSource.slice(
-    panelSource.indexOf("const translations ="),
-    panelSource.indexOf("const pageMetadata ="),
-  );
-  const context = vm.createContext({});
-  vm.runInContext(
-    `${dictionarySource}\nglobalThis.translationsForTest = translations;`,
-    context,
-  );
-  const translations = context.translationsForTest;
+  const { translations } = require("../gui/translations.mjs");
   const expectedCopy = {
     en: "Windows Now Playing uses the 16:9 media floating widget. Message notifications use the separate compact notification widget.",
     fr: "Windows Now Playing utilise le widget flottant multimédia 16:9. Les notifications de messages utilisent le widget compact séparé.",

@@ -28,6 +28,11 @@ export function errorCategory(message) {
   return errorCategories.find(([pattern]) => pattern.test(text))?.[1] || null;
 }
 
+export function translatedError(error, t) {
+  const key = errorCategory(error);
+  return key ? t(key) : String(error);
+}
+
 // Removes anything that could identify or unlock the user's setup.
 export function sanitizeDiagnosticText(value) {
   return String(value ?? "")

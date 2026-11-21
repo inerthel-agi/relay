@@ -379,15 +379,22 @@ fn watch_geometry(window: &WebviewWindow, core: Arc<AppCore>) {
     });
 }
 
-fn persist_position(core: Arc<AppCore>, position: PhysicalPosition<i32>) {
+fn begin_position_save(core: &AppCore) -> Option<u64> {
     // A place taken to clear the media window is not the user's.
     if core.notification_widget_dodged.load(Ordering::Relaxed) {
-        return;
+        return None;
     }
-    let generation = core
-        .notification_widget_move_generation
-        .fetch_add(1, Ordering::Relaxed)
-        + 1;
+    Some(
+        core.notification_widget_move_generation
+            .fetch_add(1, Ordering::Relaxed)
+            + 1,
+    )
+}
+
+fn persist_position(core: Arc<AppCore>, position: PhysicalPosition<i32>) {
+    let Some(generation) = begin_position_save(&core) else {
+        return;
+    };
     tauri::async_runtime::spawn(async move {
         // Short debounce coalesces drag spam; lock/hide also flush immediately.
         tokio::time::sleep(std::time::Duration::from_millis(80)).await;
@@ -408,12 +415,9 @@ async fn flush_live_position(window: &WebviewWindow, core: &Arc<AppCore>) -> Res
     let Ok(position) = window.outer_position() else {
         return Ok(());
     };
-    if core.notification_widget_dodged.load(Ordering::Relaxed) {
+    if begin_position_save(core).is_none() {
         return Ok(());
     }
-    // Invalidate in-flight debounced writes so they cannot overwrite this flush.
-    core.notification_widget_move_generation
-        .fetch_add(1, Ordering::Relaxed);
     core.update_config(|config| write_position(config, position))
         .await?;
     Ok(())

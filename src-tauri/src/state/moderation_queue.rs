@@ -60,24 +60,30 @@ impl AppCore {
         }
     }
 
-    pub fn moderation_verdict(&self, message_id: &str) -> Option<MessageVerdict> {
-        self.moderation
-            .lock()
-            .ok()
-            .and_then(|runtime| runtime.verdict(message_id))
+    pub(crate) fn moderation_runtime(
+        &self,
+    ) -> std::sync::MutexGuard<'_, crate::moderation::ModerationRuntime> {
+        self.moderation.lock().unwrap_or_else(|error| {
+            eprintln!("Recovering the moderation runtime after a poisoned lock.");
+            self.moderation.clear_poison();
+            error.into_inner()
+        })
     }
 
+    pub fn moderation_verdict(&self, message_id: &str) -> Option<MessageVerdict> {
+        self.moderation_runtime().verdict(message_id)
+    }
+
+    #[cfg(test)]
     pub fn remember_moderation_verdict(&self, message_id: &str, verdict: MessageVerdict) {
-        if let Ok(mut runtime) = self.moderation.lock() {
-            runtime.remember_verdict(message_id, verdict, now_ms());
-        }
+        self.moderation_runtime()
+            .remember_verdict(message_id, verdict, now_ms());
     }
 
     /// Holds the parts of a message not yet submitted for review, with `reason`.
     pub fn hold_message_for_review(&self, message_id: &str, reason: &'static str) {
-        if let Ok(mut runtime) = self.moderation.lock()
-            && let Some(mut verdict) = runtime.verdict(message_id)
-        {
+        let mut runtime = self.moderation_runtime();
+        if let Some(mut verdict) = runtime.verdict(message_id) {
             verdict.hold = Some(reason);
             runtime.remember_verdict(message_id, verdict, now_ms());
         }
@@ -319,9 +325,55 @@ impl AppCore {
             })
     }
 
+    /// Keep a message observed while slow moderation or a download crosses the edit deadline.
+    pub(crate) async fn track_gif_preview(&self, id: serenity::all::MessageId) -> Arc<()> {
+        self.gif_embed_waits
+            .lock()
+            .await
+            .entry(id)
+            .or_default()
+            .processing
+            .clone()
+    }
+
+    pub(crate) async fn observe_gif_embed(
+        &self,
+        id: serenity::all::MessageId,
+        waiting: Option<serenity::all::UserId>,
+    ) {
+        if let Some(entry) = self.gif_embed_waits.lock().await.get_mut(&id) {
+            if waiting.is_none() {
+                entry.received = true;
+            }
+            entry.missing_author = waiting;
+        }
+    }
+
+    pub(crate) async fn expire_gif_embeds(&self, now_seconds: u64) {
+        self.gif_embed_waits.lock().await.retain(|id, entry| {
+            if crate::bot::fresh_for_embeds(*id, now_seconds)
+                || Arc::strong_count(&entry.processing) > 1
+            {
+                return true;
+            }
+            if !entry.received
+                && let Some(author) = entry.missing_author
+            {
+                self.record_moderation(
+                    Some(Lane::Media),
+                    LogAction::Ignored,
+                    "gif_embed_missing",
+                    Some(author.to_string()),
+                );
+            }
+            false
+        });
+    }
+
     /// Publishes safety-delayed media that nobody cancelled and expires old items.
     pub async fn moderation_tick(&self) {
         let now = now_ms();
+        self.expire_gif_embeds(now / 1_000).await;
         let due = self
             .pending_media
             .read()

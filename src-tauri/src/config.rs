@@ -6,7 +6,6 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
-use tauri_plugin_global_shortcut::Shortcut;
 
 use crate::custom_commands::{CustomCommandDefinition, validate_custom_commands};
 use crate::model::InterfacePreferences;
@@ -479,12 +478,7 @@ impl AppConfig {
         if self.media_volume > 100 {
             bail!("The media volume must be between 0 and 100 percent.");
         }
-        if self.skip_shortcut.trim().parse::<Shortcut>().is_err() {
-            bail!("The media skip shortcut is invalid.");
-        }
-        if self.panic_shortcut.trim().parse::<Shortcut>().is_err() {
-            bail!("The panic shortcut is invalid.");
-        }
+        // Each stored shortcut is registered independently so the panel can repair it.
         if !(1..=50).contains(&self.notification_queue_limit) {
             bail!("The message queue limit must be between 1 and 50.");
         }

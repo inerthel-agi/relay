@@ -49,10 +49,6 @@ let config = {
 let pingElement;
 let currentNotification;
 let socket;
-let reconnectTimer;
-let reconnectDelayMs = 1000;
-let pendingPort;
-let isUnloading = false;
 let playbackGeneration = 0;
 let visualTimer;
 let pinnedNotification;
@@ -469,16 +465,7 @@ function handleMessage(event) {
     config = { ...config, ...message.payload };
     applyOutputGeometry();
 
-    const configuredPort = Number(message.payload?.port);
-    if (
-      Number.isInteger(configuredPort)
-      && configuredPort > 0
-      && configuredPort <= 65535
-    ) {
-      pendingPort = String(configuredPort) !== window.location.port
-        ? configuredPort
-        : undefined;
-    }
+    reconnect.setPort(Number(message.payload?.port));
     queue.length = Math.min(queue.length, queueLimit());
     if (!isEnabled()) {
       clearNotifications();
@@ -554,25 +541,12 @@ function keepClearOfMedia() {
 const dodgesMedia = Boolean(window.frameElement) && target !== "widget" && !isPreview;
 if (dodgesMedia) window.setInterval(keepClearOfMedia, 250);
 
-function scheduleReconnect() {
-  if (isUnloading || reconnectTimer) {
-    return;
-  }
-  reconnectTimer = window.setTimeout(() => {
-    reconnectTimer = undefined;
-    connect();
-  }, reconnectDelayMs);
-  reconnectDelayMs = Math.min(reconnectDelayMs * 2, 10000);
-}
-
-function moveToPendingPort() {
-  RelayConnection.moveToPort(pendingPort, (host) => notificationSocketUrl(host, "probe", "ws:"), () => isUnloading);
-}
+const reconnect = RelayConnection.reconnect(connect, (host) => notificationSocketUrl(host, "probe", "ws:"));
 
 function connect() {
   socket = new WebSocket(notificationSocketUrl(window.location.host));
   socket.addEventListener("open", () => {
-    reconnectDelayMs = 1000;
+    reconnect.opened();
     playNext();
   });
   socket.addEventListener("message", handleMessage);
@@ -590,11 +564,7 @@ function connect() {
     if (!isPreview) {
       hideCard();
     }
-    if (pendingPort) {
-      moveToPendingPort();
-      return;
-    }
-    scheduleReconnect();
+    reconnect.closed();
   });
   socket.addEventListener("error", () => socket.close());
 }
@@ -623,8 +593,7 @@ if (target === "widget") {
 window.addEventListener("contextmenu", (event) => event.preventDefault());
 window.addEventListener("resize", fitWidgetCard);
 window.addEventListener("beforeunload", () => {
-  isUnloading = true;
-  window.clearTimeout(reconnectTimer);
+  reconnect.unload();
 
   socket?.close();
 });

@@ -1123,3 +1123,44 @@ fn notifications_use_the_notification_protocol_names() {
     assert!(clock.get("notificationBusy").is_some());
     assert!(clock.get("ttsBusy").is_none());
 }
+
+#[tokio::test]
+async fn music_event_loop_ends_an_overdue_dispatched_track() {
+    let directory = tempfile::tempdir().unwrap();
+    let core = AppCore::load(directory.path().join("config.json")).unwrap();
+    core.start_music(
+        test_selection("aaaaaaaaaaa"),
+        MusicPlaybackMode::Full,
+        0,
+        "900",
+    )
+    .await;
+    let track = core.current_music().await.unwrap();
+    let state = RelayServerState {
+        core: core.clone(),
+        port: 0,
+        relay_secret: Arc::new(String::new()),
+        client_shutdown: tokio::sync::broadcast::channel(1).0,
+        media_clock_tx: tokio::sync::watch::channel(Default::default()).0,
+        stage_clock_tx: tokio::sync::watch::channel(Default::default()).0,
+        media_clock_counts: Default::default(),
+        stage_clock_counts: Default::default(),
+        music_players: Default::default(),
+        music_clock: Default::default(),
+    };
+    state
+        .music_clock
+        .lock()
+        .unwrap()
+        .anchors
+        .push_back((track.playback_id.clone(), now_ms() - 3_600_000));
+    follow_music_events(state);
+    let mut events = core.relay_tx.subscribe();
+    core.relay_tx.send(RelayEvent::MusicPlay(track)).unwrap();
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while !matches!(events.recv().await.unwrap(), RelayEvent::MusicIdle) {}
+    })
+    .await
+    .expect("the server must watch the dispatched track");
+    assert!(core.current_music().await.is_none());
+}

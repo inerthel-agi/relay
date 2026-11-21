@@ -67,8 +67,8 @@ use crate::{
         store_youtube_api_key, test_ai_connection, test_output, toggle_widget,
     },
     config::{
-        APP_IDENTIFIER, DEFAULT_SKIP_SHORTCUT, PREVIOUS_APP_IDENTIFIER, WEBVIEW_STORAGE_PATH,
-        copy_previous_app_folder, migrate_legacy_config,
+        APP_IDENTIFIER, PREVIOUS_APP_IDENTIFIER, WEBVIEW_STORAGE_PATH, copy_previous_app_folder,
+        migrate_legacy_config,
     },
     model::{MediaKind, RelayEvent, ServerStatus},
     music_cleanup::{confirm_music_cleanup, preview_music_cleanup},
@@ -292,8 +292,18 @@ pub fn run() {
             check_for_updates,
             download_and_install_update,
         ])
-        .run(tauri::generate_context!())
-        .expect("failed to run Relay");
+        .build(tauri::generate_context!())
+        .expect("failed to build Relay")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event
+                && let Some(core) = app.try_state::<Arc<AppCore>>()
+            {
+                core.moderation_log
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .shutdown();
+            }
+        });
 }
 
 async fn deliver_media_to_local_widget(
@@ -410,32 +420,34 @@ fn media_widget_connected(status: &ServerStatus) -> bool {
 fn register_skip_shortcut(app: &mut tauri::App, core: Arc<AppCore>) -> tauri::Result<()> {
     use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
 
-    let configured = core
-        .config
-        .try_read()
-        .ok()
-        .map(|config| config.skip_shortcut.clone())
-        .unwrap_or_default();
-    let shortcut = configured
-        .parse::<Shortcut>()
-        .or_else(|_| DEFAULT_SKIP_SHORTCUT.parse::<Shortcut>())
-        .expect("Relay default shortcut must be valid");
     app.handle()
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())?;
-    let panic_configured = core
+    let config = core
         .config
         .try_read()
-        .ok()
-        .map(|config| config.panic_shortcut.clone())
-        .unwrap_or_default();
-    let panic_shortcut = panic_configured
-        .parse::<Shortcut>()
-        .or_else(|_| config::DEFAULT_PANIC_SHORTCUT.parse::<Shortcut>())
-        .expect("Relay default panic shortcut must be valid");
-    let panic_core = core.clone();
-    // A failure here only disables the shortcut; the buttons still work.
-    let _ = commands::register_skip_handler(app.global_shortcut(), shortcut, core);
-    let _ = commands::register_panic_handler(app.global_shortcut(), panic_shortcut, panic_core);
+        .expect("startup owns the configuration");
+    let mut active = core
+        .global_shortcuts
+        .try_lock()
+        .expect("startup owns shortcuts");
+    for (name, value, register) in [
+        (
+            "skipShortcut",
+            &config.skip_shortcut,
+            commands::register_skip_handler as commands::ShortcutHandler,
+        ),
+        (
+            "panicShortcut",
+            &config.panic_shortcut,
+            commands::register_panic_handler,
+        ),
+    ] {
+        if let Ok(shortcut) = value.trim().parse::<Shortcut>()
+            && register(app.global_shortcut(), shortcut, core.clone()).is_ok()
+        {
+            active.insert(name, shortcut);
+        }
+    }
     Ok(())
 }
 

@@ -14,8 +14,7 @@ if (widget && !audioOnly) {
     current?.startDragging?.().catch(() => {});
   });
 }
-let socket, active, deadline, pendingPort, reconnectTimer, config = {};
-let reconnectDelayMs = 1000;
+let socket, active, deadline, config = {};
 const MAX_REACTION_SECONDS = 30;
 function asset(path) { const url = new URL(path, location.origin); url.searchParams.set("secret", secret); return url.href; }
 function position() {
@@ -66,25 +65,22 @@ function socketUrl(host, client) {
   url.searchParams.set("role", "reaction"); url.searchParams.set("secret", secret); url.searchParams.set("client", client);
   return url.href;
 }
-function scheduleReconnect() {
-  if (reconnectTimer) return;
-  reconnectTimer = setTimeout(() => { reconnectTimer = undefined; connect(); }, reconnectDelayMs);
-  reconnectDelayMs = Math.min(reconnectDelayMs * 2, 10000);
-}
-function moveToPendingPort() {
-  RelayConnection.moveToPort(pendingPort, (host) => socketUrl(host, "probe"));
-}
+const reconnect = RelayConnection.reconnect(connect, (host) => socketUrl(host, "probe"));
 // Reloads a page kept open across a Relay restart (often an update).
 const reloadAfterRelayRestart = RelayConnection.reloadOnRestart();
 function connect() {
   socket = new WebSocket(socketUrl(location.host, widget ? "widget" : "obs"));
-  socket.addEventListener("open", () => { reconnectDelayMs = 1000; });
+  socket.addEventListener("open", reconnect.opened);
   socket.addEventListener("message", event => {
     let message; try { message = JSON.parse(event.data); } catch { return; }
     if (message.type === "reaction") play(message.payload);
-    if (message.type === "config") { if (reloadAfterRelayRestart(message.payload?.relaySession)) return; config = message.payload; if (Number.isInteger(config.port) && config.port > 0 && config.port <= 65535 && String(config.port) !== location.port) pendingPort = config.port; sound.muted = widget && !audioOnly && !config.widgetSoundEnabled; position(); }
+    if (message.type === "config") { if (reloadAfterRelayRestart(message.payload?.relaySession)) return; config = message.payload; reconnect.setPort(config.port); sound.muted = widget && !audioOnly && !config.widgetSoundEnabled; position(); }
     if (message.type === "clear") finish(true);
   });
-  socket.addEventListener("close", () => { finish(); if (pendingPort) moveToPendingPort(); else scheduleReconnect(); });
+  socket.addEventListener("close", () => { finish(); reconnect.closed(); });
 }
+window.addEventListener("beforeunload", () => {
+  reconnect.unload();
+  socket?.close();
+});
 connect();

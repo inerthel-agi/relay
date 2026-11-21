@@ -52,5 +52,19 @@ test("nothing to do hides the attention row", () => {
 });
 
 test("the tray passes the page to the panel command", () => {
-  assert.match(traySource, /invoke\("tray_open_control_panel", \{ page: attentionPage \}\)/);
+  assert.match(traySource, /runAction\(event\.currentTarget, "tray_open_control_panel", \{ page: attentionPage \}\)/);
+});
+
+test("a rejected tray action displays its translated error", async () => {
+  const button = { textContent: "Panique", getAttribute: () => null };
+  const actionError = { hidden: true };
+  const context = vm.createContext({
+    elements: { actionError }, translate: () => "Échec de l’action",
+    invoke: async () => { throw Error("failed"); }, refreshTray: async () => {},
+  });
+  vm.runInContext(traySource.slice(traySource.indexOf("async function runAction"), traySource.indexOf("elements.openPanel.addEventListener")), context);
+  await context.runAction(button, "panic_stop");
+  assert.equal(button.disabled, false);
+  assert.equal(actionError.hidden, false);
+  assert.equal(actionError.textContent, "Échec de l’action · Panique");
 });

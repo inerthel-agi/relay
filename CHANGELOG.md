@@ -13,6 +13,39 @@ This changelog is maintained in English. Interface translations are maintained i
 
 ## [Unreleased]
 
+## [1.5.4] - 2026-11-17
+
+### English
+
+#### Fixed
+
+- Tab or moving focus away cancels capture of the Panic and Skip shortcuts. New shortcuts require a modifier unless they use F1–F24. Existing shortcuts are kept, and the panel identifies any that could not be registered at startup.
+- Stickers in a former message channel now pass the same AI image check as stickers in the Relay channel.
+- Withdrawing a multipart Discord message keeps its on-screen item in place until it finishes or is skipped.
+- The tray popup identifies failed actions, including Panic, opening the control panel and quitting.
+- Edits to moderation word packs, aliases and patterns survive a settings save that was already in progress.
+- Bursts of moderation decisions now share background log writes. Normal exit waits for the last atomic replacement.
+- When the cooldown table fills, Relay evicts the oldest entries and retains recent members’ cooldowns.
+- Concurrent deliveries of the same message share one moderation decision. Relay recovers a poisoned moderation lock and removes cached names once their log entries expire.
+- The notification character limit counts visible characters and custom emoji, including captions sent with stickers.
+- If the YouTube player API takes more than ten seconds to load, the output reports a failed track and releases the stage for the next item.
+- YouTube export checks each helper against its named checksum. FFmpeg uses the digest of the matching Gyan release archive and extracts correctly from paths containing typographic apostrophes.
+- The moderation log records a missing GIF preview once the two-minute Discord edit window expires.
+- Status updates keep Reject all disabled while its confirmation is open or the action is running.
+- Discord music controls and cooldown notices also use Italian, Portuguese, Polish and Turkish. Daily YouTube quota messages follow all 13 interface languages.
+- Closing a reaction page stops reconnection attempts. Sticker outputs discard a pending port move when the configuration returns to the current port.
+- The Control room queue preserves keyboard focus across updates and moves it to the next available item after removal. Removal errors appear in the toast.
+- Inline confirmations announce the question to screen readers. Escape cancels, and cancelling returns focus to the original button. The tray startup switch reports its checked state.
+- Playback labels and unnamed Discord audio follow the output language. The panel translates recognized backend errors and retains details for unknown errors.
+- The panel polls message and music data on their respective pages, keeps sidebar status current while visible, and resumes polling when the window returns.
+- Arrow keys select accent presets, and leaving settings search closes its results.
+
+#### Release and documentation
+
+- The signed release script prints SHA-256 checksums for the installer, its detached signature and the portable executable.
+- The README and security guide explain how other programs on the same PC can read the output secret from local OBS pages. The control panel uses a separate session token.
+- Changelog links now cover versions 1.4.2 through 1.5.3, including entries for versions without a tag. The website identifies which version the screenshots show.
+
 ## [1.5.3] - 2026-11-11
 
 ### English
@@ -657,7 +690,13 @@ The music jukebox uses much less of the daily YouTube Data API quota, so more Di
 - Separate media, audio, TTS, and notification outputs.
 - Local moderation, playback controls, history, personalization, and multilingual interface.
 
-[Unreleased]: https://github.com/inerthel-agi/relay/compare/v1.4.1...HEAD
+[Unreleased]: https://github.com/inerthel-agi/relay/compare/v1.5.4...HEAD
+[1.5.4]: https://github.com/inerthel-agi/relay/compare/v1.5.3...v1.5.4
+[1.5.3]: https://github.com/inerthel-agi/relay/compare/v1.5.2...v1.5.3
+[1.5.2]: https://github.com/inerthel-agi/relay/compare/v1.5.0...v1.5.2
+[1.5.1]: https://github.com/inerthel-agi/relay/blob/v1.5.2/CHANGELOG.md#151---2026-10-31
+[1.5.0]: https://github.com/inerthel-agi/relay/compare/v1.4.1...v1.5.0
+[1.4.2]: https://github.com/inerthel-agi/relay/blob/v1.5.0/CHANGELOG.md#142---2026-09-28
 [1.4.1]: https://github.com/inerthel-agi/relay/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/inerthel-agi/relay/compare/v1.3.7...v1.4.0
 [1.3.7]: https://github.com/inerthel-agi/relay/compare/v1.3.6...v1.3.7

@@ -20,3 +20,50 @@ test("history media exposes a download action backed by the native save dialog",
   assert.match(commandsSource, /AsyncFileDialog::new\(\)/);
   assert.match(commandsSource, /pub async fn download_history_media\(/);
 });
+
+test("leaving shortcut capture restores the button and saves nothing", () => {
+  const vm = require("node:vm");
+  const panel = fs.readFileSync(__dirname + "/../gui/panel.js", "utf8");
+  function element() {
+    return {
+      listeners: {}, focus() {}, contains(node) { return node === this; },
+      addEventListener(name, fn) { this.listeners[name] = fn; },
+      setAttribute(name, value) { this[name] = value; },
+    };
+  }
+  const win = element();
+  const panic = element();
+  const value = {};
+  const saves = [];
+  const context = vm.createContext({
+    window: win, skipShortcutCaptureButton: element(), panicShortcutCaptureButton: panic,
+    skipShortcutKeyElement: {}, skipShortcutValueElement: {}, panicShortcutValueElement: value,
+    panicUi: null, bootstrap: { config: { panicShortcut: "control+KeyP" } },
+    mediaSaveStateElement: {}, t: (key) => key, setSaveState() {},
+    invoke: (...args) => { saves.push(args); return Promise.resolve({}); },
+  });
+  vm.runInContext("let shortcutCaptureActive = false;\n" +
+    panel.slice(panel.indexOf("function formatShortcutLabel"), panel.indexOf("function updateBotActivityAvailability")) +
+    panel.slice(panel.indexOf('skipShortcutCaptureButton.addEventListener("click"'), panel.indexOf('previousAudioButton.addEventListener("click"')), context);
+  function key(code, ctrlKey = false) {
+    const event = { code, key: code, ctrlKey, preventDefault() { this.prevented = true; }, stopPropagation() {} };
+    win.listeners.keydown(event);
+    return event.prevented;
+  }
+  panic.listeners.click();
+  panic.listeners.blur();
+  assert.equal(panic["aria-pressed"], "false");
+  assert.match(value.textContent, /P$/);
+  assert.equal(key("KeyP", true), undefined);
+  panic.listeners.click();
+  win.listeners.pointerdown({ target: {} });
+  assert.equal(panic["aria-pressed"], "false");
+  panic.listeners.click();
+  key("KeyP");
+  assert.equal(key("Tab"), undefined);
+  assert.equal(panic["aria-pressed"], "false");
+  assert.deepEqual(saves, []);
+  panic.listeners.click();
+  key("F24");
+  assert.equal(saves[0][1].shortcut, "F24");
+});

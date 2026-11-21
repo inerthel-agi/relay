@@ -764,8 +764,10 @@ impl ModerationRuntime {
             .retain(|_, at| now_ms.saturating_sub(*at) < WARNING_INTERVAL_MS);
         self.verdicts
             .retain(|_, verdict| now_ms.saturating_sub(verdict.at_ms) < VERDICT_TTL_MS);
-        if self.last_accepted.len() > RUNTIME_ENTRY_LIMIT {
-            self.last_accepted.clear();
+        while self.last_accepted.len() > RUNTIME_ENTRY_LIMIT {
+            if let Some((&oldest, _)) = self.last_accepted.iter().min_by_key(|(_, at)| **at) {
+                self.last_accepted.remove(&oldest);
+            }
         }
     }
 }

@@ -1755,7 +1755,8 @@ async fn the_ai_reads_a_members_transcript_and_can_only_hold_it() {
     );
     let sent = core.ai_watch_stub.lock().unwrap().sent.clone();
     assert_eq!(sent.len(), 1);
-    assert!(sent[0].contains("lycée Victor-Hugo"));
+    assert_eq!(sent[0].0, Some(message.author.id.to_string()));
+    assert!(sent[0].1.contains("lycée Victor-Hugo"));
     // Off, the transcript never leaves the PC.
     config.ai.watch_messages = false;
     assert!(
@@ -2246,4 +2247,261 @@ async fn a_selection_refused_during_a_pause_can_start_after_it() {
             .unwrap_err(),
         strings.selection_expired
     );
+}
+
+#[tokio::test]
+async fn former_channel_png_sticker_waits_when_ai_cannot_check_it() {
+    let config = ai_config(Some(crate::ai::AiProvider::OpenAi));
+    let (_directory, core) = relay_core(config.clone()).await;
+    let message = relay_message(1_000_000_000_000_000_259, "Hello");
+    assert!(apply_moderation_gate(
+        &core,
+        &message,
+        &[],
+        false,
+        &[crate::moderation::Lane::Notifications],
+        &config
+    ));
+    let mut sticker = lottie_sticker(259, "wave");
+    sticker.format_type = StickerFormatType::Png;
+    former_sticker_segment(
+        &core,
+        &Http::new(""),
+        &message,
+        &[],
+        &config,
+        (&sticker, "https://relay.invalid/wave.png".into()),
+    )
+    .await;
+    assert_eq!(
+        core.moderation_verdict(&message.id.to_string())
+            .unwrap()
+            .hold,
+        Some("ai_image_unchecked")
+    );
+}
+
+thread_local! {
+    static OTHER_GATE: std::cell::Cell<Option<Arc<std::sync::Barrier>>> = const { std::cell::Cell::new(None) };
+}
+
+pub(super) fn wait_for_other_gate() {
+    if let Some(barrier) = OTHER_GATE.take() {
+        barrier.wait();
+    }
+}
+
+#[tokio::test]
+async fn simultaneous_create_and_update_share_one_gate_verdict() {
+    let mut config = relay_config();
+    config.moderation.user_cooldown_seconds = 60;
+    config.moderation.cooldown_notice = false;
+    let (_directory, core) = relay_core(config.clone()).await;
+    let message = relay_message(1_000_000_000_000_000_271, "hello");
+    let barrier = Arc::new(std::sync::Barrier::new(2));
+    let evaluate = || {
+        OTHER_GATE.set(Some(barrier.clone()));
+        apply_moderation_gate(
+            &core,
+            &message,
+            &[],
+            false,
+            &[crate::moderation::Lane::Media],
+            &config,
+        )
+    };
+    std::thread::scope(|scope| {
+        let create = scope.spawn(evaluate);
+        let update = scope.spawn(evaluate);
+        let results = [create.join().unwrap(), update.join().unwrap()];
+        assert_eq!(results, [true, true]);
+    });
+}
+
+#[tokio::test]
+async fn a_poisoned_gate_still_records_decisions_and_holds() {
+    let config = relay_config();
+    let (_directory, core) = relay_core(config.clone()).await;
+    let poison = || {
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = core.moderation.lock().unwrap();
+            panic!("test lock poisoning");
+        }));
+    };
+    let message = relay_message(1_000_000_000_000_000_272, "hello");
+    poison();
+    assert!(apply_moderation_gate(
+        &core,
+        &message,
+        &[],
+        false,
+        &[crate::moderation::Lane::Media],
+        &config
+    ));
+    poison();
+    core.hold_message_for_review(&message.id.to_string(), "ai_flagged");
+    assert_eq!(
+        core.moderation_verdict(&message.id.to_string())
+            .unwrap()
+            .hold,
+        Some("ai_flagged")
+    );
+    assert!(!core.moderation.is_poisoned());
+}
+
+#[tokio::test]
+async fn notification_limit_counts_a_custom_emoji_as_one_character() {
+    let (_dir, core) = relay_core(AppConfig {
+        notification_character_limit: 3,
+        ..relay_config()
+    })
+    .await;
+    let message = relay_message(1_000_000_000_000_000_361, "🇫🇷👩🏽‍💻<:wave:123>more");
+    assert_eq!(
+        relay_outputs(&core, &message).await,
+        vec![Output::Notification("🇫🇷👩🏽‍💻<:wave:123>".into())]
+    );
+}
+
+#[tokio::test]
+async fn former_channel_sticker_keeps_its_segment_and_limits_its_caption() {
+    let config = AppConfig {
+        notification_character_limit: 2,
+        former_message_channel_id: FORMER_MESSAGE_CHANNEL.into(),
+        ..relay_config()
+    };
+    let (_dir, core) = relay_core(config.clone()).await;
+    let mut message = relay_message(1_000_000_000_000_000_362, "e\u{301}🙂more");
+    message.channel_id = ChannelId::new(FORMER_MESSAGE_CHANNEL.parse().unwrap());
+    message.sticker_items = vec![lottie_sticker(362, "wave")];
+    let mut events = core.relay_tx.subscribe();
+    route_relay_message(&core, &Http::new(""), &message, &config, &[], false).await;
+    while let Ok(event) = events.try_recv() {
+        if let crate::model::RelayEvent::Notification(card) = event {
+            assert_eq!(card.text, "e\u{301}🙂");
+            assert_eq!(
+                card.segments
+                    .iter()
+                    .map(|s| s.value.as_str())
+                    .collect::<Vec<_>>(),
+                ["e\u{301}", "🙂", "wave"]
+            );
+            return;
+        }
+    }
+    panic!("missing sticker notification");
+}
+
+#[tokio::test]
+async fn missing_gif_preview_is_logged_once_after_the_edit_window() {
+    let (_dir, core) = relay_core(relay_config()).await;
+    let now = now_ms() / 1_000;
+    let snowflake = (now * 1_000 - 1_420_070_400_000) << 22;
+    let message = relay_message(snowflake, "https://tenor.com/view/example");
+    assert!(relay_outputs(&core, &message).await.is_empty());
+    let resolved = MessageId::new(snowflake + 1);
+    drop(core.track_gif_preview(resolved).await);
+    core.observe_gif_embed(resolved, Some(message.author.id))
+        .await;
+    core.observe_gif_embed(resolved, None).await;
+    core.observe_gif_embed(resolved, Some(message.author.id))
+        .await;
+    core.expire_gif_embeds(now + 120).await;
+    assert!(core.moderation_entries().0.is_empty());
+    core.expire_gif_embeds(now + 121).await;
+    core.expire_gif_embeds(now + 122).await;
+    let entries = core.moderation_entries().0;
+    assert_eq!(entries.len(), 1);
+    assert_eq!(
+        entries[0].action,
+        crate::moderation::log::LogAction::Ignored
+    );
+    assert_eq!(entries[0].reason, "gif_embed_missing");
+    assert_eq!(entries[0].author_id, Some(message.author.id.to_string()));
+    let slow = MessageId::new(snowflake + 2);
+    let processing = core.track_gif_preview(slow).await;
+    core.expire_gif_embeds(now + 121).await;
+    core.observe_gif_embed(slow, Some(message.author.id)).await;
+    drop(processing);
+    core.expire_gif_embeds(now + 122).await;
+    assert_eq!(core.moderation_entries().0.len(), 2);
+}
+
+#[tokio::test]
+async fn former_channel_reviews_text_before_ignoring_typed_commands() {
+    let mut config = AppConfig {
+        privacy_scan_enabled: true,
+        privacy_auto_delete_blocked_messages: false,
+        former_message_channel_id: FORMER_MESSAGE_CHANNEL.into(),
+        ..relay_config()
+    };
+    config.moderation.review_text = false;
+    let (_dir, core) = relay_core(config).await;
+    let mut message = relay_message(1_000_000_000_000_000_410, "/example 06 12 34 56 78");
+    message.channel_id = ChannelId::new(FORMER_MESSAGE_CHANNEL.parse().unwrap());
+    assert!(relay_outputs(&core, &message).await.is_empty());
+    let entries = core.moderation_entries().0;
+    assert_eq!(entries.len(), 1);
+    assert_eq!(
+        entries[0].action,
+        crate::moderation::log::LogAction::Ignored
+    );
+    assert_eq!(
+        entries[0].lane,
+        Some(crate::moderation::Lane::Notifications)
+    );
+}
+
+#[tokio::test]
+async fn deferred_link_waits_without_claiming_and_uses_the_arriving_embed() {
+    let (_dir, core) = relay_core(relay_config()).await;
+    let link = "https://cdn.discordapp.com/attachments/1/2/dance.gif";
+    let source = relay_message(1_000_000_000_000_000_411, link);
+    let message = |embeds| DeferredEmbedMessage {
+        channel_id: source.channel_id.to_string(),
+        message_id: source.id.to_string(),
+        author: source.author.clone(),
+        timestamp: 1,
+        content: link.into(),
+        caption: None,
+        embeds,
+        role_ids: vec![],
+    };
+    let key = format!("{}-embed-0", source.id);
+    let http = Http::new("");
+    submit_deferred_embeds(
+        &core,
+        &http,
+        (&source, false),
+        async |gif, _| (gif, None),
+        message(vec![]),
+    )
+    .await;
+    assert!(!core.embed_claimed(&key).await);
+    let updated = serde_json::from_value(serde_json::json!({
+        "type":"gifv","url":link,"video":{"url":"https://relay.invalid/dance.mp4"}
+    }))
+    .unwrap();
+    let mut outputs = core.relay_tx.subscribe();
+    submit_deferred_embeds(
+        &core,
+        &http,
+        (&source, false),
+        async |_, mut fallbacks| {
+            (
+                fallbacks.pop().expect("the update supplies a fallback"),
+                Some(vec![0; 4]),
+            )
+        },
+        message(vec![updated]),
+    )
+    .await;
+    assert!(core.embed_claimed(&key).await);
+    while let Ok(event) = outputs.try_recv() {
+        if let crate::model::RelayEvent::Media(media) = event {
+            assert_eq!(media.url, "https://relay.invalid/dance.mp4");
+            return;
+        }
+    }
+    panic!("expected the fallback media");
 }

@@ -148,6 +148,12 @@ button:focus-visible {
   background: var(--tray-success);
 }
 
+#action-error {
+  margin: 0;
+  color: var(--tray-danger);
+  font-weight: 600;
+}
+
 /* Shown only when something needs action; opens the matching panel page. */
 .attention-action {
   display: flex;

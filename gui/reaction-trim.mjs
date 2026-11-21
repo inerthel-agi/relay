@@ -1,3 +1,4 @@
+import { translatedError } from "./diagnostics.mjs";
 const MAX_REACTION_SECONDS = 30;
 
 export function validTrimRange(start, end, duration) {
@@ -7,7 +8,10 @@ export function validTrimRange(start, end, duration) {
 
 export function trimErrorText(error, t) {
   const detail = String(error?.message || error || "").replace(/[\r\n\t]+/g, " ").slice(0, 300);
-  return detail ? `${t("trimError")} ${detail}` : t("trimError");
+  const summary = t("trimError");
+  if (!detail) return summary;
+  const category = translatedError(detail, t);
+  return `${summary} ${category === summary ? detail : category}`;
 }
 
 export async function selectReactionSound(imported, { invoke, t }) {

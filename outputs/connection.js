@@ -7,11 +7,57 @@ const RelayConnection = {
       || "";
   },
 
+  reconnect(connect, probeUrl, enabled = () => true) {
+    let timer, pendingPort, probingPort;
+    let delay = 1000;
+    let unloading = false;
+    let generation = 0;
+
+    function cancel() {
+      window.clearTimeout(timer);
+      timer = undefined;
+      probingPort = undefined;
+      generation++;
+    }
+
+    function moveToPendingPort() {
+      const attempt = generation;
+      probingPort = pendingPort;
+      RelayConnection.moveToPort(pendingPort, probeUrl, () => unloading || !enabled() || attempt !== generation);
+    }
+
+    return {
+      setPort(configuredPort) {
+        if (Number.isInteger(configuredPort) && configuredPort > 0 && configuredPort <= 65535) {
+          pendingPort = String(configuredPort) !== window.location.port ? configuredPort : undefined;
+        }
+      },
+      opened() { delay = 1000; },
+      closed() {
+        if (unloading || !enabled()) return;
+        if (pendingPort) {
+          if (probingPort === pendingPort) return;
+          cancel();
+          moveToPendingPort();
+        } else if (timer === undefined) {
+          timer = window.setTimeout(() => {
+            timer = undefined;
+            if (!unloading && enabled()) connect();
+          }, delay);
+          delay = Math.min(delay * 2, 10000);
+        }
+      },
+      cancel,
+      unload() { unloading = true; cancel(); },
+    };
+  },
+
   /**
    * Relay moved to another port. OBS Browser Sources never retry a failed page
    * load, so the new server is probed before navigating to it.
    */
   moveToPort(port, probeUrl, isUnloading = () => false) {
+    if (isUnloading()) return;
     const nextUrl = new URL(window.location.href);
     nextUrl.port = String(port);
     const probe = new WebSocket(probeUrl(`${window.location.hostname}:${port}`));
@@ -23,7 +69,7 @@ const RelayConnection = {
       ready = true;
       window.clearTimeout(probeWatchdog);
       probe.close();
-      window.location.replace(nextUrl.href);
+      if (!isUnloading()) window.location.replace(nextUrl.href);
     });
     probe.addEventListener("close", () => {
       window.clearTimeout(probeWatchdog);

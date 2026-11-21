@@ -16,11 +16,7 @@ let config = { stickerDurationMs: 8000 };
 let currentSticker;
 let displayTimer;
 let loadWatchdog;
-let reconnectTimer;
-let reconnectDelayMs = 1000;
 let socket;
-let pendingPort;
-let isUnloading = false;
 let mediaBusy = false;
 let musicActive = false;
 let reportedMediaStageBusy = false;
@@ -174,11 +170,7 @@ function handleMessage(event) {
   if (message.type === "config") {
     if (reloadAfterRelayRestart(message.payload?.relaySession)) return;
     config = { ...config, ...message.payload };
-    const configuredPort = Number(message.payload?.port);
-    if (Number.isInteger(configuredPort) && configuredPort > 0 && configuredPort <= 65535
-      && String(configuredPort) !== window.location.port) {
-      pendingPort = configuredPort;
-    }
+    reconnect.setPort(Number(message.payload?.port));
   } else if (message.type === "sticker") {
     enqueue(message.payload);
   } else if (message.type === "testOutput") {
@@ -201,23 +193,12 @@ function handleMessage(event) {
   }
 }
 
-function scheduleReconnect() {
-  if (isUnloading || reconnectTimer) return;
-  reconnectTimer = window.setTimeout(() => {
-    reconnectTimer = undefined;
-    connect();
-  }, reconnectDelayMs);
-  reconnectDelayMs = Math.min(reconnectDelayMs * 2, 10000);
-}
-
-function moveToPendingPort() {
-  RelayConnection.moveToPort(pendingPort, (host) => stickerSocketUrl(host, "probe", "ws:"), () => isUnloading);
-}
+const reconnect = RelayConnection.reconnect(connect, (host) => stickerSocketUrl(host, "probe", "ws:"));
 
 function connect() {
   socket = new WebSocket(stickerSocketUrl(window.location.host));
   socket.addEventListener("open", () => {
-    reconnectDelayMs = 1000;
+    reconnect.opened();
     playNext();
   });
   socket.addEventListener("message", handleMessage);
@@ -227,11 +208,7 @@ function connect() {
     musicActive = false;
     mediaStageClaimPending = false;
     reportedMediaStageBusy = false;
-    if (pendingPort) {
-      moveToPendingPort();
-      return;
-    }
-    scheduleReconnect();
+    reconnect.closed();
   });
   socket.addEventListener("error", () => socket.close());
 }
@@ -239,9 +216,8 @@ function connect() {
 // Widget windows are not web pages: no browser menu on right click.
 window.addEventListener("contextmenu", (event) => event.preventDefault());
 window.addEventListener("beforeunload", () => {
-  isUnloading = true;
+  reconnect.unload();
   clearStickers();
-  window.clearTimeout(reconnectTimer);
   socket?.close();
 });
 

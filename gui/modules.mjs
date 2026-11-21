@@ -1,16 +1,31 @@
+import { translatedError } from "./diagnostics.mjs";
 import { selectReactionSound } from "./reaction-trim.mjs";
 import { renderAccessMenu, roleChoicesForChannels } from "./reaction-access.mjs";
 
 /** Inline confirmation added to `container`: resolves true on confirm, false on cancel. */
-export function confirmInline(container, t, questionKey, confirmKey) {
+export function confirmInline(container, t, questionKey, confirmKey, opener) {
   return new Promise((resolve) => {
     const text = (tag, key) => { const element = document.createElement(tag); element.textContent = t(key); element.dataset.i18n = key; return element; };
+    const finish = (answer) => {
+      confirmation.remove();
+      resolve(answer);
+      if (!answer && opener) window.requestAnimationFrame(() => {
+        if (document.activeElement === document.body && opener.isConnected && !opener.disabled) opener.focus();
+      });
+    };
     const choice = (key, value) => {
       const element = text("button", key); element.type = "button"; element.className = "button button--quiet";
-      element.addEventListener("click", () => { confirmation.remove(); resolve(value); });
+      element.addEventListener("click", () => finish(value));
       return element;
     };
     const confirmation = document.createElement("div"); confirmation.setAttribute("role", "group");
+    confirmation.setAttribute("aria-label", t(questionKey));
+    confirmation.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      finish(false);
+    });
     const no = choice("modCancel", false);
     confirmation.append(text("span", questionKey), choice(confirmKey, true), no); container.append(confirmation); no.focus();
   });
@@ -18,7 +33,7 @@ export function confirmInline(container, t, questionKey, confirmKey) {
 
 export function initializeModules({ invoke, t, getBootstrap }) {
   const $ = (id) => document.getElementById(id);
-  let library = [], reactionSettings, messageStatus, refreshInFlight = false, previewAudio, previewSource, previewImageUrl, previewGeneration = 0, musicSignature;
+  let library = [], reactionSettings, messageStatus, previewAudio, previewSource, previewImageUrl, previewGeneration = 0, musicSignature;
   let accessCatalog = { channels: [], roles: [] }, accessError = "", channelMenu, roleMenu, accessState, accessLoading = false, accessBotConnected = false;
   const node = (tag, text) => { const element = document.createElement(tag); if (text !== undefined) element.textContent = text; return element; };
   const label = (tag, key) => { const element = node(tag, t(key)); element.dataset.i18n = key; return element; };
@@ -35,7 +50,7 @@ export function initializeModules({ invoke, t, getBootstrap }) {
   function errorText(error) {
     const value = String(error);
     const key = /No reaction output/i.test(value) ? "modReactionNoOutput" : /channel or your roles/i.test(value) ? "modErrorAccess" : /queue.*full|full.*queue|requests are temporarily full/i.test(value) ? "modErrorQueueFull" : /already playing/i.test(value) ? "modErrorBusy" : /wait before/i.test(value) ? "modErrorCooldown" : /Reactions are disabled/i.test(value) ? "modErrorDisabled" : /unavailable|no longer exists/i.test(value) ? "modErrorUnavailable" : /invalid|must be|must stay|does not match/i.test(value) ? "modErrorInvalid" : null;
-    return key ? t(key) : value;
+    return key ? t(key) : translatedError(error, t);
   }
   function reactionTriggerText(result) {
     const position = Number(result?.position);
@@ -43,7 +58,7 @@ export function initializeModules({ invoke, t, getBootstrap }) {
       ? t("modReactionQueued").replace("{position}", String(position))
       : t("modReactionStarted");
   }
-  async function run(element, action) { element.disabled = true; try { await action(); } catch (error) { (element.closest("section")?.querySelector('[role="status"]') || reactionState).textContent = errorText(error); } finally { element.disabled = element === pin ? !messageStatus?.current || Boolean(messageStatus?.pinned) : element === unpin ? !messageStatus?.pinned : false; } }
+  async function run(element, action) { element.disabled = true; try { await action(element); } catch (error) { (element.closest("section")?.querySelector('[role="status"]') || reactionState).textContent = errorText(error); } finally { element.disabled = element === pin ? !messageStatus?.current || Boolean(messageStatus?.pinned) : element === unpin ? !messageStatus?.pinned : false; } }
   function field(root, key, type, value, change, min, max) { const wrapper = node("label"); wrapper.className = "module-field"; wrapper.append(label("span", key)); const input = node("input"); input.type = type; if (type === "checkbox") input.checked = value; else input.value = value; if (min !== undefined) input.min = min; if (max !== undefined) input.max = max; input.addEventListener("input", () => change(type === "checkbox" ? input.checked : type === "number" || type === "range" ? Number(input.value) : input.value)); wrapper.append(input); root.append(wrapper); return input; }
 
   const messages = $("message-module"), messageState = status(messages), messageText = node("p");
@@ -66,12 +81,12 @@ export function initializeModules({ invoke, t, getBootstrap }) {
       row.append(name, node("span", `${item.kind} · ${(item.sizeBytes / 1048576).toFixed(1)} MiB`),
         button("modRename", async () => { await invoke("rename_library_media", { id: item.id, name: name.value }); await loadLibrary(); }),
         button("modPlay", () => invoke("play_library_media", { id: item.id })),
-        button("modDelete", async () => { if (await confirmDelete(row)) { await invoke("delete_library_media", { id: item.id }); await loadLibrary(); } }));
+        button("modDelete", async (opener) => { if (await confirmDelete(row, opener)) { await invoke("delete_library_media", { id: item.id }); await loadLibrary(); } }));
       libraryList.append(row);
     }
     if (!libraryList.children.length) libraryList.append(node("li", t("modEmptyLibrary")));
   }
-  const confirmDelete = (row) => confirmInline(row, t, "modDeleteConfirm", "modDelete");
+  const confirmDelete = (row, opener) => confirmInline(row, t, "modDeleteConfirm", "modDelete", opener);
 
   const musicRoot = $("music-queue-module"); musicRoot.append(label("h3", "modMusicRequests")); const musicState = status(musicRoot);
   const musicConfig = { maxPendingPerUser: getBootstrap()?.config.musicMaxPendingPerUser ?? 3, rejectDuplicatePending: getBootstrap()?.config.musicRejectDuplicatePending ?? true };
@@ -216,31 +231,53 @@ export function initializeModules({ invoke, t, getBootstrap }) {
       const visualLabel = label("label", "modVisual"), select = node("select"); visualLabel.className = "module-field"; const empty = label("option", "modNoVisual"); empty.value = ""; select.append(empty);
       for (const media of library.filter(media => (media.kind === "image" || media.kind === "gif") && media.contentType.startsWith("image/"))) { const option = node("option", media.name); option.value = media.id; select.append(option); }
       select.value = item.visualId || ""; select.addEventListener("change", () => item.visualId = select.value || null); visualLabel.append(select); row.append(visualLabel);
-      row.append(button("modTestLocal", () => testReaction(item)), button("modPlay", async () => { const result = await invoke("trigger_reaction", { id: item.id }); reactionState.textContent = reactionTriggerText(result); }), button("modDelete", async () => { if (await confirmDelete(row)) { settings.definitions = settings.definitions.filter(value => value.id !== item.id); renderReactions(); saveReactionsSoon(); } })); list.append(row);
+      row.append(button("modTestLocal", () => testReaction(item)), button("modPlay", async () => { const result = await invoke("trigger_reaction", { id: item.id }); reactionState.textContent = reactionTriggerText(result); }), button("modDelete", async (opener) => { if (await confirmDelete(row, opener)) { settings.definitions = settings.definitions.filter(value => value.id !== item.id); renderReactions(); saveReactionsSoon(); } })); list.append(row);
     }
     reactionEditor.append(list, button("modStop", async () => { stopPreview(); await invoke("stop_reaction"); }));
     // The OBS link lives with the other Browser Sources on the Overlay page.
     reactionEditor.append(label("p", "reactionsSourceMoved"));
   }
+  const reading = new Set();
+  async function readModule(root, state, read) {
+    if (reading.has(root)) return;
+    reading.add(root);
+    try { await read(); } catch (error) { state.textContent = errorText(error); }
+    finally { reading.delete(root); }
+  }
+
   async function refresh() {
-    if (refreshInFlight) return; refreshInFlight = true;
+    if (document.hidden) return;
+    const visible = (root) => !root.closest("[data-page]")?.hidden;
+    const jobs = [];
+    if (visible(messages)) jobs.push(readModule(messages, messageState, async () => {
+      messageStatus = await invoke("get_message_status");
+      messageText.textContent = messageStatus.current ? `${messageStatus.current.author.username}: ${messageStatus.current.text}` : t("modNoMessage");
+      pin.disabled = !messageStatus.current || messageStatus.pinned;
+      unpin.disabled = !messageStatus.pinned;
+      messageState.textContent = messageStatus.pinned ? t("modPinned") : "";
+    }));
+    if (visible(musicRoot)) jobs.push(readModule(musicRoot, musicState, async () => {
+      renderMusic(await invoke("get_music_queue"));
+    }));
+    if ((visible(libraryRoot) || visible(reactions)) && libraryBytes === undefined) {
+      jobs.push(readModule(libraryRoot, libraryState, loadLibrary));
+    }
     const connected = Boolean(getBootstrap()?.bot?.connected);
-    if (connected && !accessBotConnected) void loadAccess();
-    accessBotConnected = connected;
-    try {
-      const results = await Promise.allSettled([invoke("get_message_status"), invoke("get_music_queue")]);
-      if (results[0].status === "fulfilled") { messageStatus = results[0].value; messageText.textContent = messageStatus.current ? `${messageStatus.current.author.username}: ${messageStatus.current.text}` : t("modNoMessage"); pin.disabled = !messageStatus.current || messageStatus.pinned; unpin.disabled = !messageStatus.pinned; messageState.textContent = messageStatus.pinned ? t("modPinned") : ""; }
-      else messageState.textContent = String(results[0].reason);
-      if (results[1].status === "fulfilled") renderMusic(results[1].value); else musicState.textContent = String(results[1].reason);
-    } finally { refreshInFlight = false; }
+    if (!connected) accessBotConnected = false;
+    if (visible(reactions)) {
+      if (!reactionSettings) jobs.push(readModule(reactions, reactionState, async () => {
+        reactionSettings = await invoke("get_reactions");
+        renderReactions();
+      }));
+      if (connected && !accessBotConnected) {
+        accessBotConnected = true;
+        jobs.push(loadAccess());
+      }
+    }
+    await Promise.all(jobs);
   }
-  async function initialize() {
-    const results = await Promise.allSettled([loadLibrary(), invoke("get_reactions")]);
-    if (results[0].status === "rejected") libraryState.textContent = errorText(results[0].reason);
-    if (results[1].status === "fulfilled") { reactionSettings = results[1].value; renderReactions(); } else reactionState.textContent = errorText(results[1].reason);
-    await Promise.all([refresh(), loadAccess()]);
-  }
-  void initialize().catch(error => reactionState.textContent = String(error));
+
+  void refresh();
   window.addEventListener("beforeunload", stopPreview);
   window.addEventListener("relay-language-change", () => { for (const root of [messages, libraryRoot, musicRoot, reactions]) for (const element of root.querySelectorAll("[data-i18n]")) { if (element.tagName === "LABEL") { if (element.firstChild?.nodeType === Node.TEXT_NODE) element.firstChild.textContent = t(element.dataset.i18n); } else element.textContent = t(element.dataset.i18n); } renderStorage(); renderLibrary(); renderAccess(); });
   return { refresh, loadLibrary };

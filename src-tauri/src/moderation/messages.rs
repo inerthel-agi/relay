@@ -104,5 +104,20 @@ pub fn block_warning(code: &str) -> &'static str {
 
 /// Reply to a member whose message came too soon after the previous one.
 pub fn cooldown_notice(code: &str, seconds: u16) -> String {
-    COOLDOWN_NOTICE[language(code)].replace("{seconds}", &seconds.to_string())
+    let template = match code {
+        "it" => {
+            "Puoi inviare al massimo un testo e un media ogni {seconds} s. I messaggi inviati prima non vengono mostrati in diretta."
+        }
+        "pt" => {
+            "Envie no máximo um texto e uma mídia a cada {seconds} s. Mensagens enviadas antes disso não aparecem na transmissão."
+        }
+        "pl" => {
+            "Możesz wysłać jedną wiadomość tekstową i jeden plik multimedialny co {seconds} s. Wiadomości wysłane wcześniej nie pojawią się na transmisji."
+        }
+        "tr" => {
+            "Her {seconds} saniyede en fazla bir metin ve bir medya gönderebilirsiniz. Daha sık gönderilen mesajlar yayında gösterilmez."
+        }
+        _ => COOLDOWN_NOTICE[language(code)],
+    };
+    template.replace("{seconds}", &seconds.to_string())
 }

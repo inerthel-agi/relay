@@ -15,7 +15,7 @@ use crate::{
     bot::{
         apply_bot_presence, invite_url, refresh_channel_list, start_bot, sync_relay_command_schema,
     },
-    config::{AppConfig, DEFAULT_SKIP_SHORTCUT, HoneypotAction, NotificationSound, OutputGeometry},
+    config::{AppConfig, HoneypotAction, NotificationSound, OutputGeometry},
     credentials::{
         CredentialStatus, DiscordCredentials, credential_status, load_discord_credentials,
         save_ai_api_key, save_discord_credentials, save_youtube_api_key,
@@ -36,6 +36,7 @@ use crate::{
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Bootstrap {
+    unavailable_shortcuts: Vec<&'static str>,
     config: AppConfig,
     bot: BotStatus,
     server: ServerStatus,
@@ -287,38 +288,103 @@ pub async fn set_panic_shortcut(
     core: State<'_, Arc<AppCore>>,
     shortcut: String,
 ) -> Result<AppConfig, String> {
-    let shortcut = shortcut.trim().parse::<Shortcut>().map_err(|_| {
-        "Invalid shortcut. Capture a key with at least one supported key combination.".to_string()
-    })?;
-    let previous = core.config.read().await.clone();
-    let previous_shortcut = previous
-        .panic_shortcut
+    save_global_shortcut(&app, &core, &shortcut, true).await
+}
+
+pub(crate) type ShortcutHandler = fn(
+    &tauri_plugin_global_shortcut::GlobalShortcut<tauri::Wry>,
+    Shortcut,
+    Arc<AppCore>,
+) -> Result<(), String>;
+
+fn new_shortcut(value: &str) -> Result<Shortcut, String> {
+    use tauri_plugin_global_shortcut::Code;
+    let shortcut = value
+        .trim()
         .parse::<Shortcut>()
-        .or_else(|_| crate::config::DEFAULT_PANIC_SHORTCUT.parse::<Shortcut>())
-        .map_err(|_| "The configured panic shortcut is invalid.".to_string())?;
-    if shortcut == previous_shortcut {
-        return Ok(previous);
+        .map_err(|_| "Invalid shortcut.")?;
+    let function_key = matches!(
+        shortcut.key,
+        Code::F1
+            | Code::F2
+            | Code::F3
+            | Code::F4
+            | Code::F5
+            | Code::F6
+            | Code::F7
+            | Code::F8
+            | Code::F9
+            | Code::F10
+            | Code::F11
+            | Code::F12
+            | Code::F13
+            | Code::F14
+            | Code::F15
+            | Code::F16
+            | Code::F17
+            | Code::F18
+            | Code::F19
+            | Code::F20
+            | Code::F21
+            | Code::F22
+            | Code::F23
+            | Code::F24
+    );
+    if shortcut.key == Code::Tab || (shortcut.mods.is_empty() && !function_key) {
+        return Err("Invalid shortcut.".into());
     }
-    let skip_shortcut = previous.skip_shortcut.parse::<Shortcut>().ok();
-    if skip_shortcut == Some(shortcut) {
+    Ok(shortcut)
+}
+
+async fn save_global_shortcut(
+    app: &AppHandle,
+    core: &Arc<AppCore>,
+    value: &str,
+    panic: bool,
+) -> Result<AppConfig, String> {
+    let shortcut = new_shortcut(value)?;
+    let mut active = core.global_shortcuts.lock().await;
+    let config = core.config.read().await.clone();
+    let (name, other, register): (_, _, ShortcutHandler) = if panic {
+        (
+            "panicShortcut",
+            &config.skip_shortcut,
+            register_panic_handler,
+        )
+    } else {
+        (
+            "skipShortcut",
+            &config.panic_shortcut,
+            register_skip_handler,
+        )
+    };
+    if active.get(name) == Some(&shortcut) {
+        return Ok(config);
+    }
+    if other.trim().parse::<Shortcut>().ok() == Some(shortcut) {
         return Err("The selected shortcut is already in use.".into());
     }
-
     let manager = app.global_shortcut();
-    let _ = manager.unregister(previous_shortcut);
-    if let Err(error) = register_panic_handler(manager, shortcut, core.inner().clone()) {
-        let _ = register_panic_handler(manager, previous_shortcut, core.inner().clone());
-        return Err(error);
-    }
-    match core
-        .update_config(|config| config.panic_shortcut = shortcut.to_string())
-        .await
-    {
-        Ok(config) => Ok(config),
-        Err(_) => {
+    register(manager, shortcut, core.clone())?;
+    let result = core
+        .update_config(|config| {
+            if panic {
+                config.panic_shortcut = shortcut.to_string();
+            } else {
+                config.skip_shortcut = shortcut.to_string();
+            }
+        })
+        .await;
+    match result {
+        Ok(config) => {
+            if let Some(previous) = active.insert(name, shortcut) {
+                let _ = manager.unregister(previous);
+            }
+            Ok(config)
+        }
+        Err(error) => {
             let _ = manager.unregister(shortcut);
-            let _ = register_panic_handler(manager, previous_shortcut, core.inner().clone());
-            Err("The panic shortcut could not be saved.".into())
+            Err(error.to_string())
         }
     }
 }
@@ -950,37 +1016,7 @@ pub async fn set_skip_shortcut(
     core: State<'_, Arc<AppCore>>,
     shortcut: String,
 ) -> Result<AppConfig, String> {
-    let shortcut = shortcut.trim().parse::<Shortcut>().map_err(|_| {
-        "Invalid shortcut. Capture a key with at least one supported key combination.".to_string()
-    })?;
-    let previous = core.config.read().await.clone();
-    let previous_shortcut = previous
-        .skip_shortcut
-        .parse::<Shortcut>()
-        .or_else(|_| DEFAULT_SKIP_SHORTCUT.parse::<Shortcut>())
-        .map_err(|_| "The configured media skip shortcut is invalid.".to_string())?;
-    if shortcut == previous_shortcut {
-        return Ok(previous);
-    }
-
-    let manager = app.global_shortcut();
-    let _ = manager.unregister(previous_shortcut);
-    if let Err(error) = register_skip_handler(manager, shortcut, core.inner().clone()) {
-        let _ = register_skip_handler(manager, previous_shortcut, core.inner().clone());
-        return Err(error);
-    }
-    let next = match core
-        .update_config(|config| config.skip_shortcut = shortcut.to_string())
-        .await
-    {
-        Ok(config) => config,
-        Err(_) => {
-            let _ = manager.unregister(shortcut);
-            let _ = register_skip_handler(manager, previous_shortcut, core.inner().clone());
-            return Err("The media skip shortcut could not be saved.".into());
-        }
-    };
-    Ok(next)
+    save_global_shortcut(&app, &core, &shortcut, false).await
 }
 
 pub(crate) fn register_skip_handler(
@@ -1669,7 +1705,15 @@ async fn build_bootstrap(app: &AppHandle, core: &Arc<AppCore>) -> anyhow::Result
         .client_id
         .as_deref()
         .map(|client_id| invite_url(client_id, &config));
+    let unavailable_shortcuts = {
+        let active = core.global_shortcuts.lock().await;
+        ["skipShortcut", "panicShortcut"]
+            .into_iter()
+            .filter(|name| !active.contains_key(name))
+            .collect()
+    };
     Ok(Bootstrap {
+        unavailable_shortcuts,
         overlay_url: widget::obs_visual_url(config.port),
         audio_url: widget::obs_audio_url(config.port),
         ws_url: format!(

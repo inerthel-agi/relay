@@ -1579,6 +1579,10 @@ async fn the_ai_watch_only_holds_publishable_member_messages_and_failures_publis
     assert!(post_text(&core, "staff", "je vais te trouver").await);
     assert!(!post_text(&core, "held", "déjà retenu").await);
     // Staff and an already held message never reach the AI.
+    assert_eq!(
+        core.ai_watch_stub.lock().unwrap().sent[0].0.as_deref(),
+        Some("123456789012345678")
+    );
     assert_eq!(core.ai_watch_stub.lock().unwrap().sent.len(), 1);
 
     let held = core.pending_texts.read().await.clone();

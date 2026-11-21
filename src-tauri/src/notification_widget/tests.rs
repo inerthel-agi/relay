@@ -208,3 +208,16 @@ fn persist_position_keys_round_trip_through_config_store() {
     assert_eq!(persisted["notificationWidgetY"], 48);
     assert!(persisted.get("musicWidgetX").is_none());
 }
+
+#[test]
+fn dodged_widget_positions_cannot_start_a_save() {
+    let directory = tempfile::tempdir().unwrap();
+    let core = crate::state::AppCore::load(directory.path().join("config.json")).unwrap();
+    core.notification_widget_dodged
+        .store(true, std::sync::atomic::Ordering::Relaxed);
+    super::persist_position(core.clone(), PhysicalPosition::new(50, 60));
+    assert_eq!(super::begin_position_save(&core), None);
+    core.notification_widget_dodged
+        .store(false, std::sync::atomic::Ordering::Relaxed);
+    assert_eq!(super::begin_position_save(&core), Some(1));
+}

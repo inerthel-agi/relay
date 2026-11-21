@@ -3,7 +3,6 @@ const fs = require("node:fs");
 const test = require("node:test");
 
 const { buildDiagnosticReport, errorCategory, sanitizeDiagnosticText } = require("../gui/diagnostics.mjs");
-const translationsSource = fs.readFileSync(__dirname + "/../gui/translations.mjs", "utf8");
 
 test("common backend errors map to translated categories", () => {
   const cases = {
@@ -96,4 +95,11 @@ test("the report says which AI provider is chosen and which keys exist, never mo
   assert.equal(report.includes("sk-ant"), false);
   const unknown = buildDiagnosticReport({ bootstrap: { config: { ai: { provider: "<script>" } } } });
   assert.match(unknown, /AI provider: none/);
+});
+
+test("known errors use localized descriptions and unknown errors keep their detail", () => {
+  const { translatedError } = require("../gui/diagnostics.mjs");
+  const fr = require("../gui/translations.mjs").translations.fr;
+  assert.equal(translatedError("Relay is paused.", (key) => fr[key]), fr.errPaused);
+  assert.equal(translatedError("unrecognized failure", (key) => fr[key]), "unrecognized failure");
 });

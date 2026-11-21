@@ -92,6 +92,13 @@ pub struct MediaDeliveryRequest {
     pub ready: oneshot::Sender<()>,
 }
 
+#[derive(Default)]
+struct GifPreviewWait {
+    processing: Arc<()>,
+    missing_author: Option<serenity::all::UserId>,
+    received: bool,
+}
+
 pub struct AppCore {
     pub media_library: Arc<crate::media_library::MediaLibrary>,
     pub data_directory: PathBuf,
@@ -101,6 +108,7 @@ pub struct AppCore {
     message_pin: Mutex<message_pin::MessagePinRuntime>,
     pub config: RwLock<AppConfig>,
     pub config_store: ConfigStore,
+    pub global_shortcuts: Mutex<HashMap<&'static str, tauri_plugin_global_shortcut::Shortcut>>,
     config_mutation: Mutex<()>,
     pub bot_status: RwLock<BotStatus>,
     pub server_status: RwLock<ServerStatus>,
@@ -133,6 +141,7 @@ pub struct AppCore {
     /// Runtime-only marker for a media widget auto-woken by music playback.
     pub widget_ephemeral_wake: AtomicBool,
     pub interface_preferences: RwLock<InterfacePreferences>,
+    gif_embed_waits: Mutex<HashMap<serenity::all::MessageId, GifPreviewWait>>,
     pub processed_embed_ids: RwLock<VecDeque<String>>,
     pub cached_media: RwLock<VecDeque<CachedMedia>>,
     pending_privacy_roles: RwLock<HashMap<u64, Vec<String>>>,
@@ -144,7 +153,7 @@ pub struct AppCore {
     pub author_lookup_running: AtomicBool,
     /// Replaces the AI provider of the message watch in tests.
     #[cfg(test)]
-    pub ai_watch_stub: std::sync::Mutex<crate::ai::watch::WatchStub>,
+    pub ai_watch_stub: Arc<std::sync::Mutex<crate::ai::watch::WatchStub>>,
 }
 
 impl AppCore {
@@ -179,6 +188,7 @@ impl AppCore {
             message_pin: Mutex::new(message_pin::MessagePinRuntime::default()),
             config: RwLock::new(config),
             config_store,
+            global_shortcuts: Mutex::new(HashMap::new()),
             config_mutation: Mutex::new(()),
             bot_status: RwLock::new(BotStatus::default()),
             server_status: RwLock::new(ServerStatus::default()),
@@ -210,6 +220,7 @@ impl AppCore {
             notification_widget_dodged: AtomicBool::new(false),
             widget_ephemeral_wake: AtomicBool::new(false),
             interface_preferences: RwLock::new(interface_preferences),
+            gif_embed_waits: Default::default(),
             processed_embed_ids: RwLock::new(VecDeque::with_capacity(PROCESSED_EMBED_LIMIT)),
             cached_media: RwLock::new(VecDeque::with_capacity(MEDIA_CACHE_ITEM_LIMIT)),
             pending_privacy_roles: RwLock::new(HashMap::new()),
@@ -218,7 +229,7 @@ impl AppCore {
             author_names: Default::default(),
             author_lookup_running: AtomicBool::new(false),
             #[cfg(test)]
-            ai_watch_stub: std::sync::Mutex::default(),
+            ai_watch_stub: Default::default(),
         }))
     }
 
@@ -1281,22 +1292,10 @@ impl AppCore {
         request: crate::ai::AiRequest,
         member: Option<&str>,
     ) -> crate::ai::advice::AiAdvice {
+        let ask = crate::ai::watch::ask(settings, provider, request, member);
         #[cfg(test)]
-        {
-            let _ = (settings, provider, member);
-            let mut stub = self
-                .ai_watch_stub
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            stub.sent.push(request.user_text);
-            stub.answer
-                .clone()
-                .unwrap_or(crate::ai::advice::AiAdvice::Failed {
-                    cause: crate::ai::AiError::NoKey,
-                })
-        }
-        #[cfg(not(test))]
-        crate::ai::watch::ask(settings, provider, request, member).await
+        let ask = crate::ai::watch::TEST_PROVIDER.scope(self.ai_watch_stub.clone(), ask);
+        ask.await
     }
 }
 

@@ -99,6 +99,12 @@ const trayRegionalTranslations = {
   },
 };
 
+for (const [language, message] of Object.entries({
+  en: "Action failed", fr: "Échec de l’action", es: "La acción ha fallado", de: "Aktion fehlgeschlagen",
+  it: "Azione non riuscita", pt: "Falha na ação", pl: "Nie udało się wykonać akcji", tr: "İşlem başarısız",
+  ru: "Не удалось выполнить действие", zh: "操作失败", ko: "작업 실패", ja: "操作に失敗しました", id: "Tindakan gagal",
+})) trayTranslations[language].actionFailed = message;
+
 let language = "en";
 let locale = "en-US";
 
@@ -176,6 +182,7 @@ const elements = {
   lockMedia: document.querySelector("#lock-media-widget"),
   toggleNotification: document.querySelector("#toggle-notification-widget"),
   lockNotification: document.querySelector("#lock-notification-widget"),
+  actionError: document.querySelector("#action-error"),
   openPanel: document.querySelector("#open-panel"),
   startup: document.querySelector("#toggle-startup"),
   quit: document.querySelector("#quit"),
@@ -251,7 +258,6 @@ async function refreshTray() {
       invoke("get_start_with_windows").catch(() => false),
     ]);
     render(status);
-    elements.startup.setAttribute("aria-pressed", String(startupEnabled));
     elements.startup.setAttribute("aria-checked", String(startupEnabled));
   } catch {
     elements.indicator.classList.remove("is-online");
@@ -263,28 +269,31 @@ async function refreshTray() {
 
 async function runAction(button, command, payload) {
   button.disabled = true;
+  elements.actionError.hidden = true;
   try {
     await invoke(command, payload);
-    await refreshTray();
   } catch {
-    await refreshTray();
+    const label = button.getAttribute("aria-label") || button.textContent.trim();
+    elements.actionError.textContent = translate("actionFailed") + " · " + label;
+    elements.actionError.hidden = false;
   } finally {
+    await refreshTray();
     button.disabled = false;
   }
 }
 
-elements.openPanel.addEventListener("click", () => invoke("tray_open_control_panel"));
-document.querySelector("#tray-attention").addEventListener("click", () => invoke("tray_open_control_panel", { page: attentionPage }));
+elements.openPanel.addEventListener("click", () => runAction(elements.openPanel, "tray_open_control_panel"));
+document.querySelector("#tray-attention").addEventListener("click", (event) => runAction(event.currentTarget, "tray_open_control_panel", { page: attentionPage }));
 elements.toggleMedia.addEventListener("click", () => runAction(elements.toggleMedia, "toggle_widget"));
 elements.lockMedia.addEventListener("click", () => runAction(elements.lockMedia, "tray_toggle_media_widget_lock"));
 elements.toggleNotification.addEventListener("click", () => runAction(elements.toggleNotification, "tray_toggle_notification_widget"));
 elements.lockNotification.addEventListener("click", () => runAction(elements.lockNotification, "tray_toggle_notification_widget_lock"));
 elements.startup.addEventListener("click", () => {
-  const enabled = elements.startup.getAttribute("aria-pressed") !== "true";
+  const enabled = elements.startup.getAttribute("aria-checked") !== "true";
   return runAction(elements.startup, "set_start_with_windows", { enabled });
 });
 elements.panic.addEventListener("click", () => runAction(elements.panic, outputsPaused ? "resume_outputs" : "panic_stop"));
-elements.quit.addEventListener("click", () => invoke("tray_quit"));
+elements.quit.addEventListener("click", () => runAction(elements.quit, "tray_quit"));
 document.querySelector("#skip-media").addEventListener("click", (event) => runAction(event.currentTarget, "skip_media"));
 invoke("get_app_version")
   .then((version) => { document.querySelector("#tray-version").textContent = `v${version}`; })

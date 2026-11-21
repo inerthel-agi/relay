@@ -2,7 +2,10 @@
 //! never the message text or the media, for at most 7 days and 500 entries.
 
 use std::collections::VecDeque;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, mpsc};
+use std::thread::JoinHandle;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
@@ -58,8 +61,9 @@ pub struct LogSummary {
 
 #[derive(Default)]
 pub struct ModerationLog {
-    entries: VecDeque<LogEntry>,
-    path: Option<PathBuf>,
+    entries: Arc<Mutex<VecDeque<LogEntry>>>,
+    wake: Option<mpsc::SyncSender<()>>,
+    writer: Option<JoinHandle<()>>,
 }
 
 impl ModerationLog {
@@ -69,28 +73,68 @@ impl ModerationLog {
             .ok()
             .and_then(|bytes| serde_json::from_slice::<VecDeque<LogEntry>>(&bytes).ok())
             .unwrap_or_default();
-        let mut log = Self {
+        let mut entries = entries;
+        Self::prune(&mut entries, now_ms);
+        let entries = Arc::new(Mutex::new(entries));
+        let (wake, pending) = mpsc::sync_channel(1);
+        let shared = entries.clone();
+        let writer = std::thread::spawn(move || {
+            while pending.recv().is_ok() {
+                // One snapshot for a burst. The disk never holds the decision lock.
+                std::thread::sleep(Duration::from_millis(25));
+                let _ = pending.try_recv();
+                let snapshot = shared.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                if Self::persist(&path, &snapshot).is_err() {
+                    eprintln!("Could not save the moderation log.");
+                }
+            }
+        });
+        Self {
             entries,
-            path: Some(path),
-        };
-        log.prune(now_ms);
-        log
+            wake: Some(wake),
+            writer: Some(writer),
+        }
+    }
+
+    fn schedule_write(&self) {
+        if let Some(wake) = &self.wake {
+            let _ = wake.try_send(());
+        }
     }
 
     pub fn record(&mut self, entry: LogEntry) {
         let now_ms = entry.at;
-        self.entries.push_back(entry);
-        self.prune(now_ms);
-        self.persist();
+        {
+            let mut entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
+            entries.push_back(entry);
+            Self::prune(&mut entries, now_ms);
+        }
+        self.schedule_write();
     }
 
     pub fn entries(&self) -> Vec<LogEntry> {
-        self.entries.iter().rev().cloned().collect()
+        self.entries
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .rev()
+            .cloned()
+            .collect()
     }
 
     pub fn clear(&mut self) {
-        self.entries.clear();
-        self.persist();
+        self.entries
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
+        self.schedule_write();
+    }
+
+    pub fn shutdown(&mut self) {
+        self.wake.take();
+        if let Some(writer) = self.writer.take() {
+            let _ = writer.join();
+        }
     }
 
     pub fn summary(&self, now_ms: u64) -> LogSummary {
@@ -98,6 +142,8 @@ impl ModerationLog {
         let mut flagged = std::collections::HashSet::new();
         for entry in self
             .entries
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
             .iter()
             .filter(|entry| now_ms.saturating_sub(entry.at) < SUMMARY_WINDOW_MS)
         {
@@ -127,24 +173,22 @@ impl ModerationLog {
         summary
     }
 
-    fn prune(&mut self, now_ms: u64) {
-        self.entries
-            .retain(|entry| now_ms.saturating_sub(entry.at) < LOG_RETENTION_MS);
-        while self.entries.len() > LOG_LIMIT {
-            self.entries.pop_front();
+    fn prune(entries: &mut VecDeque<LogEntry>, now_ms: u64) {
+        entries.retain(|entry| now_ms.saturating_sub(entry.at) < LOG_RETENTION_MS);
+        while entries.len() > LOG_LIMIT {
+            entries.pop_front();
         }
     }
 
-    /// Best effort: a failed write never blocks moderation itself.
-    fn persist(&self) {
-        let Some(path) = &self.path else {
-            return;
-        };
-        if let Ok(bytes) = serde_json::to_vec(&self.entries) {
-            let temporary = path.with_extension("json.tmp");
-            if std::fs::write(&temporary, bytes).is_ok() {
-                let _ = std::fs::rename(&temporary, path);
-            }
-        }
+    fn persist(path: &Path, entries: &VecDeque<LogEntry>) -> std::io::Result<()> {
+        let temporary = path.with_extension("json.tmp");
+        std::fs::write(&temporary, serde_json::to_vec(entries)?)?;
+        std::fs::rename(temporary, path)
+    }
+}
+
+impl Drop for ModerationLog {
+    fn drop(&mut self) {
+        self.shutdown();
     }
 }

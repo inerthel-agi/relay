@@ -14,6 +14,8 @@ Report issues against the latest Relay release or the current `main` branch. Old
 
 Include the affected Relay version, Windows version, a minimal reproduction using fictional data, expected and actual behavior, and any mitigation already tested.
 
+Short OBS pages are accessible to local programs and carry the output secret in their HTML. The panel uses a separate session token.
+
 ## In scope
 
 - Discord credential storage, local Relay secret handling, and private Browser Source authorization

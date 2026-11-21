@@ -37,7 +37,7 @@ function fixture() {
   const context = {
     document: { getElementById: element },
     dirtyForms: new Set(), formRevisions: new WeakMap(),
-    t: (key) => key, language: "en", errorCategory: () => null,
+    t: (key) => key, language: "en", translatedError: (error) => String(error),
     filterWordsToConcepts: (value) => value ? [{ canonical: value, aliases: [], regexes: [] }] : [],
     filterConceptsToLines: (value) => (value || []).map((item) => item.canonical).join(", "),
     filterRoleIds: (value) => value ? value.split(",") : [],
@@ -359,4 +359,43 @@ test("the near-match weight is saved with the moderation settings and kept betwe
   f.edit("privacy-similarity-boost", "500");
   await f.context.saveConfig(f.element("moderation-save-state"), f.forms.get("moderation-form"));
   assert.equal(saved().privacySimilarityBoost, 100);
+});
+
+test("a moderation alias edited during a save survives the rebuilt list", async () => {
+  const f = fixture();
+  const form = f.forms.get("moderation-form");
+  const fixed = [...form.controls];
+  const { document } = f.context;
+  const getStatic = document.getElementById;
+  document.createElement = (tag) => ({
+    tag, dataset: {}, setAttribute() {}, append(...children) { this.children = children; },
+  });
+  const list = {
+    replaceChildren(...rows) {
+      form.controls = [...fixed, ...rows.flatMap((row) => row.children.filter((child) => child.tag === "textarea"))];
+    },
+  };
+  document.getElementById = (id) => form.controls.find((control) => control.id === id) || getStatic(id);
+  const moderation = fs.readFileSync(__dirname + "/../gui/moderation-ui.mjs", "utf8");
+  f.context.advancedList = list;
+  vm.runInContext(moderation.slice(moderation.indexOf("  function renderAdvanced"), moderation.indexOf("  function advancedEdits")), f.context);
+  const concept = { canonical: "example", aliases: ["saved"], regexes: [] };
+  f.context.moderationUi.fillForm = () => f.context.renderAdvanced([concept]);
+  f.context.moderationUi.fillForm();
+  const alias = () => form.controls.find((control) => control.dataset.advanced === "aliases");
+  let release;
+  const invoke = f.context.invoke;
+  f.context.invoke = async (command, args) => {
+    if (command === "apply_config") await new Promise((resolve) => { release = resolve; });
+    return invoke(command, args);
+  };
+  const pending = f.context.saveConfig(f.element("media-save-state"), f.forms.get("media-form"));
+  while (!release) await new Promise(setImmediate);
+  const original = alias();
+  original.value = "new draft";
+  f.context.dirtyForms.add(form);
+  release();
+  assert.equal(await pending, true);
+  assert.notEqual(alias(), original);
+  assert.equal(alias().value, "new draft");
 });

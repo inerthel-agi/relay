@@ -104,15 +104,11 @@ test("the requested palettes and signature details are in place", () => {
 });
 
 test("the new design descriptions exist in all 13 languages", () => {
-  const vm = require("node:vm");
-  const dictionarySource = panelSource.slice(panelSource.indexOf("const translations ="), panelSource.indexOf("const pageMetadata ="));
-  const context = vm.createContext({});
-  vm.runInContext(`${dictionarySource}
-globalThis.translationsForTest = translations;`, context);
+  const { translations } = require("../gui/translations.mjs");
   const languages = ["en", "fr", "es", "de", "it", "pt", "pl", "tr", "ru", "zh", "ko", "ja", "id"];
   for (const language of languages) {
     for (const design of newDesigns) {
-      assert.ok(context.translationsForTest[language][`${design}DesignCopy`], `${language}.${design}`);
+      assert.ok(translations[language][`${design}DesignCopy`], `${language}.${design}`);
     }
   }
 });
